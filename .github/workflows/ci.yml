@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Check whitespace
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" = "pull_request" && -n "$BASE_REF" ]]; then
+            git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=1
+            git diff --check "origin/${BASE_REF}...HEAD"
+          else
+            git diff-tree --check --no-commit-id -r HEAD
+          fi
+
+      - name: Check documentation indexes
+        run: python3 scripts/check-doc-index.py
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build release
+        run: swift build --configuration release
+
+      - name: Package unsigned app
+        run: scripts/package-app.sh
+
+      - name: Archive app
+        run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-unsigned.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: OneReader-macos-unsigned
+          if-no-files-found: error
+          retention-days: 7
+          path: dist/OneReader-macos-unsigned.zip
+

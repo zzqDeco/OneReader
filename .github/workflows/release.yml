@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Validate and package
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(git cat-file -t "$tag")" == "tag" ]]
+          git fetch --force origin main:refs/remotes/origin/main --tags
+          commit="$(git rev-list -n 1 "$tag")"
+          git merge-base --is-ancestor "$commit" origin/main
+          version="${tag#v}"
+          actual="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          [[ "$actual" == "$version" ]]
+
+      - name: Check documentation indexes
+        run: python3 scripts/check-doc-index.py
+
+      - name: Test
+        run: swift test
+
+      - name: Package unsigned app
+        run: scripts/package-app.sh
+
+      - name: Archive and checksum
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          archive="dist/OneReader-v${version}-macos-unsigned.zip"
+          ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app "$archive"
+          shasum -a 256 "$archive" >"${archive}.sha256"
+
+      - name: Upload dry-run artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: OneReader-release-dry-run
+          if-no-files-found: error
+          path: |
+            dist/OneReader-v*-macos-unsigned.zip
+            dist/OneReader-v*-macos-unsigned.zip.sha256
+
+      - name: Publish prerelease
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/OneReader-v*-macos-unsigned.zip \
+            dist/OneReader-v*-macos-unsigned.zip.sha256 \
+            --title "OneReader ${GITHUB_REF_NAME} Developer Preview" \
+            --target "$(git rev-list -n 1 "$GITHUB_REF_NAME")" \
+            --prerelease \
+            --latest=false \
+            --notes "Unsigned developer preview. Signing, notarization, and App Store sandboxing are not included in this release."
