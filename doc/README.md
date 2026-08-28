@@ -7,9 +7,9 @@ implementation sequencing belongs in `plan/`.
 
 | Document | Purpose |
 | --- | --- |
-| [Architecture](architecture.plan.md) | Runtime layers, dependency direction, and progressive materialization |
-| [Interfaces](interfaces.plan.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
-| [MVP acceptance](mvp-acceptance.plan.md) | Automated and native manual acceptance matrix |
+| [Architecture](architecture.md) | Runtime layers, dependency direction, and progressive materialization |
+| [Interfaces](interfaces.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
+| [Acceptance](mvp-acceptance.md) | Automated and native manual acceptance matrix |
 | [Branching](branching.md) | Branch roles, pull-request flow, and promotion rules |
 | [GitHub Actions](github-actions.md) | Hosted CI and release behavior |
 | [Design system](../design-system/onereader/MASTER.md) | Native visual language and interaction rules |
@@ -30,4 +30,3 @@ implementation sequencing belongs in `plan/`.
 - [README](../README.md): product entry point and local commands.
 - [AGENTS.md](../AGENTS.md): coding-agent and review rules.
 - [Plan index](../plan/README.md): active and recently delivered plans.
-

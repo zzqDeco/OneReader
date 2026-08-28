@@ -2,20 +2,51 @@
 
 Status: Delivered
 
-## Delivered behavior
+Branch: `<topic-branch>`
+
+Milestone: `<version-or-milestone>`
+
+Dependencies: `<plan links or none>`
+
+## Summary
+
+- Summarize the delivered goal and link to current-state ownership.
+
+## User Behavior
 
 - Summarize what shipped.
-- Link to the current-state documents that own the contract.
+- Record degraded and offline behavior.
 
-## Verification
+## Contracts/Migration
+
+- Record the final API, schema, revision, persistence, and migration behavior.
+
+## Implementation
+
+- Identify the durable implementation boundaries without repeating `doc/`.
+
+## Test Plan
+
+- Retain the planned verification matrix for review context.
+
+## Acceptance Evidence
 
 - List tests, builds, hosted checks, and native acceptance evidence.
 
-## Docs absorbed by
+## Non-goals
 
-- Link to the relevant `doc/` and `doc/src/` pages.
+- State what intentionally did not ship.
 
-## Retirement criteria
+## Delivery Checklist
 
-- State when this record can be removed from `plan/`.
+- [x] User behavior implemented
+- [x] Contracts and migration implemented
+- [x] Focused tests pass
+- [x] Unified validation passes
+- [x] Native acceptance recorded
+- [x] Current-state and source docs synchronized
+- [x] Branch merged into `dev`
+- [x] Status changed to Delivered
 
+Retire after stable behavior is absorbed by linked `doc/` and the review
+retention window has elapsed.

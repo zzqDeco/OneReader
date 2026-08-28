@@ -1,8 +1,17 @@
 # Native Reading-Space MVP
 
-Status: Delivered
+Status: Superseded
 
 Branch: `feature/reading-space-mvp`
+
+Milestone: historical MVP
+
+Dependencies: none
+
+This plan records the first vertical slice only. It is superseded by
+[All-in-One Reader v1](all-in-one-reader-v1.plan.md); its Repo/PDF split,
+default demo content, closed locator enum, and book-specific mapper are not
+current product behavior.
 
 ## Summary
 
