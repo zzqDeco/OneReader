@@ -3,6 +3,10 @@ import XCTest
 @testable import OneReader
 
 final class ProgressStoreTests: XCTestCase {
+    func testDefaultProgressPathDoesNotReuseLegacyArchiveInput() {
+        XCTAssertEqual(ProgressStore.defaultFileURL().lastPathComponent, "progress-v2.json")
+    }
+
     func testProgressRoundTrip() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -51,4 +55,3 @@ final class ProgressStoreTests: XCTestCase {
         }
     }
 }
-

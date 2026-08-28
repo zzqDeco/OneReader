@@ -1,5 +1,89 @@
 import Foundation
 
+enum SourceOriginKind: String, Codable, CaseIterable, Sendable {
+    case localFile
+    case localDirectory
+    case remoteURL
+    case githubRepository
+}
+
+enum SourceManagedState: String, Codable, CaseIterable, Sendable {
+    case processing
+    case ready
+    case failed
+    case removed
+}
+
+struct Source: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    var displayName: String
+    let originKind: SourceOriginKind
+    let originURL: URL?
+    var managedState: SourceManagedState
+    var latestSnapshotID: String?
+    var failureReason: String?
+    var isFavorite: Bool
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: String = UUID().uuidString.lowercased(),
+        displayName: String,
+        originKind: SourceOriginKind,
+        originURL: URL?,
+        managedState: SourceManagedState = .processing,
+        latestSnapshotID: String? = nil,
+        failureReason: String? = nil,
+        isFavorite: Bool = false,
+        createdAt: Date = .now,
+        updatedAt: Date = .now
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.originKind = originKind
+        self.originURL = originURL
+        self.managedState = managedState
+        self.latestSnapshotID = latestSnapshotID
+        self.failureReason = failureReason
+        self.isFavorite = isFavorite
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+struct ReadingSpace: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    var title: String
+    var isFavorite: Bool
+    let createdAt: Date
+    var updatedAt: Date
+    var lastOpenedAt: Date?
+
+    init(
+        id: String = UUID().uuidString.lowercased(),
+        title: String,
+        isFavorite: Bool = false,
+        createdAt: Date = .now,
+        updatedAt: Date = .now,
+        lastOpenedAt: Date? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.isFavorite = isFavorite
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.lastOpenedAt = lastOpenedAt
+    }
+}
+
+enum SourceRevisionKind: String, Codable, Sendable {
+    case contentDigest
+    case directoryTreeDigest
+    case gitCommit
+    case webSnapshot
+    case unresolved
+}
+
 enum SourceKind: String, Codable, CaseIterable, Sendable {
     case githubRepository
     case pdf
@@ -39,17 +123,57 @@ struct ReadingSource: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct SourceSnapshot: Identifiable, Codable, Hashable, Sendable {
+    let id: String
     let sourceID: String
     let revision: String
+    let revisionKind: SourceRevisionKind
+    let digest: String
     let observedAt: Date
     let origin: URL?
+    let managedRelativePath: String?
+    let byteCount: Int64
 
-    var id: String {
-        "\(sourceID)@\(revision)"
+    init(
+        id: String,
+        sourceID: String,
+        revision: String,
+        revisionKind: SourceRevisionKind,
+        digest: String,
+        observedAt: Date,
+        origin: URL?,
+        managedRelativePath: String?,
+        byteCount: Int64
+    ) {
+        self.id = id
+        self.sourceID = sourceID
+        self.revision = revision
+        self.revisionKind = revisionKind
+        self.digest = digest
+        self.observedAt = observedAt
+        self.origin = origin
+        self.managedRelativePath = managedRelativePath
+        self.byteCount = byteCount
+    }
+
+    init(sourceID: String, revision: String, observedAt: Date, origin: URL?) {
+        let kind: SourceRevisionKind = sourceID.hasPrefix("github:")
+            ? .gitCommit
+            : .contentDigest
+        self.init(
+            id: "\(sourceID)@\(revision)",
+            sourceID: sourceID,
+            revision: revision,
+            revisionKind: revision.isEmpty ? .unresolved : kind,
+            digest: revision,
+            observedAt: observedAt,
+            origin: origin,
+            managedRelativePath: nil,
+            byteCount: 0
+        )
     }
 
     var isResolved: Bool {
-        revision != DemoCatalog.unresolvedRevision
+        revisionKind != .unresolved && !revision.isEmpty
     }
 }
 
@@ -325,3 +449,169 @@ struct PDFSection: Identifiable, Codable, Hashable, Sendable {
     let order: Int
 }
 
+enum AdapterCapability: String, Codable, CaseIterable, Hashable, Sendable {
+    case probe
+    case revision
+    case list
+    case read
+    case search
+    case render
+    case resolve
+}
+
+struct AdapterProbeRule: Codable, Hashable, Sendable {
+    var filenameExtensions: Set<String>
+    var mediaTypes: Set<String>
+    var sourceOrigins: Set<SourceOriginKind>
+    var magicPrefixes: [Data]
+
+    init(
+        filenameExtensions: Set<String> = [],
+        mediaTypes: Set<String> = [],
+        sourceOrigins: Set<SourceOriginKind> = [],
+        magicPrefixes: [Data] = []
+    ) {
+        self.filenameExtensions = filenameExtensions
+        self.mediaTypes = mediaTypes
+        self.sourceOrigins = sourceOrigins
+        self.magicPrefixes = magicPrefixes
+    }
+}
+
+struct AdapterDescriptor: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let version: String
+    let displayName: String
+    let probeRule: AdapterProbeRule
+    let capabilities: Set<AdapterCapability>
+    let limitations: [String]
+}
+
+struct ProbeEvidence: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let adapterID: String
+    let rule: String
+    let detail: String
+    let confidence: Double
+}
+
+struct AdapterPlan: Identifiable, Codable, Hashable, Sendable {
+    static let currentSchemaVersion = 1
+
+    let id: String
+    let schemaVersion: Int
+    let sourceID: String
+    let snapshotID: String
+    let primaryAdapterID: String
+    let auxiliaryAdapterIDs: [String]
+    let capabilityRoutes: [AdapterCapability: String]
+    let evidence: [ProbeEvidence]
+    let confidence: Double
+    let reason: String
+    let isUserOverride: Bool
+    let createdAt: Date
+}
+
+enum AnnotationKind: String, Codable, CaseIterable, Sendable {
+    case bookmark
+    case highlight
+    case note
+}
+
+enum AnnotationAnchorState: String, Codable, Sendable {
+    case current
+    case relocated
+    case orphaned
+}
+
+struct Annotation: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let spaceID: String
+    let sourceID: String
+    let snapshotID: String
+    let kind: AnnotationKind
+    var locator: Locator
+    var anchorState: AnnotationAnchorState
+    var selectedText: String?
+    var note: String?
+    var color: String?
+    let createdAt: Date
+    var updatedAt: Date
+}
+
+struct GraphPatch: Identifiable, Codable, Hashable, Sendable {
+    static let currentSchemaVersion = 1
+
+    let id: String
+    let schemaVersion: Int
+    let graphID: String
+    let baseGraphVersion: String?
+    let snapshotIDs: Set<String>
+    let upsertUnits: [ReadingUnit]
+    let removeUnitIDs: Set<String>
+    let generatedAt: Date
+}
+
+enum AgentRunState: String, Codable, CaseIterable, Sendable {
+    case queued
+    case running
+    case waitingForUser
+    case completed
+    case failed
+    case cancelled
+    case interrupted
+}
+
+enum AgentTaskKind: String, Codable, CaseIterable, Sendable {
+    case routeAdapters
+    case scoutSpace
+    case materializeGraph
+    case projectRoute
+    case answerWithEvidence
+}
+
+struct AgentRun: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let spaceID: String
+    let task: AgentTaskKind
+    let generation: Int
+    var state: AgentRunState
+    let providerProfileID: String?
+    let createdAt: Date
+    var startedAt: Date?
+    var finishedAt: Date?
+    var errorCategory: String?
+}
+
+enum AgentEventKind: String, Codable, CaseIterable, Sendable {
+    case phase
+    case toolStarted
+    case toolFinished
+    case artifactCreated
+    case validation
+    case waitingForUser
+    case completed
+    case failed
+}
+
+struct AgentEvent: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let runID: String
+    let sequence: Int
+    let kind: AgentEventKind
+    let phase: String
+    let message: String
+    let metadata: [String: String]
+    let createdAt: Date
+}
+
+struct AgentArtifact: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let runID: String
+    let digest: String
+    let mediaType: String
+    let relativePath: String
+    let byteCount: Int64
+    let summary: String
+    let createdAt: Date
+}

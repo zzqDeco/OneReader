@@ -28,10 +28,6 @@ struct WorkspaceView: View {
                     Button("本地 PDF…", systemImage: "doc.richtext") {
                         model.presentLocalPDFImporter()
                     }
-                    Divider()
-                    Button("恢复示例书籍", systemImage: "arrow.counterclockwise") {
-                        model.restoreDemo()
-                    }
                 } label: {
                     Label("导入材料", systemImage: "plus")
                 }

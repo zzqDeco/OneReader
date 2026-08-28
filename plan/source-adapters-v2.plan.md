@@ -32,6 +32,10 @@ without a model and expose only capabilities they can actually support.
 - Add AdapterRegistry, deterministic routing, format adapters, directory
   composition, secure EPUB extraction, HTML sanitization, controlled WebKit
   presentation, Quick Look fallback, FTS indexing, and locator resolution.
+- Replace legacy URL-derived PDF/Repo identities with the UUID Source and
+  Snapshot identities committed by ManagedLibrary; migrate compatible progress
+  only through validated Locators, and make Observation content references
+  artifact-capable rather than inline-only.
 - Keep Source data untrusted and network fetching outside the Agent runtime.
 
 ## Test Plan

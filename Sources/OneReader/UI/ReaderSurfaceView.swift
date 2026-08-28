@@ -14,9 +14,9 @@ struct ReaderSurfaceView: View {
                 ReaderNavigationBar(unit: unit)
             } else {
                 ContentUnavailableView(
-                    "没有阅读单元",
+                    "资料库还是空的",
                     systemImage: "books.vertical",
-                    description: Text("导入一个 GitHub Repo 或 PDF 开始。")
+                    description: Text("点击工具栏的“导入材料”，或使用 ⌘⇧O / ⌘⌥O。")
                 )
             }
         }

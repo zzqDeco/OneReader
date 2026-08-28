@@ -14,11 +14,12 @@ updating the pull request provides the required hosted signal.
 The workflow:
 
 1. checks out complete history;
-2. reports the Swift/Xcode toolchain;
+2. selects Xcode 26.6 explicitly on the ARM64 `macos-26` image and reports the
+   Swift/Xcode toolchain;
 3. runs whitespace and documentation-index checks;
 4. runs `swift test`;
 5. builds the release configuration;
-6. assembles an unsigned `.app` bundle;
+6. assembles and verifies an ad-hoc signed, sandboxed `.app` bundle;
 7. uploads the bundle as a short-lived build artifact.
 
 Concurrency cancels superseded runs for the same pull request or branch.
@@ -50,4 +51,3 @@ When the GitHub remote is created:
 - require pull requests;
 - require the CI job;
 - keep release creation restricted to tags on `main`.
-

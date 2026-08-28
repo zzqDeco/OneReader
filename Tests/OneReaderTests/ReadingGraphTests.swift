@@ -5,19 +5,26 @@ import XCTest
 final class ReadingGraphTests: XCTestCase {
     private let mapper = DeterministicSemanticMapper()
     private let planner = ReadingPlanner()
+    private let sourceID = "github:fixture/reader"
+    private let repositoryURL = URL(string: "https://github.com/fixture/reader")!
+    private let chapters = [
+        RepositoryChapter(title: "Introduction", path: "README.md", order: 0),
+        RepositoryChapter(title: "Concepts", path: "Chapter3.md", order: 1),
+        RepositoryChapter(title: "Practice", path: "Appendix.md", order: 2),
+    ]
 
     func testEveryMappedUnitRetainsRevisionBoundEvidence() {
         let snapshot = SourceSnapshot(
-            sourceID: DemoCatalog.repositorySourceID,
+            sourceID: sourceID,
             revision: "abc123",
             observedAt: Date(timeIntervalSince1970: 1),
-            origin: DemoCatalog.repositoryURL
+            origin: repositoryURL
         )
 
         let graph = mapper.mapRepositoryBook(
             title: "Test Book",
             repositorySnapshot: snapshot,
-            chapters: DemoCatalog.fallbackChapters,
+            chapters: chapters,
             pdfSnapshot: nil,
             pdfPageHints: [:]
         )
@@ -90,15 +97,14 @@ final class ReadingGraphTests: XCTestCase {
         mapper.mapRepositoryBook(
             title: "Test Book",
             repositorySnapshot: SourceSnapshot(
-                sourceID: DemoCatalog.repositorySourceID,
+                sourceID: sourceID,
                 revision: revision,
                 observedAt: Date(timeIntervalSince1970: 1),
-                origin: DemoCatalog.repositoryURL
+                origin: repositoryURL
             ),
-            chapters: DemoCatalog.fallbackChapters,
+            chapters: chapters,
             pdfSnapshot: nil,
             pdfPageHints: [:]
         )
     }
 }
-

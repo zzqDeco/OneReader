@@ -35,6 +35,9 @@ activity support rather than displace reading.
 - Build adaptive NavigationSplitView semantics, import coordination, Library
   cards/list, reading navigation, presentation registry, inspector, Settings,
   commands, focus management, themes, and accessibility.
+- Connect large-import confirmation and managed-source removal to native sheets;
+  removal invokes the Library Core Trash transaction and never deletes the
+  user's original selected file or directory.
 - Respect 900x650 and 1440x900, light/dark, Reduce Motion, VoiceOver, keyboard
   focus order, native typography, and explicit external-link handoff.
 

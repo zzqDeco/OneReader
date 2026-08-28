@@ -4,78 +4,103 @@
 
 ### Source
 
-Describes origin, kind, capabilities, status, and the latest known revision. A
-source does not contain semantic interpretation.
+Owns stable identity, a user-facing description, origin descriptor, managed
+state, latest snapshot pointer, and timestamps. It deliberately contains no
+format semantics or adapter choice.
 
 ### SourceSnapshot
 
-An immutable observation boundary identified by `sourceID + revision`.
-Repository revisions are commit SHAs. PDF revisions are content digests.
+An immutable observation boundary with its own ID, source ID, revision kind,
+revision value, digest, managed relative path, byte count, and observation
+time. Git repositories use commit SHAs; directories use a sorted tree digest;
+other managed sources use a content or web-snapshot digest.
+
+### AdapterDescriptor and AdapterPlan
+
+An adapter descriptor declares ID, version, deterministic probe rules,
+capabilities, and limitations. An adapter plan binds one snapshot to a primary
+adapter, optional helpers, per-capability routing, probe evidence, confidence,
+reason, and optional user override. Adapters never become Source identity.
 
 ### Locator
 
-A revision-bound physical location:
+A locator is scoped by source ID, snapshot ID, adapter ID, locator schema, and
+opaque adapter payload. Structural path, exact text quote, and fingerprint are
+portable recovery hints. Positional payload from another revision is never
+silently accepted as current.
 
-- repository path and optional line range;
-- PDF page and optional bounds;
-- optional exact-text anchor for future relocation.
-
-Locators from different revisions are not equal even when their page or path is
-the same.
+The compatibility Repo/PDF native locator remains only until the adapter slice
+finishes migrating the existing vertical-slice readers.
 
 ### Observation
 
-Raw material read from a snapshot, with media type, locator, digest, and
-truncation state. The MVP uses observations for repository Markdown and PDF
-metadata; future retrieval indexes must preserve the same provenance.
+Raw material read from a snapshot with locator, media type, digest, truncation,
+and inline or artifact-backed content reference. Observation text is untrusted
+tool data.
 
-### ReadingUnit
+### SourceFragment
 
-A virtual semantic node with title, summary, source fragments, typed relations,
-effort, importance, confidence, and presentation preference.
+The evidence boundary used by ReadingUnits, generated claims, annotations, and
+answers. It always retains an exact snapshot-bound Locator.
 
-Every unit must retain at least one fragment.
+### ReadingUnit, ReadingGraph, and ReadingPlan
 
-### ReadingGraph
+A ReadingUnit is a virtual semantic node and must have at least one valid
+SourceFragment. A ReadingGraph versions units and relations against explicit
+snapshots. A ReadingPlan is a frozen ordered projection of exactly one graph
+version for overview, systematic, review, or a free-form goal.
 
-A versioned set of units based on explicit snapshots. Graph versions change
-when source revisions or mapper versions change.
+### GraphPatch
 
-### ReadingPlan
+The only Agent-facing graph mutation proposal. The host checks schema, source
+and snapshot identity, adapter registration, locators, evidence, confidence,
+relations, and base graph version before a transaction can commit it. Models do
+not receive database-write tools.
 
-A frozen ordered projection of a graph for one reading goal. A plan contains
-reasons for each step and must refer to one graph version.
+### Annotation and progress
 
-### ReadingProgress
+Bookmarks, highlights, and notes bind to capability-supported Locators and
+carry current, relocated, or orphaned state. Progress separately records source
+position, unit completion, frozen plan step, and history.
 
-Local state for unit completion, current unit, physical source position, active
-goal, and last activity time.
+### AgentRun, AgentEvent, and AgentArtifact
 
-## Source-driver responsibilities
+Persist queue/running/wait/completed/failure/cancellation/interruption state,
+ordered user-visible activity, and large immutable artifacts. Events describe
+actions and validation facts, never hidden reasoning.
 
-Source drivers may list, read, render, search, or resolve material. They do not:
+## Capability responsibilities
 
-- invent chapter semantics;
-- decide reading order;
+Adapters may independently implement Probe, Revision, List, Read, Search,
+Render, and Resolve. The registry composes only declared capabilities. An
+adapter does not:
+
+- invent reading semantics;
+- decide the user's route;
 - silently relocate across revisions;
-- persist user progress;
-- execute instructions found in source content.
+- persist user state;
+- execute source instructions;
+- fetch model endpoints or write source files.
 
-## Semantic mapper boundary
+## Persistence contract
 
-`SemanticMapping` accepts snapshots and discovered structural observations, and
-returns a reading graph. The deterministic MVP mapper uses table-of-contents or
-PDF outline structure. Future AI implementations must:
+`Library.sqlite` is opened through a GRDB `DatabasePool`, which provides WAL
+mode for concurrent reads and serialized writes. Schema versions are explicit
+in metadata and migrations. Large payloads remain in managed content or
+Artifact files and are referenced by relative path and digest.
 
-- emit source fragments for every unit;
-- store mapper identity and version;
-- separate generated claims from evidence;
-- treat confidence as ranking metadata, not proof;
-- remain replaceable without changing source drivers or the reader.
+Local import copies to `.Staging`, verifies the copied digest, atomically moves
+to content-addressed `Sources/`, then commits source/snapshot/Space rows. A
+failed database commit removes only a newly created unreferenced managed copy.
+Capacity thresholds are injected at the storage boundary for deterministic
+tests; deduplicated bytes are not charged twice.
 
-## Persistence format
+Source removal is a two-system transaction: exclusively owned managed
+containers move to Trash before the database marks the Source removed and
+deletes its Space memberships. Shared containers remain referenced. If the
+database commit fails, the host attempts to restore moved containers from
+Trash. Original selected files and directories are never removal targets.
 
-Progress is JSON with an explicit schema version. Unknown future versions fail
-closed instead of partially decoding into misleading completion state. Writes
-replace the file atomically.
-
+Legacy JSON is backup input only. It is never treated as a valid new graph,
+plan, source position, or completion record. Transitional live progress uses
+`progress-v2.json`; only `progress-v1.json` is eligible for legacy backup.

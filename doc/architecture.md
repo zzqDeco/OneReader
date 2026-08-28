@@ -3,94 +3,119 @@
 ## Product boundary
 
 OneReader exposes heterogeneous material as an explorable, locatable content
-space. The reader operates on virtual reading units without forcing PDFs and
-repositories into one physical document format.
+space. The reader operates on virtual reading units without forcing PDFs,
+webpages, EPUBs, directories, or repositories into one physical format.
 
 ## Runtime layers
 
 ```text
-Source driver
+User-selected Source
     ↓
-Immutable source snapshot
+Staging copy + digest/tree revision
     ↓
-Observation and source fragment
+Immutable managed SourceSnapshot
     ↓
-Semantic mapper
+Capability probe + AdapterPlan
     ↓
-Versioned reading graph
+Observation + SourceFragment
     ↓
-Goal-specific reading plan
+ReadingGraph + frozen ReadingPlan
     ↓
-SwiftUI reader + local progress
+Native reader + local annotations/progress/history
 ```
 
-The MVP uses a deterministic semantic mapper. It implements the same boundary a
-future AI mapper will use, which keeps network-model behavior out of source
-drivers and preserves repeatable tests.
+Deterministic adapters are the availability boundary. An optional Reading Agent
+may propose adapter combinations and graph patches, but it does not own source
+fetching, storage, database writes, or basic readability.
 
 ## Native composition
 
 - SwiftUI owns window structure, navigation, inspector, selection, loading
-  state, and accessibility.
-- PDFKit owns PDF layout, zooming, page display, and page navigation.
-- Foundation `URLSession` owns public GitHub metadata and raw file reads.
-- The application state coordinates source snapshots, graph refinement,
-  reading-plan projection, stale-result suppression, and progress.
-- A versioned JSON store under Application Support owns progress.
+  state, commands, focus, and accessibility.
+- AppKit bridges native open panels, Finder Open With, Quick Look, and window
+  behavior.
+- PDFKit owns PDF layout, zoom, selection, and page navigation.
+- WebKit displays only sanitized, app-served EPUB/HTML content.
+- Foundation `URLSession` owns remote source fetches outside the Agent runtime.
+- GRDB `DatabasePool` owns migrations, WAL concurrency, FTS5 indexes, and
+  serialized transactions.
 
-## Data flow
+## Managed Library
 
-### GitHub book
+`~/Library/Application Support/OneReader/` contains:
 
-1. Parse a public GitHub repository URL.
-2. Read repository metadata and resolve its default branch.
-3. resolve the branch to an exact commit SHA.
-4. read `README.md` and discover Markdown table-of-contents links.
-5. create one repository snapshot and one source fragment per reading unit.
-6. fetch Markdown lazily when the user selects a unit.
+- `Library.sqlite` for durable metadata and indexes;
+- `Sources/` and `Snapshots/` for immutable managed content;
+- `Derived/` for rebuildable extraction, sanitization, and thumbnails;
+- `Artifacts/` for large Agent/tool results;
+- `Legacy/` for migration backups;
+- `.Staging/` for incomplete internal imports.
 
-If GitHub metadata fails, the bundled public demonstration can expose its known
-chapter locators, but it remains visibly marked as an unresolved revision until
-live resolution succeeds.
+Local import copies into staging, calculates and rechecks a SHA-256 or stable
+directory-tree digest, then moves the complete staging directory to a
+content-addressed final path. Source, snapshot, and Space membership rows commit
+in one database transaction. Reimporting identical content creates no second
+byte copy.
 
-### PDF
+Import capacity is checked through an injectable policy: production requires
+confirmation above 4 GiB and preserves at least 2 GiB free after commit, while
+tests use byte-scale limits. A deduplicated import is charged zero additional
+managed bytes. Directory digests include package descendants and fail if any
+entry cannot be enumerated, so an unreadable subtree cannot alias a complete
+tree.
 
-1. Read remote data or a user-selected local PDF.
-2. calculate a SHA-256 content digest.
-3. create a PDF snapshot and inspect PDFKit outline destinations.
-4. create outline-based units, or bounded page groups when no outline exists.
-5. render the selected page through a native `PDFView`.
+Removing a Source moves only exclusively owned content-addressed containers to
+the macOS Trash, then marks the Source removed and detaches Space membership in
+one database transaction. If metadata commit fails, the host attempts to move
+the trashed container back. Shared bytes remain until the final active Source
+reference is removed; the user-selected original is never touched.
 
-### Planning and progress
+The database schema records sources, snapshots, Space membership, adapter
+plans, observations/FTS, graphs/plans, annotations, progress/history, Provider
+profiles, Agent runs/events/artifacts, and migration facts. Provider secrets
+are represented only by Keychain references.
 
-The mapper creates graph nodes and typed relations. The planner then projects
-that graph for one goal:
+`progress-v1.json` is not decoded into new identities. After the first database
+migration succeeds, it is atomically moved to `Legacy/` and recorded in
+`migration_manifest` with `boundToNewObjects=false`.
+The compatibility reader writes any new vertical-slice state to
+`progress-v2.json`, so recreating the database cannot mistake current output
+for legacy migration input.
 
-- quick overview: high-value, low-effort units first while preserving the
-  introduction;
-- systematic: source order;
-- review: incomplete units first.
+## Revision and evidence rules
 
-Plans are stable projections. Changing a goal creates a new projection; reading
-the same graph does not continually reorder the active route.
+- GitHub snapshots bind to an exact commit SHA when the API is available.
+- Managed files bind to a content digest; directories bind to a sorted tree
+  digest.
+- Locators include source, snapshot, adapter, schema, structural/quote anchors,
+  and fingerprints.
+- A refreshed source creates a new snapshot. Old locators remain historical and
+  can become relocated or orphaned; they are never rewritten as current.
+- Every generated ReadingUnit retains at least one real SourceFragment.
 
 ## Trust boundaries
 
-- Repository Markdown and PDF text are untrusted content.
-- Source content never becomes executable instructions.
-- No token or API key is required or stored by the MVP.
-- GitHub calls use public endpoints and disclose only the requested public
-  repository coordinates.
-- Local PDF bytes do not leave the machine.
-- Evidence navigation is rejected or marked stale when its revision no longer
-  matches the active snapshot.
+- Source content is untrusted data and never becomes a system instruction.
+- Deterministic reading requires no token, account, or API key.
+- Local bytes do not leave the Mac unless the user authorizes a remote Provider
+  for that Reading Space.
+- Network source fetchers and model Providers are separate clients and
+  allowlists.
+- Staging cleanup can remove only internal rebuildable data, never a selected
+  original or committed Source.
+- Database initialization and legacy migration run off the main actor. A failed
+  database initialization may still restore the distinct current
+  `progress-v2.json`, but saving stays disabled unless that load succeeds. The
+  app never overwrites unread or unsupported progress with an empty state.
+- There is no bundled fallback book. Network failure must remain visible and
+  must not fabricate a revision or content.
 
-## Deferred work
+## Work owned by later v0.2 slices
 
-- pluggable hosted or local AI mapper
-- OCR and scanned-document anchors
-- semantic search and cross-source claim verification
-- local Git working-copy driver with security-scoped bookmarks
-- notes, annotations, sync, and account identity
-- signed and notarized distribution
+- capability adapters and unified presentations;
+- single-agent Provider runtime and structured-output validation;
+- full Library/reader UI, annotations, history, and accessibility acceptance;
+- sandbox packaging and exact-tag release artifacts.
 
+OCR, sync, accounts, collaboration, third-party plugins, model-controlled file
+writes, and notarization remain outside v0.2.

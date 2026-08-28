@@ -19,9 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swift:
-    name: Swift build and test
-    runs-on: macos-15
+  native-validation:
+    name: Native validation
+    runs-on: macos-26
     timeout-minutes: 20
 
     steps:
@@ -29,6 +29,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
 
       - name: Show toolchain
         run: |
@@ -56,17 +59,16 @@ jobs:
       - name: Build release
         run: swift build --configuration release
 
-      - name: Package unsigned app
+      - name: Package sandboxed developer preview
         run: scripts/package-app.sh
 
       - name: Archive app
-        run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-unsigned.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-developer-preview.zip
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v7
         with:
-          name: OneReader-macos-unsigned
+          name: OneReader-macos-developer-preview
           if-no-files-found: error
           retention-days: 7
-          path: dist/OneReader-macos-unsigned.zip
-
+          path: dist/OneReader-macos-developer-preview.zip

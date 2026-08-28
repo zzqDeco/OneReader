@@ -55,6 +55,6 @@ actor ProgressStore {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return base
             .appendingPathComponent("OneReader", isDirectory: true)
-            .appendingPathComponent("progress-v1.json", isDirectory: false)
+            .appendingPathComponent("progress-v2.json", isDirectory: false)
     }
 }

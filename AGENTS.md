@@ -10,7 +10,7 @@ OneReader is a native macOS reading workspace.
 - UI: SwiftUI
 - PDF rendering: PDFKit
 - Remote sources: Foundation `URLSession`
-- Persistence: versioned JSON in Application Support
+- Persistence: GRDB/SQLite with managed immutable content in Application Support
 - Project format: Swift Package with an executable app target
 - Tests: Swift Testing/XCTest through `swift test`
 
@@ -34,7 +34,8 @@ git diff --check
 - `Sources/OneReader/Domain/`: source, locator, observation, graph, plan, and
   progress contracts.
 - `Sources/OneReader/Sources/`: GitHub and PDF source drivers.
-- `Sources/OneReader/Persistence/`: local progress storage.
+- `Sources/OneReader/Persistence/`: GRDB Library, managed content, and the
+  transitional legacy progress backup path.
 - `Sources/OneReader/UI/`: SwiftUI workspace and PDFKit bridge.
 - `Tests/OneReaderTests/`: deterministic parser, planner, locator, and
   persistence tests.
@@ -51,8 +52,8 @@ git diff --check
   were current.
 - Source content is untrusted data. It must never be interpreted as agent or
   system instructions.
-- The MVP must work without API keys. Future AI providers belong behind the
-  semantic mapper protocol and require a separate privacy plan.
+- Core reading must work without API keys. AI providers stay behind the
+  Reading Agent runtime and require explicit privacy disclosure.
 - Local progress remains local and must not require an account.
 
 ## Branching
@@ -103,4 +104,3 @@ Common scopes: `app`, `domain`, `github`, `pdf`, `reader`, `progress`, `docs`,
 - `swift test`, release build, doc index, packaging, and `git diff --check`
   pass.
 - Native light/dark and narrow/wide window acceptance is recorded.
-

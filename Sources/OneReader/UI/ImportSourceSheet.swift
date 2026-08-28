@@ -18,7 +18,7 @@ struct ImportSourceSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var kind: ImportKind = .github
-    @State private var repositoryURL = DemoCatalog.repositoryURL.absoluteString
+    @State private var repositoryURL = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {

@@ -27,7 +27,7 @@
 9. Create an annotated `vX.Y.Z` tag only on a commit reachable from `main`.
 
 Direct routine pushes to `main` or `dev` are discouraged. Repository branch
-protection should require pull requests and the `CI / Swift build and test`
+protection should require pull requests and the `CI / Native validation`
 check when a GitHub remote is configured.
 
 ## Commit format
@@ -45,4 +45,3 @@ docs(architecture): record snapshot invalidation
 Green CI proves deterministic build and tests. It does not prove native visual
 acceptance, live GitHub reachability, PDF fidelity, signing, or notarization.
 Those gates remain separately recorded.
-

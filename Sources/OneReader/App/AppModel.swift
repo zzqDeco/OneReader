@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isResolvingRepository = false
     @Published private(set) var isLoadingPDF = false
     @Published private(set) var isImporting = false
+    @Published private(set) var isBootstrapComplete = false
     @Published var isImportSheetPresented = false
     @Published var isRouteInspectorPresented = true
     @Published var notice: AppNotice?
@@ -38,6 +39,11 @@ final class AppModel: ObservableObject {
     private let githubSource: GitHubBookSource
     private let progressStore: ProgressStore
     private let mapper: any SemanticMapping
+    private let libraryRootURL: URL?
+    private var libraryDatabase: LibraryDatabase?
+    private var managedLibrary: ManagedLibrary?
+    private var libraryInitializationError: String?
+    private var progressPersistenceEnabled = false
     private let planner = ReadingPlanner()
 
     private var activeRepositoryBook: RepositoryBook?
@@ -46,29 +52,34 @@ final class AppModel: ObservableObject {
     private var contentTask: Task<Void, Never>?
     private var pdfTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
-    private var isDemoWorkspace = true
 
     init(
         githubSource: GitHubBookSource = GitHubBookSource(),
         progressStore: ProgressStore = ProgressStore(),
-        mapper: any SemanticMapping = DeterministicSemanticMapper()
+        mapper: any SemanticMapping = DeterministicSemanticMapper(),
+        libraryRootURL: URL? = nil
     ) {
         self.githubSource = githubSource
         self.progressStore = progressStore
         self.mapper = mapper
+        self.libraryRootURL = libraryRootURL
 
-        let initialGraph = mapper.mapRepositoryBook(
-            title: "把时间当作朋友",
-            repositorySnapshot: DemoCatalog.unresolvedRepositorySnapshot,
-            chapters: DemoCatalog.fallbackChapters,
-            pdfSnapshot: DemoCatalog.unresolvedPDFSnapshot,
-            pdfPageHints: DemoCatalog.pdfPageHints
+        libraryDatabase = nil
+        managedLibrary = nil
+        libraryInitializationError = nil
+
+        let initialGraph = ReadingGraph(
+            id: "graph:empty-library",
+            version: "library-v2-empty",
+            title: "资料库",
+            sourceSnapshots: [],
+            units: [],
+            mapperID: "none",
+            mapperVersion: "2",
+            generatedAt: .now
         )
         let initialProgress = ReadingProgress.empty
-        sources = [
-            DemoCatalog.unresolvedRepositorySource,
-            DemoCatalog.unresolvedPDFSource
-        ]
+        sources = []
         graph = initialGraph
         progress = initialProgress
         plan = planner.makePlan(
@@ -76,7 +87,7 @@ final class AppModel: ObservableObject {
             goal: initialProgress.activeGoal,
             progress: initialProgress
         )
-        selectedUnitID = initialGraph.units.first?.id
+        selectedUnitID = nil
         presentation = .repository
 
         Task { [weak self] in
@@ -290,9 +301,19 @@ final class AppModel: ObservableObject {
         isImporting = true
         Task { [weak self] in
             guard let self else { return }
+            guard let managedLibrary else {
+                notice = AppNotice(
+                    title: "资料库不可用",
+                    message: libraryInitializationError ?? "托管资料库尚未完成初始化。"
+                )
+                isImporting = false
+                return
+            }
             do {
+                let result = try await managedLibrary.importLocalSource(at: url)
+                let managedURL = result.managedURL
                 let data = try await Task.detached(priority: .userInitiated) {
-                    try Data(contentsOf: url)
+                    try Data(contentsOf: managedURL)
                 }.value
                 applyImportedPDF(data: data, url: url)
             } catch {
@@ -302,32 +323,6 @@ final class AppModel: ObservableObject {
                 )
             }
             isImporting = false
-        }
-    }
-
-    func restoreDemo() {
-        contentTask?.cancel()
-        pdfTask?.cancel()
-        activeRepositoryBook = nil
-        activePDFSnapshot = nil
-        pdfDocument = nil
-        markdownCache.removeAll()
-        isDemoWorkspace = true
-        sources = [
-            DemoCatalog.unresolvedRepositorySource,
-            DemoCatalog.unresolvedPDFSource
-        ]
-        graph = mapper.mapRepositoryBook(
-            title: "把时间当作朋友",
-            repositorySnapshot: DemoCatalog.unresolvedRepositorySnapshot,
-            chapters: DemoCatalog.fallbackChapters,
-            pdfSnapshot: DemoCatalog.unresolvedPDFSnapshot,
-            pdfPageHints: DemoCatalog.pdfPageHints
-        )
-        rebuildPlan()
-        selectUnit(graph.units.first?.id ?? "")
-        Task { [weak self] in
-            await self?.resolveDemoRepository()
         }
     }
 
@@ -356,14 +351,59 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrap() async {
+        defer { isBootstrapComplete = true }
+        let rootURL = libraryRootURL
+        let bootstrap = await Task.detached(priority: .userInitiated) {
+            do {
+                let database = try LibraryDatabase(rootURL: rootURL)
+                let library = try ManagedLibrary(database: database)
+                return LibraryBootstrapResult(
+                    database: database,
+                    library: library,
+                    errorMessage: nil
+                )
+            } catch {
+                return LibraryBootstrapResult(
+                    database: nil,
+                    library: nil,
+                    errorMessage: error.localizedDescription
+                )
+            }
+        }.value
+        libraryDatabase = bootstrap.database
+        managedLibrary = bootstrap.library
+        libraryInitializationError = bootstrap.errorMessage
+
+        if let libraryInitializationError {
+            notice = AppNotice(
+                title: "资料库未初始化",
+                message: libraryInitializationError
+            )
+            do {
+                progress = try await progressStore.load()
+                progressPersistenceEnabled = true
+            } catch {
+                notice = AppNotice(
+                    title: "资料库与进度不可用",
+                    message: "\(libraryInitializationError)\n\n进度未载入：\(error.localizedDescription)"
+                )
+                progress = .empty
+                progressPersistenceEnabled = false
+            }
+            rebuildPlan()
+            selectedUnitID = nil
+            return
+        }
         do {
             progress = try await progressStore.load()
+            progressPersistenceEnabled = true
         } catch {
             notice = AppNotice(
                 title: "进度未载入",
                 message: error.localizedDescription
             )
             progress = .empty
+            progressPersistenceEnabled = false
         }
         rebuildPlan()
         if
@@ -374,50 +414,6 @@ final class AppModel: ObservableObject {
         } else {
             selectedUnitID = plan.orderedUnits.first?.unitID
         }
-        await resolveDemoRepository()
-    }
-
-    private func resolveDemoRepository() async {
-        isResolvingRepository = true
-        do {
-            let book = try await githubSource.loadBook(from: DemoCatalog.repositoryURL)
-            activeRepositoryBook = book
-            replaceSource(book.source)
-            rebuildDemoGraph(repositorySnapshot: book.snapshot, chapters: book.chapters)
-            loadSelectedRepositoryContent()
-        } catch {
-            markSource(
-                id: DemoCatalog.repositorySourceID,
-                availability: .offline,
-                detail: "暂时离线 · 保留结构"
-            )
-            contentState = .failed(error.localizedDescription)
-            notice = AppNotice(
-                title: "公开仓库暂时不可达",
-                message: "目录结构仍可浏览；联网后点“重新载入”恢复原文。\(error.localizedDescription)"
-            )
-        }
-        isResolvingRepository = false
-    }
-
-    private func rebuildDemoGraph(
-        repositorySnapshot: SourceSnapshot? = nil,
-        chapters: [RepositoryChapter]? = nil
-    ) {
-        let repoSnapshot = repositorySnapshot
-            ?? activeRepositoryBook?.snapshot
-            ?? DemoCatalog.unresolvedRepositorySnapshot
-        let activeChapters = chapters
-            ?? activeRepositoryBook?.chapters
-            ?? DemoCatalog.fallbackChapters
-        graph = mapper.mapRepositoryBook(
-            title: "把时间当作朋友",
-            repositorySnapshot: repoSnapshot,
-            chapters: activeChapters,
-            pdfSnapshot: activePDFSnapshot ?? DemoCatalog.unresolvedPDFSnapshot,
-            pdfPageHints: DemoCatalog.pdfPageHints
-        )
-        reconcileSelectionAndProgress()
     }
 
     private func applyImportedRepository(_ book: RepositoryBook) {
@@ -427,7 +423,6 @@ final class AppModel: ObservableObject {
         activePDFSnapshot = nil
         pdfDocument = nil
         markdownCache.removeAll()
-        isDemoWorkspace = false
         sources = [book.source]
         graph = mapper.mapRepositoryBook(
             title: book.source.title,
@@ -454,7 +449,6 @@ final class AppModel: ObservableObject {
             activeRepositoryBook = nil
             activePDFSnapshot = inspection.snapshot
             pdfDocument = document
-            isDemoWorkspace = false
             markdownCache.removeAll()
             sources = [inspection.source]
             graph = mapper.mapPDF(
@@ -528,45 +522,10 @@ final class AppModel: ObservableObject {
     }
 
     private func loadPDFIfNeeded(force: Bool = false) {
-        guard pdfDocument == nil || force else { return }
-        guard isDemoWorkspace else { return }
-
-        pdfTask?.cancel()
-        isLoadingPDF = true
-        pdfTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let data = try await PDFBookSource.loadRemoteData(from: DemoCatalog.pdfURL)
-                try Task.checkCancellation()
-                let (document, inspection) = try PDFBookSource.inspect(
-                    data: data,
-                    title: "把时间当作朋友 · 第三版 PDF",
-                    sourceID: DemoCatalog.pdfSourceID,
-                    origin: DemoCatalog.pdfURL
-                )
-                guard !Task.isCancelled else { return }
-                pdfDocument = document
-                activePDFSnapshot = inspection.snapshot
-                replaceSource(inspection.source)
-                rebuildDemoGraph()
-                if let pageIndex = selectedUnit?.pdfFragment?.locator.pdfPageIndex {
-                    pdfPageIndex = pageIndex
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                markSource(
-                    id: DemoCatalog.pdfSourceID,
-                    availability: .offline,
-                    detail: "PDF 暂时不可达"
-                )
-                notice = AppNotice(
-                    title: "PDF 载入失败",
-                    message: error.localizedDescription
-                )
-            }
-            isLoadingPDF = false
+        guard pdfDocument == nil || force else {
+            return
         }
+        isLoadingPDF = false
     }
 
     private func reconcileSelectionAndProgress(preferFirstUnit: Bool = false) {
@@ -594,6 +553,7 @@ final class AppModel: ObservableObject {
     }
 
     private func persistProgress() {
+        guard progressPersistenceEnabled else { return }
         progress.lastActiveAt = .now
         let value = progress
         persistenceTask?.cancel()
@@ -686,6 +646,12 @@ final class AppModel: ObservableObject {
         components.path = "/\(book.coordinate.owner)/\(book.coordinate.repository)/blob/\(book.snapshot.revision)/\(path)"
         return components.url
     }
+}
+
+private struct LibraryBootstrapResult: Sendable {
+    let database: LibraryDatabase?
+    let library: ManagedLibrary?
+    let errorMessage: String?
 }
 
 private extension Locator {

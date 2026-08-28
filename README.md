@@ -1,23 +1,21 @@
 # OneReader
 
-OneReader is a native macOS reading workspace that turns heterogeneous material
-into a navigable reading space. The first vertical slice supports public GitHub
-book repositories and PDF documents, then projects them into stable reading
-units, goal-specific routes, source evidence, and local progress.
+OneReader is a native macOS all-in-one reader that turns heterogeneous material
+into a managed, searchable, locatable reading space. It starts with an empty
+Library: no example book, downloaded document, account, or model is required.
 
-The bundled demonstration opens
-[`xiaolai/time-as-a-friend`](https://github.com/xiaolai/time-as-a-friend) as a
-repository-organized book and can load its published third-edition PDF for
-side-by-side reading. Repository text and the PDF remain at their original
-public URLs; OneReader does not vendor the book into this repository.
+The v0.2 work is organized as independently verified slices. The Library core
+already owns immutable managed snapshots and versioned SQLite storage; source
+adapters, the optional Reading Agent, the unified workspace, and release gates
+are tracked in [the plan index](plan/README.md).
 
 ## Run locally
 
 Requirements:
 
-- macOS 14 or newer
-- Xcode 16 or newer with the Swift toolchain
-- Network access for the default GitHub demonstration
+- macOS 26.1 or newer
+- Xcode 26.6 with Swift tools 6.2
+- Network access only when importing a remote source or using a remote Provider
 
 ```bash
 swift run OneReader
@@ -36,18 +34,19 @@ scripts/package-app.sh
 git diff --check
 ```
 
-The unsigned app bundle is written to `dist/OneReader.app`.
+An ad-hoc signed, sandboxed Developer Preview app bundle is written to
+`dist/OneReader.app`.
 
-## Current MVP
+## Current architecture
 
-- Native SwiftUI window, sidebar, reading surface, and route inspector
-- GitHub repository discovery through public GitHub APIs and raw content URLs
-- Native PDF rendering through PDFKit
-- Source snapshots and revision-bound locators
-- Deterministic reading-unit mapper behind an AI-ready protocol
-- Quick, systematic, and review reading plans
-- Local progress persisted under Application Support
-- Light and dark appearance through system materials and semantic colors
+- Native SwiftUI/AppKit application; no web shell, Electron, or JavaScript runtime
+- Empty Library with managed storage under Application Support
+- GRDB migrations, WAL, FTS5-ready schema, and immutable source snapshots
+- Atomic local import, SHA-256 or directory-tree revision, and content deduplication
+- Injectable 4 GiB confirmation/2 GiB reserve policy and Trash-based managed removal
+- Legacy progress backup under `Legacy/` without false identity migration
+- Source, adapter, locator, evidence, graph, annotation, and Agent audit contracts
+- PDFKit and public GitHub readers retained while the general adapter registry lands
 
 ## Project management
 
@@ -60,4 +59,3 @@ The unsigned app bundle is written to `dist/OneReader.app`.
 
 See [the development workflow](doc/branching.md), [current documentation](doc/README.md),
 and [the plan index](plan/README.md).
-
