@@ -140,6 +140,7 @@ enum LibraryStorageError: LocalizedError, Equatable {
     case sourceUnavailable(String)
     case pathEscapesLibrary(String)
     case symbolicLinkNotAllowed(String)
+    case referencedResourceOutsideSource(String)
     case largeImportRequiresConfirmation(Int64)
     case insufficientFreeSpace(required: Int64, available: Int64)
     case missingSpace(String)
@@ -156,6 +157,8 @@ enum LibraryStorageError: LocalizedError, Equatable {
             "路径超出 OneReader 托管范围：\(path)"
         case let .symbolicLinkNotAllowed(path):
             "托管导入不跟随符号链接：\(path)"
+        case let .referencedResourceOutsideSource(path):
+            "正文引用的资源超出已授权目录：\(path)"
         case let .largeImportRequiresConfirmation(byteCount):
             "该来源约为 \(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))，需要确认后才能导入。"
         case let .insufficientFreeSpace(required, available):

@@ -105,6 +105,20 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
+    func activeSnapshotIDs() throws -> Set<String> {
+        try pool.read { db in
+            Set(try String.fetchAll(
+                db,
+                sql: """
+                    SELECT snapshots.id
+                    FROM snapshots
+                    JOIN sources ON sources.id = snapshots.source_id
+                    WHERE sources.managed_state != 'removed'
+                    """
+            ))
+        }
+    }
+
     func sourceIDs(in spaceID: String) throws -> [String] {
         try pool.read { db in
             try String.fetchAll(
@@ -283,7 +297,12 @@ final class LibraryDatabase: @unchecked Sendable {
             }
             return ManagedRemovalPlan(
                 sourceID: sourceID,
-                exclusiveManagedRelativePaths: exclusivePaths
+                exclusiveManagedRelativePaths: exclusivePaths,
+                snapshotIDs: try String.fetchAll(
+                    db,
+                    sql: "SELECT id FROM snapshots WHERE source_id = ? ORDER BY created_at, id",
+                    arguments: [sourceID]
+                )
             )
         }
     }
@@ -305,6 +324,195 @@ final class LibraryDatabase: @unchecked Sendable {
                 sql: "DELETE FROM space_sources WHERE source_id = ?",
                 arguments: [sourceID]
             )
+        }
+    }
+
+    func saveAdapterPlan(_ plan: AdapterPlan) throws {
+        let payload = try JSONEncoder.databaseEncoder.encode(plan)
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO adapter_plans
+                        (id, source_id, snapshot_id, schema_version, payload_json,
+                         confidence, is_user_override, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        payload_json = excluded.payload_json,
+                        confidence = excluded.confidence,
+                        is_user_override = excluded.is_user_override,
+                        created_at = excluded.created_at
+                    """,
+                arguments: [
+                    plan.id,
+                    plan.sourceID,
+                    plan.snapshotID,
+                    plan.schemaVersion,
+                    payload,
+                    plan.confidence,
+                    plan.isUserOverride,
+                    plan.createdAt,
+                ]
+            )
+        }
+    }
+
+    func fetchAdapterPlan(snapshotID: String) throws -> AdapterPlan? {
+        try pool.read { db in
+            guard let data = try Data.fetchOne(
+                db,
+                sql: """
+                    SELECT payload_json
+                    FROM adapter_plans
+                    WHERE snapshot_id = ?
+                    ORDER BY is_user_override DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                arguments: [snapshotID]
+            ) else { return nil }
+            return try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: data)
+        }
+    }
+
+    func saveObservation(_ observation: Observation, title: String? = nil) throws {
+        let locatorJSON = try JSONEncoder.databaseEncoder.encode(observation.locator)
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO observations
+                        (id, source_id, snapshot_id, adapter_id, locator_json,
+                         media_type, title, body, content_reference, digest,
+                         truncated, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        locator_json = excluded.locator_json,
+                        media_type = excluded.media_type,
+                        title = excluded.title,
+                        body = excluded.body,
+                        content_reference = excluded.content_reference,
+                        digest = excluded.digest,
+                        truncated = excluded.truncated,
+                        created_at = excluded.created_at
+                    """,
+                arguments: [
+                    observation.id,
+                    observation.sourceID,
+                    observation.snapshotID,
+                    observation.adapterID,
+                    locatorJSON,
+                    observation.mediaType,
+                    title,
+                    observation.content,
+                    observation.contentReference,
+                    observation.contentDigest,
+                    observation.truncated,
+                    observation.observedAt,
+                ]
+            )
+            try db.execute(
+                sql: "DELETE FROM observation_fts WHERE observation_id = ?",
+                arguments: [observation.id]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO observation_fts
+                        (observation_id, source_id, snapshot_id, title, body)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    observation.id,
+                    observation.sourceID,
+                    observation.snapshotID,
+                    title ?? "",
+                    observation.content,
+                ]
+            )
+        }
+    }
+
+    func searchObservations(
+        query: String,
+        snapshotID: String? = nil,
+        limit: Int = 20
+    ) throws -> [ContentSearchHit] {
+        let terms = query.split(whereSeparator: \.isWhitespace).map { term in
+            "\"\(term.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        guard !terms.isEmpty else { return [] }
+        let matchQuery = terms.joined(separator: " AND ")
+        return try pool.read { db in
+            var sql = """
+                SELECT observations.locator_json,
+                       observations.source_id,
+                       observations.snapshot_id,
+                       observations.adapter_id,
+                       COALESCE(observations.title, '') AS title,
+                       snippet(observation_fts, 4, '[', ']', ' … ', 24) AS context,
+                       bm25(observation_fts) AS score
+                FROM observation_fts
+                JOIN observations
+                  ON observations.id = observation_fts.observation_id
+                JOIN sources
+                  ON sources.id = observations.source_id
+                WHERE observation_fts MATCH ?
+                  AND sources.managed_state != 'removed'
+                """
+            var arguments: StatementArguments = [matchQuery]
+            if let snapshotID {
+                sql += " AND observations.snapshot_id = ?"
+                arguments += [snapshotID]
+            }
+            sql += " ORDER BY score LIMIT ?"
+            arguments += [min(max(1, limit), 20)]
+            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+            return try rows.enumerated().map { index, row in
+                let locatorData: Data = row["locator_json"]
+                let locator = try JSONDecoder.databaseDecoder.decode(
+                    Locator.self,
+                    from: locatorData
+                )
+                let sourceID: String = row["source_id"]
+                let rowSnapshotID: String = row["snapshot_id"]
+                let adapterID: String = row["adapter_id"]
+                let title: String = row["title"]
+                let context: String = row["context"]
+                let score: Double = row["score"]
+                return ContentSearchHit(
+                    id: "fts:\(locator.stableID):\(index)",
+                    sourceID: sourceID,
+                    snapshotID: rowSnapshotID,
+                    adapterID: adapterID,
+                    locator: locator,
+                    title: title,
+                    context: context,
+                    rank: -score
+                )
+            }
+        }
+    }
+
+    func rebuildObservationIndex() throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM observation_fts")
+            try db.execute(sql: """
+                INSERT INTO observation_fts
+                    (observation_id, source_id, snapshot_id, title, body)
+                SELECT id, source_id, snapshot_id, COALESCE(title, ''), COALESCE(body, '')
+                FROM observations
+                ORDER BY created_at, id
+                """)
+        }
+    }
+
+    func observationCount(sourceID: String? = nil) throws -> Int {
+        try pool.read { db in
+            if let sourceID {
+                return try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM observations WHERE source_id = ?",
+                    arguments: [sourceID]
+                ) ?? 0
+            }
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM observations") ?? 0
         }
     }
 
@@ -605,6 +813,24 @@ final class LibraryDatabase: @unchecked Sendable {
 struct ManagedRemovalPlan: Sendable, Equatable {
     let sourceID: String
     let exclusiveManagedRelativePaths: [String]
+    let snapshotIDs: [String]
+}
+
+private extension JSONEncoder {
+    static var databaseEncoder: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+}
+
+private extension JSONDecoder {
+    static var databaseDecoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
 }
 
 private enum LegacyProgressMigration {

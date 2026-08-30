@@ -41,12 +41,15 @@ An ad-hoc signed, sandboxed Developer Preview app bundle is written to
 
 - Native SwiftUI/AppKit application; no web shell, Electron, or JavaScript runtime
 - Empty Library with managed storage under Application Support
-- GRDB migrations, WAL, FTS5-ready schema, and immutable source snapshots
-- Atomic local import, SHA-256 or directory-tree revision, and content deduplication
+- GRDB migrations, WAL, live FTS5 observation search, and immutable source snapshots
+- Atomic local/remote import, SHA-256 or directory-tree revision, and content deduplication
+- PDF, EPUB, Markdown, text, code, HTML, web, directory/repository, and Quick Look adapters
+- Public GitHub exact-SHA snapshots and bounded same-origin webpage snapshots
+- PDFKit, native selectable text/code, sanitized read-only WebKit, and Quick Look presentations
 - Injectable 4 GiB confirmation/2 GiB reserve policy and Trash-based managed removal
 - Legacy progress backup under `Legacy/` without false identity migration
 - Source, adapter, locator, evidence, graph, annotation, and Agent audit contracts
-- PDFKit and public GitHub readers retained while the general adapter registry lands
+- Snapshot-bound locators with explicit current, relocated, or orphaned resolution
 
 ## Project management
 

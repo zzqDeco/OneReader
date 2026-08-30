@@ -51,6 +51,24 @@ Test on the real macOS app:
 
 Record screenshots under `.onereader/qa/`; do not commit local source documents.
 
+## v0.2 adapter acceptance
+
+Generated, non-copyrighted fixtures exercise PDF, EPUB, Markdown, text, code,
+HTML, directories, web snapshots, remote documents, public GitHub archives,
+and unknown-file Quick Look routing. Contract tests cover every declared
+capability and current/relocated locator states. Security fixtures cover ZIP
+traversal, symlinks, declared and actual-byte expansion limits, case-colliding
+paths, HTML script and event removal, private-address and plain-HTTP rejection,
+origin-bound redirects, bounded text loading, and local referenced-resource
+escape. Locator tests also prove a stale Markdown line range is recomputed from
+its exact quote before reading a new Snapshot.
+
+Network tests use an injected URL protocol and never require external service
+availability. They prove full GitHub SHA persistence, same-origin web resource
+caching, direct remote Markdown routing, offline reads after commit, FTS search,
+and FTS rebuild. End-user Library/workspace interaction and VoiceOver evidence
+are owned by the native workspace slice.
+
 ## Verified baseline
 
 The 2026-07-23 MVP baseline passed all automated gates and real-app acceptance:

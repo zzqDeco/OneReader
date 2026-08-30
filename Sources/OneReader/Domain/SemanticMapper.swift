@@ -44,9 +44,11 @@ struct DeterministicSemanticMapper: SemanticMapping {
                     sourceID: repositorySnapshot.sourceID,
                     locator: Locator(
                         sourceID: repositorySnapshot.sourceID,
-                        sourceRevision: repositorySnapshot.revision,
-                        native: .repository(path: chapter.path, startLine: nil, endLine: nil),
-                        textAnchor: TextAnchor(prefix: nil, exact: chapter.title, suffix: nil),
+                        snapshotID: repositorySnapshot.id,
+                        adapterID: "onereader.github-markdown",
+                        payload: ["path": chapter.path],
+                        structuralPath: chapter.path,
+                        textQuote: TextQuote(prefix: nil, exact: chapter.title, suffix: nil),
                         fingerprint: nil
                     ),
                     role: .primary,
@@ -61,9 +63,11 @@ struct DeterministicSemanticMapper: SemanticMapping {
                         sourceID: pdfSnapshot.sourceID,
                         locator: Locator(
                             sourceID: pdfSnapshot.sourceID,
-                            sourceRevision: pdfSnapshot.revision,
-                            native: .pdf(pageIndex: pageIndex),
-                            textAnchor: TextAnchor(prefix: nil, exact: chapter.title, suffix: nil),
+                            snapshotID: pdfSnapshot.id,
+                            adapterID: "onereader.pdf",
+                            payload: ["pageIndex": String(pageIndex)],
+                            structuralPath: "page/\(pageIndex)",
+                            textQuote: TextQuote(prefix: nil, exact: chapter.title, suffix: nil),
                             fingerprint: nil
                         ),
                         role: .reference,
@@ -108,7 +112,7 @@ struct DeterministicSemanticMapper: SemanticMapping {
                 importance: Self.importance(for: chapter),
                 confidence: 0.96,
                 sourceOrder: chapter.order,
-                preferredPresentation: fragments.count > 1 ? .comparison : .repository
+                preferredPresentation: fragments.count > 1 ? .comparison : .markdown
             )
         }
 
@@ -158,9 +162,11 @@ struct DeterministicSemanticMapper: SemanticMapping {
                         sourceID: snapshot.sourceID,
                         locator: Locator(
                             sourceID: snapshot.sourceID,
-                            sourceRevision: snapshot.revision,
-                            native: .pdf(pageIndex: section.pageIndex),
-                            textAnchor: TextAnchor(prefix: nil, exact: section.title, suffix: nil),
+                            snapshotID: snapshot.id,
+                            adapterID: "onereader.pdf",
+                            payload: ["pageIndex": String(section.pageIndex)],
+                            structuralPath: "page/\(section.pageIndex)",
+                            textQuote: TextQuote(prefix: nil, exact: section.title, suffix: nil),
                             fingerprint: nil
                         ),
                         role: .primary,
@@ -229,4 +235,3 @@ struct DeterministicSemanticMapper: SemanticMapping {
         }
     }
 }
-

@@ -34,7 +34,7 @@ final class ReadingGraphTests: XCTestCase {
         XCTAssertTrue(
             graph.units
                 .flatMap(\.fragments)
-                .allSatisfy { $0.locator.sourceRevision == "abc123" }
+                .allSatisfy { $0.locator.snapshotID == snapshot.id }
         )
     }
 

@@ -177,49 +177,91 @@ struct SourceSnapshot: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-enum NativeLocator: Codable, Hashable, Sendable {
-    case repository(path: String, startLine: Int?, endLine: Int?)
-    case pdf(pageIndex: Int)
-
-    var conciseDescription: String {
-        switch self {
-        case let .repository(path, startLine, endLine):
-            guard let startLine else { return path }
-            if let endLine, endLine != startLine {
-                return "\(path):\(startLine)-\(endLine)"
-            }
-            return "\(path):\(startLine)"
-        case let .pdf(pageIndex):
-            return "第 \(pageIndex + 1) 页"
-        }
-    }
-}
-
-struct TextAnchor: Codable, Hashable, Sendable {
+struct TextQuote: Codable, Hashable, Sendable {
     let prefix: String?
     let exact: String
     let suffix: String?
 }
 
 struct Locator: Codable, Hashable, Sendable {
+    static let currentSchemaVersion = 1
+
     let sourceID: String
-    let sourceRevision: String
-    let native: NativeLocator
-    let textAnchor: TextAnchor?
+    let snapshotID: String
+    let adapterID: String
+    let schemaVersion: Int
+    let payload: [String: String]
+    let structuralPath: String?
+    let textQuote: TextQuote?
     let fingerprint: String?
 
+    init(
+        sourceID: String,
+        snapshotID: String,
+        adapterID: String,
+        schemaVersion: Int = currentSchemaVersion,
+        payload: [String: String] = [:],
+        structuralPath: String? = nil,
+        textQuote: TextQuote? = nil,
+        fingerprint: String? = nil
+    ) {
+        self.sourceID = sourceID
+        self.snapshotID = snapshotID
+        self.adapterID = adapterID
+        self.schemaVersion = schemaVersion
+        self.payload = payload
+        self.structuralPath = structuralPath
+        self.textQuote = textQuote
+        self.fingerprint = fingerprint
+    }
+
     var stableID: String {
-        "\(sourceID)@\(sourceRevision):\(native.conciseDescription)"
+        let payloadID = payload.keys.sorted().map { key in
+            "\(key)=\(payload[key] ?? "")"
+        }.joined(separator: "&")
+        return "\(sourceID)@\(snapshotID):\(adapterID):v\(schemaVersion):\(payloadID)"
+    }
+
+    var conciseDescription: String {
+        if let pageIndex = pdfPageIndex {
+            return "第 \(pageIndex + 1) 页"
+        }
+        if let path = relativePath {
+            if let startLine = lineRange?.lowerBound {
+                let endLine = lineRange?.upperBound ?? startLine
+                return endLine == startLine
+                    ? "\(path):\(startLine)"
+                    : "\(path):\(startLine)-\(endLine)"
+            }
+            return path
+        }
+        return structuralPath ?? adapterID
+    }
+
+    var relativePath: String? {
+        payload["path"] ?? payload["href"]
+    }
+
+    var pdfPageIndex: Int? {
+        payload["pageIndex"].flatMap(Int.init)
+    }
+
+    var lineRange: ClosedRange<Int>? {
+        guard let start = payload["startLine"].flatMap(Int.init) else { return nil }
+        let end = payload["endLine"].flatMap(Int.init) ?? start
+        return start...max(start, end)
     }
 }
 
 struct Observation: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let sourceID: String
-    let sourceRevision: String
+    let snapshotID: String
+    let adapterID: String
     let locator: Locator
     let mediaType: String
     let content: String
+    let contentReference: String?
     let contentDigest: String
     let truncated: Bool
     let observedAt: Date
@@ -258,14 +300,24 @@ struct UnitRelation: Codable, Hashable, Sendable {
 }
 
 enum PresentationKind: String, Codable, CaseIterable, Sendable {
-    case repository
+    case markdown
+    case text
+    case code
+    case html
+    case epub
     case pdf
+    case quickLook
     case comparison
 
     var displayName: String {
         switch self {
-        case .repository: "Repo"
+        case .markdown: "Markdown"
+        case .text: "文本"
+        case .code: "代码"
+        case .html: "HTML"
+        case .epub: "EPUB"
         case .pdf: "PDF"
+        case .quickLook: "Quick Look"
         case .comparison: "对照"
         }
     }
@@ -285,23 +337,20 @@ struct ReadingUnit: Identifiable, Codable, Hashable, Sendable {
 
     var repositoryFragment: SourceFragment? {
         fragments.first { fragment in
-            if case .repository = fragment.locator.native { return true }
-            return false
+            fragment.locator.adapterID == "onereader.markdown"
+                || fragment.locator.adapterID == "onereader.github-markdown"
         }
     }
 
     var pdfFragment: SourceFragment? {
-        fragments.first { fragment in
-            if case .pdf = fragment.locator.native { return true }
-            return false
-        }
+        fragments.first { $0.locator.adapterID == "onereader.pdf" }
 
     }
 
     var availablePresentations: [PresentationKind] {
         switch (repositoryFragment != nil, pdfFragment != nil) {
-        case (true, true): [.repository, .pdf, .comparison]
-        case (true, false): [.repository]
+        case (true, true): [.markdown, .pdf, .comparison]
+        case (true, false): [.markdown]
         case (false, true): [.pdf]
         case (false, false): []
         }

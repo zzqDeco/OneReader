@@ -57,6 +57,12 @@ content-addressed final path. Source, snapshot, and Space membership rows commit
 in one database transaction. Reimporting identical content creates no second
 byte copy.
 
+For a single Markdown or HTML file, the snapshot also copies referenced regular
+files below the selected parent directory. The immutable snapshot digest covers
+the primary file and referenced resources, while `revision` retains the primary
+file digest used by its format adapter. References that escape the authorized
+directory or traverse a symlink are rejected.
+
 Import capacity is checked through an injectable policy: production requires
 confirmation above 4 GiB and preserves at least 2 GiB free after commit, while
 tests use byte-scale limits. A deduplicated import is charged zero additional
@@ -110,9 +116,22 @@ for legacy migration input.
 - There is no bundled fallback book. Network failure must remain visible and
   must not fabricate a revision or content.
 
+## Deterministic adapters and remote ingestion
+
+The standard registry provides PDF, EPUB, Markdown, text, code, HTML, web
+snapshot, directory, and Quick Look adapters. Each independently declares and
+implements Probe, Revision, List, Read, Search, Render, and Resolve capabilities;
+Quick Look intentionally declares only probe, render, and source-level resolve.
+
+Remote ingestion routes public GitHub URLs to an exact-SHA archive fetch and
+other public-address HTTPS URLs by response media type. HTML becomes a managed web snapshot
+with bounded same-origin resources; direct PDF, EPUB, Markdown, text, and
+unknown documents become managed immutable files. Redirect, archive, HTML, and
+resource boundaries are enforced before an adapter sees the snapshot. See
+[Source adapters](source-adapters.md).
+
 ## Work owned by later v0.2 slices
 
-- capability adapters and unified presentations;
 - single-agent Provider runtime and structured-output validation;
 - full Library/reader UI, annotations, history, and accessibility acceptance;
 - sandbox packaging and exact-tag release artifacts.

@@ -182,18 +182,22 @@ actor GitHubBookSource {
             .joined()
         let locator = Locator(
             sourceID: sourceID,
-            sourceRevision: revision,
-            native: .repository(path: path, startLine: nil, endLine: nil),
-            textAnchor: nil,
+            snapshotID: "\(sourceID)@\(revision)",
+            adapterID: "onereader.github-markdown",
+            payload: ["path": path],
+            structuralPath: path,
+            textQuote: nil,
             fingerprint: digest
         )
         return Observation(
             id: "\(locator.stableID):\(digest.prefix(12))",
             sourceID: sourceID,
-            sourceRevision: revision,
+            snapshotID: locator.snapshotID,
+            adapterID: locator.adapterID,
             locator: locator,
             mediaType: "text/markdown",
             content: markdown,
+            contentReference: nil,
             contentDigest: digest,
             truncated: false,
             observedAt: .now
@@ -329,4 +333,3 @@ private struct TreeResponse: Decodable, Sendable {
         let type: String
     }
 }
-

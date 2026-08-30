@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwiftSoup
 
 struct ManagedImportResult: Sendable {
     let space: ReadingSpace
@@ -31,6 +32,15 @@ actor ManagedLibrary {
             at: database.layout.stagingURL,
             fileManager: fileManager
         )
+        try Self.removeAbandonedEPUBStaging(
+            at: database.layout.derivedURL.appendingPathComponent("epub", isDirectory: true),
+            fileManager: fileManager
+        )
+        try Self.removeOrphanedEPUBDerived(
+            at: database.layout.derivedURL.appendingPathComponent("epub", isDirectory: true),
+            activeSnapshotIDs: database.activeSnapshotIDs(),
+            fileManager: fileManager
+        )
     }
 
     func importLocalSource(
@@ -52,6 +62,65 @@ actor ManagedLibrary {
         let inspection = try await Task.detached(priority: .userInitiated) {
             try LocalSourceInspector.inspect(sourceURL)
         }.value
+
+        return try importInspectedSource(
+            at: sourceURL,
+            inspection: inspection,
+            displayName: inspection.displayName,
+            originKind: inspection.isDirectory ? .localDirectory : .localFile,
+            originURL: sourceURL.standardizedFileURL,
+            revisionKind: inspection.isDirectory ? .directoryTreeDigest : .contentDigest,
+            revision: inspection.primaryRevision,
+            intoSpaceID: spaceID,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    func importFetchedSource(
+        at stagedSourceURL: URL,
+        displayName: String,
+        originKind: SourceOriginKind,
+        originURL: URL,
+        revisionKind: SourceRevisionKind,
+        revision: String? = nil,
+        intoSpaceID spaceID: String? = nil,
+        allowLargeImport: Bool = false
+    ) async throws -> ManagedImportResult {
+        guard stagedSourceURL.isFileURL,
+              originKind == .remoteURL || originKind == .githubRepository else {
+            throw LibraryStorageError.unsupportedSource(originURL.absoluteString)
+        }
+        let inspection = try await Task.detached(priority: .userInitiated) {
+            try LocalSourceInspector.inspect(stagedSourceURL)
+        }.value
+        let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try importInspectedSource(
+            at: stagedSourceURL,
+            inspection: inspection,
+            displayName: normalizedName.isEmpty ? inspection.displayName : normalizedName,
+            originKind: originKind,
+            originURL: originURL,
+            revisionKind: revisionKind,
+            revision: revision ?? inspection.digest,
+            intoSpaceID: spaceID,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    private func importInspectedSource(
+        at sourceURL: URL,
+        inspection: LocalSourceInspection,
+        displayName: String,
+        originKind: SourceOriginKind,
+        originURL: URL,
+        revisionKind: SourceRevisionKind,
+        revision: String,
+        intoSpaceID spaceID: String?,
+        allowLargeImport: Bool
+    ) throws -> ManagedImportResult {
+        guard !revision.isEmpty, revisionKind != .unresolved else {
+            throw LibraryStorageError.unsupportedSource("来源缺少不可变 revision")
+        }
 
         if inspection.byteCount > storagePolicy.largeImportThreshold,
            !allowLargeImport {
@@ -86,9 +155,9 @@ actor ManagedLibrary {
         let snapshotID = UUID().uuidString.lowercased()
         let source = Source(
             id: sourceID,
-            displayName: inspection.displayName,
-            originKind: inspection.isDirectory ? .localDirectory : .localFile,
-            originURL: sourceURL.standardizedFileURL,
+            displayName: displayName,
+            originKind: originKind,
+            originURL: originURL,
             managedState: .ready,
             latestSnapshotID: snapshotID,
             createdAt: now,
@@ -97,11 +166,11 @@ actor ManagedLibrary {
         let snapshot = SourceSnapshot(
             id: snapshotID,
             sourceID: sourceID,
-            revision: inspection.digest,
-            revisionKind: inspection.isDirectory ? .directoryTreeDigest : .contentDigest,
+            revision: revision,
+            revisionKind: revisionKind,
             digest: inspection.digest,
             observedAt: now,
-            origin: sourceURL.standardizedFileURL,
+            origin: originURL,
             managedRelativePath: try database.layout.relativePath(for: stored.url),
             byteCount: inspection.byteCount
         )
@@ -118,8 +187,8 @@ actor ManagedLibrary {
             space = existing
             createsSpace = false
         } else {
-            let title = sourceURL.deletingPathExtension().lastPathComponent
-            space = ReadingSpace(title: title.isEmpty ? inspection.displayName : title)
+            let title = (displayName as NSString).deletingPathExtension
+            space = ReadingSpace(title: title.isEmpty ? displayName : title)
             createsSpace = true
         }
 
@@ -175,6 +244,7 @@ actor ManagedLibrary {
                 movedItems.append((containerURL, trashedURL))
             }
             try database.commitRemoval(sourceID: sourceID)
+            removeDerivedData(forSnapshotIDs: plan.snapshotIDs)
         } catch {
             for item in movedItems.reversed() {
                 try? fileManager.createDirectory(
@@ -186,6 +256,27 @@ actor ManagedLibrary {
             }
             throw error
         }
+    }
+
+    private func removeDerivedData(forSnapshotIDs snapshotIDs: [String]) {
+        let namespaces = ["epub"]
+        for snapshotID in snapshotIDs where Self.isSafePathComponent(snapshotID) {
+            for namespace in namespaces {
+                let url = database.layout.derivedURL
+                    .appendingPathComponent(namespace, isDirectory: true)
+                    .appendingPathComponent(snapshotID, isDirectory: true)
+                try? fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    private static func isSafePathComponent(_ value: String) -> Bool {
+        !value.isEmpty
+            && value != "."
+            && value != ".."
+            && !value.contains("/")
+            && !value.contains("\\")
+            && !value.unicodeScalars.contains(where: { $0.value == 0 })
     }
 
     private func stageAndCommitContent(
@@ -246,8 +337,28 @@ actor ManagedLibrary {
 
         do {
             try fileManager.copyItem(at: sourceURL, to: stagedPayload)
-            let copiedInspection = try LocalSourceInspector.inspect(stagedPayload)
-            guard copiedInspection.digest == inspection.digest else {
+            for resource in inspection.referencedResources {
+                let destination = stagingContainer.appendingPathComponent(
+                    resource.relativePath
+                )
+                guard destination.standardizedFileURL.pathComponents.starts(
+                    with: stagingContainer.standardizedFileURL.pathComponents
+                ) else {
+                    throw LibraryStorageError.referencedResourceOutsideSource(
+                        resource.relativePath
+                    )
+                }
+                try fileManager.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try fileManager.copyItem(at: resource.sourceURL, to: destination)
+            }
+            guard try LocalSourceInspector.verifyManagedPayload(
+                stagedPayload,
+                matches: inspection,
+                fileManager: fileManager
+            ) else {
                 throw LibraryStorageError.sourceUnavailable(
                     "来源在托管复制期间发生变化：\(sourceURL.lastPathComponent)"
                 )
@@ -269,27 +380,20 @@ actor ManagedLibrary {
                         reusedContent: true
                     )
                 } catch {
-                    guard fileManager.fileExists(atPath: managedURL.path) else {
-                        try fileManager.moveItem(at: stagedPayload, to: managedURL)
-                        try? fileManager.removeItem(at: stagingContainer)
-                        return StoredContent(
-                            url: managedURL,
-                            containerURL: containerURL,
-                            createdContainer: false,
-                            reusedContent: false
-                        )
-                    }
-                    _ = try fileManager.replaceItemAt(
-                        managedURL,
-                        withItemAt: stagedPayload,
+                    let replacedContainer = try fileManager.replaceItemAt(
+                        containerURL,
+                        withItemAt: stagingContainer,
                         backupItemName: nil,
                         options: []
+                    ) ?? containerURL
+                    let replacedManagedURL = replacedContainer.appendingPathComponent(
+                        "payload",
+                        isDirectory: inspection.isDirectory
                     )
-                    try? fileManager.removeItem(at: stagingContainer)
-                    try verifyManagedContent(managedURL, matches: inspection)
+                    try verifyManagedContent(replacedManagedURL, matches: inspection)
                     return StoredContent(
-                        url: managedURL,
-                        containerURL: containerURL,
+                        url: replacedManagedURL,
+                        containerURL: replacedContainer,
                         createdContainer: false,
                         reusedContent: false
                     )
@@ -334,12 +438,11 @@ actor ManagedLibrary {
         _ managedURL: URL,
         matches inspection: LocalSourceInspection
     ) throws {
-        let managedInspection = try LocalSourceInspector.inspect(
+        guard try LocalSourceInspector.verifyManagedPayload(
             managedURL,
+            matches: inspection,
             fileManager: fileManager
-        )
-        guard managedInspection.digest == inspection.digest,
-              managedInspection.isDirectory == inspection.isDirectory else {
+        ) else {
             throw LibraryStorageError.sourceUnavailable(
                 "托管内容校验失败：\(managedURL.lastPathComponent)"
             )
@@ -353,6 +456,10 @@ actor ManagedLibrary {
         stored: StoredContent
     ) throws {
         try database.pool.write { db in
+            try db.execute(
+                sql: "DELETE FROM observation_fts WHERE source_id = ?",
+                arguments: [sourceID]
+            )
             try db.execute(sql: "DELETE FROM sources WHERE id = ?", arguments: [sourceID])
             if removesSpace {
                 try db.execute(sql: "DELETE FROM reading_spaces WHERE id = ?", arguments: [spaceID])
@@ -373,6 +480,51 @@ actor ManagedLibrary {
             options: []
         )
         for entry in entries {
+            try fileManager.removeItem(at: entry)
+        }
+    }
+
+    private static func removeAbandonedEPUBStaging(
+        at epubDerivedURL: URL,
+        fileManager: FileManager
+    ) throws {
+        guard fileManager.fileExists(atPath: epubDerivedURL.path) else { return }
+        let entries = try fileManager.contentsOfDirectory(
+            at: epubDerivedURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        )
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-") {
+            let values = try entry.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                continue
+            }
+            try fileManager.removeItem(at: entry)
+        }
+    }
+
+    private static func removeOrphanedEPUBDerived(
+        at epubDerivedURL: URL,
+        activeSnapshotIDs: Set<String>,
+        fileManager: FileManager
+    ) throws {
+        guard fileManager.fileExists(atPath: epubDerivedURL.path) else { return }
+        let entries = try fileManager.contentsOfDirectory(
+            at: epubDerivedURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        )
+        for entry in entries where !entry.lastPathComponent.hasPrefix(".staging-") {
+            let values = try entry.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+            if activeSnapshotIDs.contains(entry.lastPathComponent),
+               values.isDirectory == true,
+               values.isSymbolicLink != true {
+                continue
+            }
             try fileManager.removeItem(at: entry)
         }
     }
@@ -398,6 +550,15 @@ private struct LocalSourceInspection: Sendable {
     let displayName: String
     let isDirectory: Bool
     let digest: String
+    let primaryRevision: String
+    let byteCount: Int64
+    let referencedResources: [LocalSourceResource]
+}
+
+private struct LocalSourceResource: Sendable {
+    let sourceURL: URL
+    let relativePath: String
+    let digest: String
     let byteCount: Int64
 }
 
@@ -417,18 +578,76 @@ private enum LocalSourceInspector {
             throw LibraryStorageError.unsupportedSource(url.path)
         }
 
-        let result: (digest: String, byteCount: Int64)
+        let result: (digest: String, primaryRevision: String, byteCount: Int64,
+            resources: [LocalSourceResource])
         if values.isDirectory == true {
-            result = try inspectDirectory(url, fileManager: fileManager)
+            let directory = try inspectDirectory(url, fileManager: fileManager)
+            result = (directory.digest, directory.digest, directory.byteCount, [])
         } else {
-            result = try digestFile(url)
+            let primary = try digestFile(url)
+            let resources = try referencedResources(
+                for: url,
+                primaryByteCount: primary.byteCount,
+                fileManager: fileManager
+            )
+            let digest = resources.isEmpty
+                ? primary.digest
+                : bundleDigest(primaryDigest: primary.digest, resources: resources)
+            result = (
+                digest,
+                primary.digest,
+                primary.byteCount + resources.reduce(0) { $0 + $1.byteCount },
+                resources
+            )
         }
         return LocalSourceInspection(
             displayName: url.lastPathComponent,
             isDirectory: values.isDirectory == true,
             digest: result.digest,
-            byteCount: result.byteCount
+            primaryRevision: result.primaryRevision,
+            byteCount: result.byteCount,
+            referencedResources: result.resources
         )
+    }
+
+    static func verifyManagedPayload(
+        _ managedURL: URL,
+        matches inspection: LocalSourceInspection,
+        fileManager: FileManager
+    ) throws -> Bool {
+        if inspection.isDirectory {
+            let candidate = try inspectDirectory(managedURL, fileManager: fileManager)
+            return candidate.digest == inspection.digest
+                && candidate.byteCount == inspection.byteCount
+        }
+        let primary = try digestFile(managedURL)
+        guard primary.digest == inspection.primaryRevision else { return false }
+        let container = managedURL.deletingLastPathComponent()
+        var verifiedResources: [LocalSourceResource] = []
+        for resource in inspection.referencedResources {
+            let url = container.appendingPathComponent(resource.relativePath).standardizedFileURL
+            guard url.pathComponents.starts(with: container.standardizedFileURL.pathComponents),
+                  fileManager.fileExists(atPath: url.path) else {
+                return false
+            }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { return false }
+            let candidate = try digestFile(url)
+            guard candidate.digest == resource.digest,
+                  candidate.byteCount == resource.byteCount else { return false }
+            verifiedResources.append(
+                LocalSourceResource(
+                    sourceURL: url,
+                    relativePath: resource.relativePath,
+                    digest: candidate.digest,
+                    byteCount: candidate.byteCount
+                )
+            )
+        }
+        let digest = verifiedResources.isEmpty
+            ? primary.digest
+            : bundleDigest(primaryDigest: primary.digest, resources: verifiedResources)
+        return digest == inspection.digest
     }
 
     private static func inspectDirectory(
@@ -498,6 +717,103 @@ private enum LocalSourceInspector {
             byteCount += Int64(data.count)
         }
         return (hex(hasher.finalize()), byteCount)
+    }
+
+    private static func referencedResources(
+        for sourceURL: URL,
+        primaryByteCount: Int64,
+        fileManager: FileManager
+    ) throws -> [LocalSourceResource] {
+        guard primaryByteCount <= 32 * 1_024 * 1_024 else { return [] }
+        let ext = sourceURL.pathExtension.lowercased()
+        guard ["html", "htm", "xhtml", "md", "markdown", "mdown", "mkd"]
+            .contains(ext),
+              let text = try? String(contentsOf: sourceURL, encoding: .utf8) else {
+            return []
+        }
+        let references: [String]
+        if ["html", "htm", "xhtml"].contains(ext) {
+            let document = try SwiftSoup.parse(text, sourceURL.absoluteString)
+            var values: [String] = []
+            for selectorAndAttribute in [
+                ("img[src]", "src"),
+                ("source[src]", "src"),
+                ("video[poster]", "poster"),
+                ("link[rel=stylesheet][href]", "href"),
+            ] {
+                values.append(contentsOf: try document
+                    .select(selectorAndAttribute.0)
+                    .array()
+                    .map { try $0.attr(selectorAndAttribute.1) })
+            }
+            references = values
+        } else {
+            let regex = try NSRegularExpression(
+                pattern: #"!\[[^\]]*\]\(\s*<?([^\s)>]+)>?(?:\s+[^)]*)?\)"#
+            )
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            references = regex.matches(in: text, range: range).compactMap { match in
+                Range(match.range(at: 1), in: text).map { String(text[$0]) }
+            }
+        }
+
+        let authorizedRoot = sourceURL.deletingLastPathComponent().standardizedFileURL
+        var seen = Set<String>()
+        var resources: [LocalSourceResource] = []
+        for rawReference in references {
+            let withoutFragment = rawReference.split(separator: "#", maxSplits: 1)
+                .first.map(String.init) ?? rawReference
+            let withoutQuery = withoutFragment.split(separator: "?", maxSplits: 1)
+                .first.map(String.init) ?? withoutFragment
+            let decoded = withoutQuery.removingPercentEncoding ?? withoutQuery
+            if decoded.isEmpty || decoded.hasPrefix("data:") || decoded.hasPrefix("#") {
+                continue
+            }
+            if URL(string: decoded)?.scheme != nil { continue }
+            guard !decoded.hasPrefix("/"), !decoded.contains("\\") else {
+                throw LibraryStorageError.referencedResourceOutsideSource(rawReference)
+            }
+            let candidate = authorizedRoot.appendingPathComponent(decoded).standardizedFileURL
+            guard candidate.pathComponents.starts(with: authorizedRoot.pathComponents) else {
+                throw LibraryStorageError.referencedResourceOutsideSource(rawReference)
+            }
+            let relativePath = candidate.pathComponents
+                .dropFirst(authorizedRoot.pathComponents.count)
+                .joined(separator: "/")
+            guard !relativePath.isEmpty, seen.insert(relativePath).inserted else { continue }
+            guard fileManager.fileExists(atPath: candidate.path) else { continue }
+            let values = try candidate.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values.isSymbolicLink != true else {
+                throw LibraryStorageError.symbolicLinkNotAllowed(relativePath)
+            }
+            guard values.isRegularFile == true else { continue }
+            let digest = try digestFile(candidate)
+            resources.append(
+                LocalSourceResource(
+                    sourceURL: candidate,
+                    relativePath: relativePath,
+                    digest: digest.digest,
+                    byteCount: digest.byteCount
+                )
+            )
+        }
+        return resources.sorted { $0.relativePath < $1.relativePath }
+    }
+
+    private static func bundleDigest(
+        primaryDigest: String,
+        resources: [LocalSourceResource]
+    ) -> String {
+        var hasher = SHA256()
+        update(&hasher, string: "primary")
+        update(&hasher, string: primaryDigest)
+        for resource in resources.sorted(by: { $0.relativePath < $1.relativePath }) {
+            update(&hasher, string: resource.relativePath)
+            update(&hasher, string: resource.digest)
+        }
+        return hex(hasher.finalize())
     }
 
     private static func relativePath(of url: URL, root: URL) -> String {

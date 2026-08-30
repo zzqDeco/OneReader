@@ -9,6 +9,7 @@ implementation sequencing belongs in `plan/`.
 | --- | --- |
 | [Architecture](architecture.md) | Runtime layers, dependency direction, and progressive materialization |
 | [Interfaces](interfaces.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
+| [Source adapters](source-adapters.md) | Deterministic format routing, snapshots, presentation, search, and safety |
 | [Acceptance](mvp-acceptance.md) | Automated and native manual acceptance matrix |
 | [Branching](branching.md) | Branch roles, pull-request flow, and promotion rules |
 | [GitHub Actions](github-actions.md) | Hosted CI and release behavior |

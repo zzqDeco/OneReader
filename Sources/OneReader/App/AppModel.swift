@@ -88,7 +88,7 @@ final class AppModel: ObservableObject {
             progress: initialProgress
         )
         selectedUnitID = nil
-        presentation = .repository
+        presentation = .markdown
 
         Task { [weak self] in
             await self?.bootstrap()
@@ -159,13 +159,13 @@ final class AppModel: ObservableObject {
         }
 
         if !unit.availablePresentations.contains(presentation) {
-            presentation = unit.repositoryFragment != nil ? .repository : .pdf
+            presentation = unit.repositoryFragment != nil ? .markdown : .pdf
         }
         if let pageIndex = unit.pdfFragment?.locator.pdfPageIndex {
             pdfPageIndex = pageIndex
         }
         loadSelectedRepositoryContent()
-        if presentation != .repository {
+        if presentation != .markdown {
             loadPDFIfNeeded()
         }
         persistProgress()
@@ -176,7 +176,7 @@ final class AppModel: ObservableObject {
             return
         }
         presentation = newPresentation
-        if newPresentation != .repository {
+        if newPresentation != .markdown {
             if let pageIndex = selectedUnit?.pdfFragment?.locator.pdfPageIndex {
                 pdfPageIndex = pageIndex
             }
@@ -233,13 +233,12 @@ final class AppModel: ObservableObject {
     }
 
     func openFragment(_ fragment: SourceFragment) {
-        switch fragment.locator.native {
-        case .repository:
-            setPresentation(.repository)
-        case let .pdf(pageIndex):
+        if let pageIndex = fragment.locator.pdfPageIndex {
             pdfPageIndex = pageIndex
             setPresentation(.pdf)
             updatePDFPosition(pageIndex)
+        } else {
+            setPresentation(.markdown)
         }
     }
 
@@ -255,7 +254,7 @@ final class AppModel: ObservableObject {
         if presentation != .pdf {
             loadSelectedRepositoryContent(force: true)
         }
-        if presentation != .repository {
+        if presentation != .markdown {
             loadPDFIfNeeded(force: true)
         }
     }
@@ -431,7 +430,7 @@ final class AppModel: ObservableObject {
             pdfSnapshot: nil,
             pdfPageHints: [:]
         )
-        presentation = .repository
+        presentation = .markdown
         reconcileSelectionAndProgress(preferFirstUnit: true)
         loadSelectedRepositoryContent()
     }
@@ -490,7 +489,7 @@ final class AppModel: ObservableObject {
             contentState = .loading
             return
         }
-        guard case let .repository(path, _, _) = fragment.locator.native else {
+        guard let path = fragment.locator.relativePath else {
             return
         }
 
@@ -581,9 +580,11 @@ final class AppModel: ObservableObject {
         }
         let locator = Locator(
             sourceID: source.id,
-            sourceRevision: revision,
-            native: .pdf(pageIndex: pageIndex),
-            textAnchor: nil,
+            snapshotID: activePDFSnapshot?.id ?? "\(source.id)@\(revision)",
+            adapterID: "onereader.pdf",
+            payload: ["pageIndex": String(pageIndex)],
+            structuralPath: "page/\(pageIndex)",
+            textQuote: nil,
             fingerprint: nil
         )
         progress.sourcePositions[source.id] = SourcePosition(
@@ -617,7 +618,7 @@ final class AppModel: ObservableObject {
     private func assetBaseURL(for fragment: SourceFragment) -> URL? {
         guard
             let book = activeRepositoryBook,
-            case let .repository(path, _, _) = fragment.locator.native
+            let path = fragment.locator.relativePath
         else {
             return nil
         }
@@ -636,7 +637,7 @@ final class AppModel: ObservableObject {
     private func repositoryWebURL(for fragment: SourceFragment) -> URL? {
         guard
             let book = activeRepositoryBook,
-            case let .repository(path, _, _) = fragment.locator.native
+            let path = fragment.locator.relativePath
         else {
             return nil
         }
@@ -652,13 +653,4 @@ private struct LibraryBootstrapResult: Sendable {
     let database: LibraryDatabase?
     let library: ManagedLibrary?
     let errorMessage: String?
-}
-
-private extension Locator {
-    var pdfPageIndex: Int? {
-        if case let .pdf(pageIndex) = native {
-            return pageIndex
-        }
-        return nil
-    }
 }

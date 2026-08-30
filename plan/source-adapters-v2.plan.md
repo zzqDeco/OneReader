@@ -1,6 +1,6 @@
 # Source Adapters v2
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/source-adapters-v2`
 
@@ -46,8 +46,27 @@ FTS rebuilds, cancellation, Git exact SHA, and Quick Look limits.
 
 ## Acceptance Evidence
 
-Pending: generated fixture matrix, public repository SHA, offline snapshot read,
-search result jumps, and security rejection evidence.
+- 2026-08-30: `swift test` passed 61 tests. Generated fixtures cover PDF,
+  EPUB, Markdown, text, code, HTML, directory composition, web snapshots,
+  unknown-file Quick Look, and exact-SHA GitHub API/codeload behavior without
+  relying on external network availability.
+- EPUB/archive rejection tests cover traversal, symlink, case/Unicode
+  collisions, declared expansion bombs, forged uncompressed-size metadata,
+  actual written-byte ceilings, CRC validation, and abandoned/inactive derived
+  cleanup.
+- Remote tests cover live download limits, cancellation before commit,
+  same-origin resources, HTTPS/public-address enforcement, and full 40-character
+  GitHub commit persistence. Snapshot reads and FTS search remain available
+  after the injected network session is gone.
+- Locator tests cover exact Snapshot binding, current/relocated/orphaned states,
+  and quote-based recomputation of stale Markdown line ranges.
+- `swift build --configuration release`, the 35-file documentation index,
+  `git diff --check`, Sandbox app packaging, and strict `codesign` verification
+  passed.
+- Kimi Reviewer (`qwen3.8-max`, highest reasoning, 1M context) returned `PASS`
+  with no Blocking, High, or Medium findings after the final delta review.
+- Real-book interaction, screenshots, VoiceOver, and wide/narrow workspace
+  acceptance remain explicitly owned by `feature/native-reader-workspace`.
 
 ## Non-goals
 
@@ -56,11 +75,11 @@ JavaScript execution, and cross-origin resource loading.
 
 ## Delivery Checklist
 
-- [ ] User behavior implemented
-- [ ] Contracts and migration implemented
-- [ ] Focused tests pass
-- [ ] Unified validation passes
-- [ ] Native acceptance recorded
-- [ ] Current-state and source docs synchronized
-- [ ] Branch merged into `dev`
-- [ ] Status changed to Delivered
+- [x] User behavior implemented
+- [x] Contracts and migration implemented
+- [x] Focused tests pass
+- [x] Unified validation passes
+- [x] Native presentation packaging evidence recorded; workspace interaction deferred
+- [x] Current-state and source docs synchronized
+- [x] Branch merged into `dev` (local fast-forward; no remote configured)
+- [x] Status changed to Delivered

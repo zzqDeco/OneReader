@@ -27,7 +27,7 @@ struct ReaderSurfaceView: View {
     @ViewBuilder
     private func readerBody(for unit: ReadingUnit) -> some View {
         switch model.presentation {
-        case .repository:
+        case .markdown, .text, .code, .html, .epub, .quickLook:
             MarkdownReaderView(
                 state: model.contentState,
                 assetBaseURL: model.markdownAssetBaseURL
@@ -45,7 +45,7 @@ struct ReaderSurfaceView: View {
         case .comparison:
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    PaneLabel(title: "Repository", systemImage: "chevron.left.forwardslash.chevron.right")
+                    PaneLabel(title: "Markdown", systemImage: "chevron.left.forwardslash.chevron.right")
                     MarkdownReaderView(
                         state: model.contentState,
                         assetBaseURL: model.markdownAssetBaseURL,
@@ -127,7 +127,7 @@ private struct ReaderUnitHeader: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("定位到 \(fragment.locator.native.conciseDescription)")
+                    .help("定位到 \(fragment.locator.conciseDescription)")
                 }
 
                 Spacer(minLength: 8)
@@ -217,7 +217,6 @@ private struct ReaderNavigationBar: View {
 
 private extension Locator {
     var isPDF: Bool {
-        if case .pdf = native { return true }
-        return false
+        adapterID == "onereader.pdf"
     }
 }

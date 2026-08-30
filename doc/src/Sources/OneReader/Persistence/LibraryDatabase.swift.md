@@ -5,6 +5,12 @@ transactional source/snapshot/Space commits, schema metadata, and legacy
 progress migration manifest. It also computes shared-content-aware removal
 plans and commits Source removal with Space detachment in one transaction.
 
+Adapter plans and Observations are encoded with stable JSON settings. Saving an
+Observation updates its FTS5 row in the same write transaction; the index can
+be rebuilt solely from durable Observation rows.
+Search joins active Source state so a removed Source cannot remain visible
+through stale FTS rows.
+
 It records Provider Keychain references but never API keys. A legacy progress
 file is moved only after database migration succeeds and is explicitly marked
 as not bound to new objects.

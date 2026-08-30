@@ -277,6 +277,64 @@ final class ManagedLibraryTests: XCTestCase {
         XCTAssertTrue(try database.fetchSources().isEmpty)
     }
 
+    func testSingleHTMLImportCopiesReferencedSiblingResourcesIntoManagedSnapshot() async throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let assets = fixture.input.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        let html = Data("<h1>Book</h1><img src=\"images/cover.png\">".utf8)
+        let image = Data([0x89, 0x50, 0x4e, 0x47])
+        let sourceURL = fixture.input.appendingPathComponent("book.html")
+        try html.write(to: sourceURL)
+        try image.write(to: assets.appendingPathComponent("cover.png"))
+        let database = try LibraryDatabase(rootURL: fixture.library)
+        let library = try ManagedLibrary(database: database)
+
+        let imported = try await library.importLocalSource(at: sourceURL)
+
+        XCTAssertEqual(imported.snapshot.revisionKind, .contentDigest)
+        XCTAssertNotEqual(imported.snapshot.revision, imported.snapshot.digest)
+        XCTAssertEqual(imported.snapshot.byteCount, Int64(html.count + image.count))
+        XCTAssertEqual(
+            try Data(
+                contentsOf: imported.managedURL.deletingLastPathComponent()
+                    .appendingPathComponent("images/cover.png")
+            ),
+            image
+        )
+
+        try Data([0x89, 0x50, 0x4e, 0x48]).write(
+            to: assets.appendingPathComponent("cover.png"),
+            options: .atomic
+        )
+        let changed = try await library.importLocalSource(at: sourceURL)
+        XCTAssertNotEqual(changed.snapshot.digest, imported.snapshot.digest)
+        XCTAssertNotEqual(changed.managedURL, imported.managedURL)
+        XCTAssertFalse(changed.reusedContent)
+    }
+
+    func testSingleFileImportRejectsReferencedResourceOutsideAuthorizedDirectory() async throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let nested = fixture.input.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: fixture.input.appendingPathComponent("outside.png"))
+        let sourceURL = nested.appendingPathComponent("book.html")
+        try Data("<img src=\"../outside.png\">".utf8).write(to: sourceURL)
+        let database = try LibraryDatabase(rootURL: fixture.library)
+        let library = try ManagedLibrary(database: database)
+
+        do {
+            _ = try await library.importLocalSource(at: sourceURL)
+            XCTFail("Expected referenced-resource boundary rejection")
+        } catch let error as LibraryStorageError {
+            guard case .referencedResourceOutsideSource = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        XCTAssertTrue(try database.fetchSources().isEmpty)
+    }
+
     func testInitializationRemovesOnlyAbandonedStagingEntries() throws {
         let fixture = try makeFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -290,6 +348,83 @@ final class ManagedLibraryTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))
+    }
+
+    func testInitializationReclaimsAbandonedAndInactiveEPUBDerivedData() throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let database = try LibraryDatabase(rootURL: fixture.library)
+        let source = Source(
+            id: "source-keep",
+            displayName: "keep.epub",
+            originKind: .localFile,
+            originURL: nil,
+            managedState: .ready,
+            latestSnapshotID: "snapshot-keep"
+        )
+        let snapshot = SourceSnapshot(
+            id: "snapshot-keep",
+            sourceID: source.id,
+            revision: "digest",
+            revisionKind: .contentDigest,
+            digest: "digest",
+            observedAt: .now,
+            origin: nil,
+            managedRelativePath: nil,
+            byteCount: 0
+        )
+        let space = ReadingSpace(id: "space-keep", title: "Keep")
+        try database.commitImport(
+            source: source,
+            snapshot: snapshot,
+            space: space,
+            createsSpace: true
+        )
+        let removedSource = Source(
+            id: "source-removed",
+            displayName: "removed.epub",
+            originKind: .localFile,
+            originURL: nil,
+            managedState: .ready,
+            latestSnapshotID: "snapshot-removed"
+        )
+        let removedSnapshot = SourceSnapshot(
+            id: "snapshot-removed",
+            sourceID: removedSource.id,
+            revision: "removed-digest",
+            revisionKind: .contentDigest,
+            digest: "removed-digest",
+            observedAt: .now,
+            origin: nil,
+            managedRelativePath: nil,
+            byteCount: 0
+        )
+        try database.commitImport(
+            source: removedSource,
+            snapshot: removedSnapshot,
+            space: space,
+            createsSpace: false
+        )
+        try database.commitRemoval(sourceID: removedSource.id)
+        let epubRoot = database.layout.derivedURL.appendingPathComponent("epub", isDirectory: true)
+        let abandoned = epubRoot.appendingPathComponent(".staging-orphan", isDirectory: true)
+        let committed = epubRoot.appendingPathComponent("snapshot-keep", isDirectory: true)
+        let inactive = epubRoot.appendingPathComponent("snapshot-inactive", isDirectory: true)
+        let removed = epubRoot.appendingPathComponent("snapshot-removed", isDirectory: true)
+        try FileManager.default.createDirectory(at: abandoned, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: committed, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: inactive, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: removed, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: abandoned.appendingPathComponent("chapter.html"))
+        try Data("ready".utf8).write(to: committed.appendingPathComponent("chapter.html"))
+        try Data("orphan".utf8).write(to: inactive.appendingPathComponent("chapter.html"))
+
+        _ = try ManagedLibrary(database: database)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: committed.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: inactive.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removed.path))
     }
 
     func testRemovingSourceTrashesOnlyManagedCopyAndKeepsOriginal() async throws {
@@ -318,6 +453,30 @@ final class ManagedLibraryTests: XCTestCase {
         XCTAssertTrue(try database.fetchSources().isEmpty)
         XCTAssertEqual(try database.fetchSources(includeRemoved: true).first?.managedState, .removed)
         XCTAssertTrue(try database.sourceIDs(in: imported.space.id).isEmpty)
+    }
+
+    func testRemovingSourceReclaimsSnapshotDerivedEPUBCache() async throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let sourceURL = fixture.input.appendingPathComponent("book.epub")
+        try Data("managed archive bytes".utf8).write(to: sourceURL)
+        let trashURL = fixture.root.appendingPathComponent("Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trashURL, withIntermediateDirectories: true)
+        let database = try LibraryDatabase(rootURL: fixture.library)
+        let library = try ManagedLibrary(
+            database: database,
+            trashHandler: fakeTrashHandler(at: trashURL)
+        )
+        let imported = try await library.importLocalSource(at: sourceURL)
+        let derived = database.layout.derivedURL
+            .appendingPathComponent("epub", isDirectory: true)
+            .appendingPathComponent(imported.snapshot.id, isDirectory: true)
+        try FileManager.default.createDirectory(at: derived, withIntermediateDirectories: true)
+        try Data("cache".utf8).write(to: derived.appendingPathComponent("spine.html"))
+
+        try await library.removeSource(id: imported.source.id)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: derived.path))
     }
 
     func testRemovingOneDeduplicatedSourceKeepsSharedManagedCopy() async throws {

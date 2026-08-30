@@ -29,9 +29,6 @@ opaque adapter payload. Structural path, exact text quote, and fingerprint are
 portable recovery hints. Positional payload from another revision is never
 silently accepted as current.
 
-The compatibility Repo/PDF native locator remains only until the adapter slice
-finishes migrating the existing vertical-slice readers.
-
 ### Observation
 
 Raw material read from a snapshot with locator, media type, digest, truncation,
@@ -104,3 +101,16 @@ Trash. Original selected files and directories are never removal targets.
 Legacy JSON is backup input only. It is never treated as a valid new graph,
 plan, source position, or completion record. Transitional live progress uses
 `progress-v2.json`; only `progress-v1.json` is eligible for legacy backup.
+
+## Adapter execution contract
+
+`AdapterCoordinator` reconstructs a context only from committed Source and
+Snapshot rows plus a managed relative path. It rejects missing managed bytes,
+persists deterministic AdapterPlans, stores read Observations, and uses those
+observations as the FTS5 source of truth. Directory child locators are resolved
+below the managed root without following symlinks. Web snapshot locators remain
+bound to the snapshot root rather than being mistaken for ordinary child files.
+
+Remote fetching is outside every adapter and outside the Agent runtime. A
+remote import commits through the same `ManagedLibrary` transaction as a local
+source, with the original URL retained only as origin metadata.
