@@ -17,6 +17,7 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
+| [Apple multiplatform reader](apple-multiplatform-v1.plan.md) | Shared macOS, iPhone, and iPad app, adaptive native UI, and app icon | Active |
 | [All-in-One Reader v1](all-in-one-reader-v1.plan.md) | Umbrella delivery plan for OneReader v0.2.0 | Delivered |
 | [Library core v2](library-core-v2.plan.md) | Managed sources, snapshots, GRDB, migration, and empty Library | Delivered |
 | [Source adapters v2](source-adapters-v2.plan.md) | Capability protocols, deterministic adapters, search, and presentations | Delivered |
