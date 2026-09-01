@@ -175,6 +175,81 @@ final class NativeMarkdownRendererTests: XCTestCase {
         )
     }
 
+    func testSourceMapExcludesFenceAndRepeatedLanguageInfoFromCodeBlock() throws {
+        let source = """
+            ```swift
+            let swift = "swift"
+            ```
+            """
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let sourceValue = source as NSString
+        let renderedValue = rendered.string as NSString
+        let swiftRanges = ranges(of: "swift", in: sourceValue)
+        let fenceRanges = ranges(of: "```", in: sourceValue)
+        XCTAssertEqual(swiftRanges.count, 3)
+        XCTAssertEqual(fenceRanges.count, 2)
+
+        for fenceRange in fenceRanges {
+            XCTAssertNil(MarkdownSourceMap.renderedRange(
+                forSourceRange: fenceRange,
+                in: rendered
+            ), "A fenced-code delimiter is syntax, not visible code")
+        }
+
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: swiftRanges[0],
+            in: rendered
+        ), "A fenced-code language identifier is syntax, not visible code")
+
+        for sourceRange in swiftRanges.dropFirst() {
+            let renderedRange = try XCTUnwrap(MarkdownSourceMap.renderedRange(
+                forSourceRange: sourceRange,
+                in: rendered
+            ))
+            XCTAssertEqual(renderedValue.substring(with: renderedRange), "swift")
+            XCTAssertEqual(
+                MarkdownSourceMap.sourceRange(
+                    forRenderedRange: renderedRange,
+                    in: rendered
+                ),
+                sourceRange
+            )
+        }
+    }
+
+    func testSourceMapUsesInnerLiteralForMultiBacktickInlineCode() throws {
+        let source = "`` ` ``"
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let sourceValue = source as NSString
+        let openingDelimiter = NSRange(location: 0, length: 2)
+        let literal = NSRange(location: 3, length: 1)
+        let closingDelimiter = NSRange(location: 5, length: 2)
+
+        XCTAssertEqual(rendered.string, "`")
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: openingDelimiter,
+            in: rendered
+        ))
+        XCTAssertEqual(
+            MarkdownSourceMap.renderedRange(forSourceRange: literal, in: rendered),
+            NSRange(location: 0, length: 1)
+        )
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: closingDelimiter,
+            in: rendered
+        ))
+        XCTAssertEqual(
+            MarkdownSourceMap.sourceRange(
+                forRenderedRange: NSRange(location: 0, length: 1),
+                in: rendered
+            ),
+            literal
+        )
+        XCTAssertEqual(sourceValue.substring(with: literal), "`")
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0

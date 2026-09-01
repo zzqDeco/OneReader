@@ -102,7 +102,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     mutating func visitInlineCode(_ inlineCode: InlineCode) -> NSMutableAttributedString {
         mappedAttributed(
             inlineCode.code,
-            sourceRange: inlineCode.range,
+            sourceUTF16Range: sourceIndex?.inlineCodeContentRange(for: inlineCode.range),
             decodesMarkdownText: false,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
@@ -118,7 +118,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let code = codeBlock.code.trimmingCharacters(in: .newlines)
         let result = mappedAttributed(
             code,
-            sourceRange: codeBlock.range,
+            sourceUTF16Range: sourceIndex?.codeBlockContentRange(for: codeBlock.range),
             decodesMarkdownText: false,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
@@ -311,6 +311,20 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         decodesMarkdownText: Bool,
         attributes: [NSAttributedString.Key: Any]? = nil
     ) -> NSMutableAttributedString {
+        mappedAttributed(
+            string,
+            sourceUTF16Range: sourceIndex?.utf16Range(for: sourceRange),
+            decodesMarkdownText: decodesMarkdownText,
+            attributes: attributes
+        )
+    }
+
+    private mutating func mappedAttributed(
+        _ string: String,
+        sourceUTF16Range: NSRange?,
+        decodesMarkdownText: Bool,
+        attributes: [NSAttributedString.Key: Any]? = nil
+    ) -> NSMutableAttributedString {
         let result = NSMutableAttributedString(
             string: string,
             attributes: attributes ?? [
@@ -320,7 +334,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         )
         guard !string.isEmpty,
               let sourceIndex,
-              let sourceUTF16Range = sourceIndex.utf16Range(for: sourceRange) else {
+              let sourceUTF16Range else {
             return result
         }
         for run in MarkdownLeafSourceMapper.runs(
@@ -410,6 +424,143 @@ private struct MarkdownUTF16SourceIndex {
               let upper = utf16Offset(for: range.upperBound),
               upper >= lower else { return nil }
         return NSRange(location: lower, length: upper - lower)
+    }
+
+    func inlineCodeContentRange(for range: SourceRange?) -> NSRange? {
+        guard let fullRange = utf16Range(for: range) else { return nil }
+        let value = source as NSString
+        guard NSMaxRange(fullRange) <= value.length else { return nil }
+        let raw = value.substring(with: fullRange) as NSString
+        guard raw.length >= 2, raw.character(at: 0) == 0x60 else { return nil }
+
+        var openingLength = 0
+        while openingLength < raw.length, raw.character(at: openingLength) == 0x60 {
+            openingLength += 1
+        }
+        var closingStart = raw.length
+        while closingStart > openingLength, raw.character(at: closingStart - 1) == 0x60 {
+            closingStart -= 1
+        }
+        guard raw.length - closingStart == openingLength,
+              closingStart >= openingLength else { return nil }
+        return NSRange(
+            location: fullRange.location + openingLength,
+            length: closingStart - openingLength
+        )
+    }
+
+    func codeBlockContentRange(for range: SourceRange?) -> NSRange? {
+        guard let fullRange = utf16Range(for: range) else { return nil }
+        let value = source as NSString
+        guard NSMaxRange(fullRange) <= value.length else { return nil }
+        let raw = value.substring(with: fullRange) as NSString
+        let lines = Self.lineRanges(in: raw)
+        guard let openingLine = lines.first else { return fullRange }
+        let openingContent = Self.contentRange(of: openingLine, in: raw)
+        var cursor = openingContent.location
+        var leadingSpaces = 0
+        while cursor < NSMaxRange(openingContent),
+              raw.character(at: cursor) == 0x20,
+              leadingSpaces < 4 {
+            leadingSpaces += 1
+            cursor += 1
+        }
+        guard leadingSpaces <= 3,
+              cursor < NSMaxRange(openingContent),
+              raw.character(at: cursor) == 0x60 || raw.character(at: cursor) == 0x7E else {
+            // Indented code blocks have no hidden fence or language-info syntax.
+            return fullRange
+        }
+        let fenceCharacter = raw.character(at: cursor)
+        var openingFenceLength = 0
+        while cursor + openingFenceLength < NSMaxRange(openingContent),
+              raw.character(at: cursor + openingFenceLength) == fenceCharacter {
+            openingFenceLength += 1
+        }
+        guard openingFenceLength >= 3 else { return fullRange }
+
+        let contentStart = NSMaxRange(openingLine)
+        var contentEnd = raw.length
+        for line in lines.dropFirst().reversed() {
+            let lineContent = Self.contentRange(of: line, in: raw)
+            var closingCursor = lineContent.location
+            var closingLeadingSpaces = 0
+            while closingCursor < NSMaxRange(lineContent),
+                  raw.character(at: closingCursor) == 0x20,
+                  closingLeadingSpaces < 4 {
+                closingLeadingSpaces += 1
+                closingCursor += 1
+            }
+            guard closingLeadingSpaces <= 3 else { continue }
+            var closingFenceLength = 0
+            while closingCursor + closingFenceLength < NSMaxRange(lineContent),
+                  raw.character(at: closingCursor + closingFenceLength) == fenceCharacter {
+                closingFenceLength += 1
+            }
+            guard closingFenceLength >= openingFenceLength else { continue }
+            let suffixStart = closingCursor + closingFenceLength
+            let suffixRange = NSRange(
+                location: suffixStart,
+                length: NSMaxRange(lineContent) - suffixStart
+            )
+            guard Self.containsOnlyHorizontalWhitespace(suffixRange, in: raw) else { continue }
+            contentEnd = line.location
+            break
+        }
+        guard contentEnd >= contentStart else { return nil }
+        return NSRange(
+            location: fullRange.location + contentStart,
+            length: contentEnd - contentStart
+        )
+    }
+
+    private static func lineRanges(in value: NSString) -> [NSRange] {
+        guard value.length > 0 else { return [] }
+        var result: [NSRange] = []
+        var start = 0
+        while start < value.length {
+            var end = start
+            while end < value.length,
+                  value.character(at: end) != 0x0A,
+                  value.character(at: end) != 0x0D {
+                end += 1
+            }
+            if end < value.length {
+                if value.character(at: end) == 0x0D,
+                   end + 1 < value.length,
+                   value.character(at: end + 1) == 0x0A {
+                    end += 2
+                } else {
+                    end += 1
+                }
+            }
+            result.append(NSRange(location: start, length: end - start))
+            start = end
+        }
+        return result
+    }
+
+    private static func contentRange(of line: NSRange, in value: NSString) -> NSRange {
+        var end = NSMaxRange(line)
+        if end > line.location, value.character(at: end - 1) == 0x0A {
+            end -= 1
+        }
+        if end > line.location, value.character(at: end - 1) == 0x0D {
+            end -= 1
+        }
+        return NSRange(location: line.location, length: end - line.location)
+    }
+
+    private static func containsOnlyHorizontalWhitespace(
+        _ range: NSRange,
+        in value: NSString
+    ) -> Bool {
+        guard range.length > 0 else { return true }
+        for offset in range.location..<NSMaxRange(range) {
+            let character = value.character(at: offset)
+            if character != 0x20, character != 0x09 { return false }
+        }
+        return true
     }
 
     private func utf16Offset(for location: SourceLocation) -> Int? {

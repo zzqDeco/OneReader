@@ -61,10 +61,11 @@ Locator are retained and are never rewritten to look current.
 Native Markdown drops raw HTML, never loads Markdown image URLs, and exposes a
 readable alt-text placeholder. Leaf text carries deterministic source UTF-16
 attributes through heading, emphasis, list, and code styling. Mapping begins
-from each `swift-markdown` AST leaf `SourceRange`; UTF-8 byte columns are
-converted to source UTF-16 offsets, and escape/entity expansions retain the
-whole source token as their anchor. Link destinations and omitted raw HTML are
-therefore never candidates for visible text. Selections and positions map
+from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
+fenced-code delimiter/language lines are then removed before alignment. UTF-8
+byte columns are converted to source UTF-16 offsets, and escape/entity
+expansions retain the whole source token as their anchor. Link destinations,
+code syntax, and omitted raw HTML are therefore never candidates for visible text. Selections and positions map
 rendered ranges back to exact source ranges (and fail closed when no map exists),
 so repeated text never falls back to a first/unique-match guess.
 

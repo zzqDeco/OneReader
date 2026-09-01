@@ -88,7 +88,9 @@ continues from the task's next phase, while standalone questions and completed
 route projection schedule nothing further. An interrupted Run may be abandoned
 as an auditable terminal state; Provider or Source binding changes cancel stale
 interrupted Runs automatically. Explicit cancellation is scoped to the captured
-Run ID and cannot target a later replacement.
+Run ID and cannot target a later replacement. Every App-level Provider mutation
+reloads the selected Space's persisted Run projection after invalidation, so UI
+recovery controls reflect the terminal database state immediately.
 
 ## Capability responsibilities
 

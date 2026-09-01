@@ -35,7 +35,9 @@ the next persisted pipeline checkpoint, while standalone evidence answers and
 completed route projection stop. The model captures the exact active Run ID for
 explicit cancellation, exposes an auditable abandon action for interrupted
 work, and lets Provider/Source invalidation remove unrecoverable recovery
-prompts. Space
+prompts. Profile saves, persisted connection tests, and Space Provider overrides
+reload the selected Space's Run/Activity cache after database invalidation, so
+the Inspector cannot retain a stale resume action. Space
 transitions rely on Run-ID-bound stream termination rather than an unscoped
 delayed session cancel. Completed graph/route revisions are
 loaded as pending while the reader remains on a frozen plan; adoption and valid

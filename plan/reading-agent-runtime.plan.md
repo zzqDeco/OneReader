@@ -47,7 +47,7 @@ resistance, endpoint checks, redaction, timeouts, and stream failure.
 
 ## Acceptance Evidence
 
-Current integrated evidence includes deterministic fake transcripts, 185 passing
+Current integrated evidence includes deterministic fake transcripts, 188 passing
 tests, ordered persisted events, rejected forged patches/quotes/Locators,
 immutable endpoint/revision-bound disclosure, real SDK-session transport
 isolation, redirect/lease/raw-response fail-closure, source-refresh and
@@ -70,7 +70,8 @@ and consumer-stream termination is generation-conditional. Persisted pipeline
 provenance now prevents evidence-answer or completed-route recovery from
 starting structure work; scout/materialize resume at the next phase. Explicit
 cancellation is Run-ID scoped, interrupted Runs can be abandoned, and stale
-Provider/Source bindings cancel them automatically. Final exact-head
+Provider/Source bindings cancel them automatically; App-level Provider mutation
+paths immediately refresh the selected Space's persisted recovery projection. Final exact-head
 Sol max review remains the delivery gate.
 
 ## Non-goals

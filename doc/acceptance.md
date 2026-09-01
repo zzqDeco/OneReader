@@ -52,9 +52,12 @@ late superseded-plan publication loses the active-plan CAS, directory indexes
 expand every PDF page and EPUB spine item, repeated Markdown text maps to exact
 source ranges, and WebKit emits no callback after stop returns. A real v8
 fixture proves bootstrap rebuilds global search without opening the migrated
-Space. Markdown mapping fixtures exclude link destinations and raw HTML while
-preserving escapes, entities, and UTF-8-to-UTF-16 offsets; nested HTML fixtures
-prove sanitizer and presentation use one Snapshot resource root.
+Space. Markdown mapping fixtures exclude link destinations, raw HTML, inline
+backtick delimiters, code fences, and repeated language identifiers while
+preserving escapes, entities, and UTF-8-to-UTF-16 offsets. AppModel coverage
+proves a Provider mutation immediately removes an invalidated interrupted Run
+from Inspector state; nested HTML fixtures prove sanitizer and presentation use
+one Snapshot resource root.
 
 ## Native acceptance record
 

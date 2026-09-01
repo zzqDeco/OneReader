@@ -727,6 +727,50 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertEqual(abandoned.errorCategory, "user-abandoned")
     }
 
+    func testProviderProfileMutationRefreshesInterruptedRunAttentionCache() async throws {
+        let root = temporaryRoot("ProviderMutationAttention")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secrets = InMemoryProviderSecretStore()
+        let fixture = try await makeAnswerFixture(
+            root: root,
+            providerKind: .appleOnDevice,
+            secretStore: secrets
+        )
+        let interruptedRunID = try createInterruptedAnswerRun(fixture: fixture)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: fixture.libraryRoot,
+            defaults: defaults,
+            secretStore: secrets,
+            agentDriverFactory: AnswerOnlyDriverFactory(
+                answer: fixture.answer,
+                trace: AppPipelineTrace()
+            )
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.openSpace(fixture.imported.space.id)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentRun?.id == interruptedRunID
+        }
+
+        var revised = fixture.profile
+        revised.modelID = "answer-test-model-revised"
+        revised.updatedAt = .now
+        model.saveProviderProfile(revised, secret: nil)
+
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentRun == nil
+        }
+        let invalidated = try XCTUnwrap(
+            fixture.database.fetchAgentRuns().first { $0.id == interruptedRunID }
+        )
+        XCTAssertEqual(invalidated.state, .cancelled)
+        XCTAssertEqual(invalidated.errorCategory, "provider-configuration-changed")
+        XCTAssertFalse(model.agentRuns.contains {
+            $0.id == interruptedRunID && $0.state == .interrupted
+        })
+    }
+
     func testInterruptedScoutAndMaterializeResumeFromTheirNextPipelinePhase() async throws {
         for interruptedTask in [AgentTaskKind.scoutSpace, .materializeGraph] {
             let root = temporaryRoot("PipelineResume-\(interruptedTask.rawValue)")

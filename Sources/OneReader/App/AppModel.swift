@@ -1178,6 +1178,7 @@ final class AppModel: ObservableObject {
                 }
                 try database.saveProviderProfile(revised)
                 providerProfiles = try database.fetchProviderProfiles()
+                refreshSelectedAgentActivityAfterProviderMutation()
             } catch {
                 notice = AppNotice(title: "无法保存 Provider", message: error.localizedDescription)
             }
@@ -1214,6 +1215,7 @@ final class AppModel: ObservableObject {
             providerTestResult = result
             providerTestInFlightID = nil
             providerProfiles = (try? database.fetchProviderProfiles()) ?? providerProfiles
+            refreshSelectedAgentActivityAfterProviderMutation()
         }
     }
 
@@ -1221,6 +1223,7 @@ final class AppModel: ObservableObject {
         guard let database, let spaceID = selectedSpaceID else { return }
         do {
             try database.setProviderOverride(profileID: profileID, forSpaceID: spaceID)
+            refreshSelectedAgentActivityAfterProviderMutation(affecting: spaceID)
         } catch {
             notice = AppNotice(title: "无法切换 Provider", message: error.localizedDescription)
         }
@@ -1985,6 +1988,14 @@ final class AppModel: ObservableObject {
         guard selectedSpaceID == spaceID else { return }
         agentRuns = runs
         activity = mapped.sorted { $0.date < $1.date }
+    }
+
+    private func refreshSelectedAgentActivityAfterProviderMutation(
+        affecting spaceID: String? = nil
+    ) {
+        guard let selectedSpaceID,
+              spaceID == nil || spaceID == selectedSpaceID else { return }
+        loadAgentActivity(spaceID: selectedSpaceID)
     }
 
     private func refreshReadingStructureState(spaceID: String) throws {

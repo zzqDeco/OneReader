@@ -13,5 +13,7 @@ context and fingerprints, distinguishes repeated heading/emphasis/list text,
 and fails closed when synthetic rendering has no source mapping. Each mapping
 starts from the AST leaf's source range; UTF-8 byte columns are converted to
 UTF-16 offsets before escapes and HTML entities are aligned within that bounded
-range. Hidden link destinations and omitted raw HTML cannot capture an equal
-visible string elsewhere in the document.
+range. Inline-code backtick runs and fenced-code delimiter/language lines are
+structurally excluded first; an ambiguous code boundary produces no map. Hidden
+code syntax, link destinations, and omitted raw HTML therefore cannot capture an
+equal visible string elsewhere in the document.

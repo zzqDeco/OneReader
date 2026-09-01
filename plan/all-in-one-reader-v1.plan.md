@@ -60,7 +60,7 @@ fast-forwarded back only after its own tests and documentation are complete:
 ## Acceptance Evidence
 
 All five slices are implemented and integrated locally; `main` remains
-unchanged for a separate promotion review. The latest `swift test` passes 185
+unchanged for a separate promotion review. The latest `swift test` passes 188
 tests, including the integrated Sol-review corrections. The unified native
 gate additionally owns dependency, documentation, release-policy, entitlement,
 production-build, Sandbox bundle, and codesign checks. Database schema 9,
