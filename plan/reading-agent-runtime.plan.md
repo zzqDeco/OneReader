@@ -1,6 +1,6 @@
 # Reading Agent Runtime
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/reading-agent-runtime`
 
@@ -24,7 +24,8 @@ evidence answers without owning persistence or file/network authority.
 
 ## Contracts/Migration
 
-- Persist ReadingAgentSession transcript and AgentRun/Event/Artifact schemas.
+- Persist the mutable ReadingAgentSession projection plus immutable, run-bound
+  transcript/projection snapshots and AgentRun/Event/Artifact/model-call schemas.
 - Accept only registered adapters, current snapshots, valid locators/fragments,
   evidence-backed graph nodes, and host-validated structured outputs.
 - Keep secrets in Keychain and log only redacted metadata.
@@ -46,8 +47,25 @@ resistance, endpoint checks, redaction, timeouts, and stream failure.
 
 ## Acceptance Evidence
 
-Pending: deterministic fake transcripts, persisted event sequence, rejected
-patch samples, redaction assertions, and offline/no-provider behavior.
+Current branch evidence includes deterministic fake transcripts, 147 passing
+tests, ordered persisted events, rejected forged patches/quotes/Locators,
+immutable endpoint/revision-bound disclosure, real SDK-session transport
+isolation, redirect/lease/raw-response fail-closure, source-refresh and
+Provider-edit/test races, reference-counted overlapping refresh leases,
+append-only context snapshots, cumulative delta output telemetry, Artifact
+spill, four-stage projection, adversarial context bounds, failure-partial audit
+records, atomic cancellation audit after terminal transition or non-cooperative
+normal return, exact UTF-8 Anthropic cumulative-prefix normalization, strict
+streaming probe content, v5-to-v6 backfill/corruption coverage, bounded
+rejected-output markers, cancel/start actor-reentrancy coverage, exact-once
+Provider probes, cumulative probe transport, atomic Run-plus-queued-event
+creation, terminal-event stream/database parity, post-terminal event rejection,
+caller-cancelled startup cleanup, and redaction assertions. The
+durable Run state also wins stream-completion semantics when an obsolete,
+non-cooperative dependency returns a later local failure. Direct persistence
+coverage proves that ordinary events cannot follow a terminal event. The
+latest focused/full tests and unified release validation pass. The final Sol
+Max review returned `PASS` with no High, Medium, or Low findings.
 
 ## Non-goals
 
@@ -56,11 +74,11 @@ Skills, dispatch, hidden chain-of-thought display, and unattended network replay
 
 ## Delivery Checklist
 
-- [ ] User behavior implemented
-- [ ] Contracts and migration implemented
-- [ ] Focused tests pass
-- [ ] Unified validation passes
-- [ ] Native acceptance recorded
-- [ ] Current-state and source docs synchronized
-- [ ] Branch merged into `dev`
-- [ ] Status changed to Delivered
+- [x] User behavior implemented
+- [x] Contracts and migration implemented
+- [x] Focused tests pass
+- [x] Unified validation passes
+- [x] Native acceptance recorded
+- [x] Current-state and source docs synchronized
+- [x] Branch merged into `dev`
+- [x] Status changed to Delivered

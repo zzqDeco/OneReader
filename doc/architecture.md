@@ -28,6 +28,22 @@ Deterministic adapters are the availability boundary. An optional Reading Agent
 may propose adapter combinations and graph patches, but it does not own source
 fetching, storage, database writes, or basic readability.
 
+## Reading Agent runtime
+
+Each Reading Space has one long-lived `ReadingAgentSession` actor. A session
+starts bounded turn loops for adapter routing, scouting, graph materialization,
+route projection, or evidence answers. Runs stream ordered factual events while
+their complete transcript, projected model context, artifacts, structured
+output, and lifecycle state remain durable in the Library database.
+
+SwiftAgent owns typed generation and tool-loop mechanics. OneReader owns the
+generation/snapshot-manifest token, budgets, four-read concurrency gate, hard
+context projection, Provider endpoint transport, recovery, validation, and
+every database transaction. The
+only model-visible tools list/inspect/read/search/resolve existing managed
+content; there is no shell, source fetch, write, dispatch, MCP, Skill, or
+sub-agent surface. See [Reading Agent runtime](reading-agent-runtime.md).
+
 ## Native composition
 
 - SwiftUI owns window structure, navigation, inspector, selection, loading
@@ -104,9 +120,14 @@ for legacy migration input.
 - Source content is untrusted data and never becomes a system instruction.
 - Deterministic reading requires no token, account, or API key.
 - Local bytes do not leave the Mac unless the user authorizes a remote Provider
-  for that Reading Space.
+  destination for that Reading Space. Consent binds the canonical endpoint, so
+  changing a profile destination invalidates the old acknowledgment.
 - Network source fetchers and model Providers are separate clients and
-  allowlists.
+  allowlists. A temporary model-construction hook gives each Provider SDK a
+  dedicated, leased endpoint guard; the process-wide default configuration is
+  restored immediately. The guard rejects out-of-scope requests after profile
+  switches or lease expiry and refuses all redirects before response or
+  streaming data reaches the SDK.
 - Staging cleanup can remove only internal rebuildable data, never a selected
   original or committed Source.
 - Database initialization and legacy migration run off the main actor. A failed
@@ -132,7 +153,6 @@ resource boundaries are enforced before an adapter sees the snapshot. See
 
 ## Work owned by later v0.2 slices
 
-- single-agent Provider runtime and structured-output validation;
 - full Library/reader UI, annotations, history, and accessibility acceptance;
 - sandbox packaging and exact-tag release artifacts.
 

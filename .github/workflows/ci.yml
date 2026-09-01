@@ -38,6 +38,17 @@ jobs:
           swift --version
           xcodebuild -version
 
+      - name: Bootstrap pinned dependencies
+        run: scripts/bootstrap-dependencies.sh
+
+      - name: Resolve pinned dependencies
+        run: swift package resolve
+
+      - name: Verify dependency lock
+        run: |
+          python3 scripts/check-dependency-lock.py
+          git diff --exit-code -- Package.resolved
+
       - name: Check whitespace
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -59,8 +70,18 @@ jobs:
       - name: Build release
         run: swift build --configuration release
 
+      - name: Verify dependency lock remained immutable
+        run: |
+          python3 scripts/check-dependency-lock.py
+          git diff --exit-code -- Package.resolved
+
       - name: Package sandboxed developer preview
         run: scripts/package-app.sh
+
+      - name: Verify packaged dependency lock remained immutable
+        run: |
+          python3 scripts/check-dependency-lock.py
+          git diff --exit-code -- Package.resolved
 
       - name: Archive app
         run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-developer-preview.zip

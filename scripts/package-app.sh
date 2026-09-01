@@ -14,6 +14,8 @@ binary_dir="$contents_dir/MacOS"
 resource_dir="$contents_dir/Resources"
 entitlements="$repo_root/Resources/OneReader.entitlements"
 
+"$repo_root/scripts/bootstrap-dependencies.sh"
+
 swift build \
   --package-path "$repo_root" \
   --configuration "$configuration" \

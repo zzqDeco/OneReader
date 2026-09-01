@@ -626,20 +626,54 @@ struct AgentRun: Identifiable, Codable, Hashable, Sendable {
     let generation: Int
     var state: AgentRunState
     let providerProfileID: String?
+    let providerDestinationIdentity: String?
+    let providerRevisionIdentity: String?
     let createdAt: Date
     var startedAt: Date?
     var finishedAt: Date?
     var errorCategory: String?
+
+    init(
+        id: String,
+        spaceID: String,
+        task: AgentTaskKind,
+        generation: Int,
+        state: AgentRunState,
+        providerProfileID: String?,
+        providerDestinationIdentity: String? = nil,
+        providerRevisionIdentity: String? = nil,
+        createdAt: Date,
+        startedAt: Date?,
+        finishedAt: Date?,
+        errorCategory: String?
+    ) {
+        self.id = id
+        self.spaceID = spaceID
+        self.task = task
+        self.generation = generation
+        self.state = state
+        self.providerProfileID = providerProfileID
+        self.providerDestinationIdentity = providerDestinationIdentity
+        self.providerRevisionIdentity = providerRevisionIdentity
+        self.createdAt = createdAt
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.errorCategory = errorCategory
+    }
 }
 
 enum AgentEventKind: String, Codable, CaseIterable, Sendable {
+    case queued
     case phase
+    case modelRound
     case toolStarted
     case toolFinished
     case artifactCreated
     case validation
     case waitingForUser
     case completed
+    case cancelled
+    case interrupted
     case failed
 }
 

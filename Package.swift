@@ -12,6 +12,16 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/1amageek/SwiftAgent.git",
+            exact: "2.0.1",
+            traits: ["OpenFoundationModels"]
+        ),
+        .package(
+            url: "https://github.com/1amageek/AnyFoundationModels.git",
+            exact: "0.5.5",
+            traits: ["Claude", "Response", "Ollama"]
+        ),
+        .package(
             url: "https://github.com/groue/GRDB.swift.git",
             exact: "7.10.0"
         ),
@@ -32,6 +42,10 @@ let package = Package(
         .executableTarget(
             name: "OneReader",
             dependencies: [
+                .product(name: "SwiftAgent", package: "SwiftAgent"),
+                .product(name: "ClaudeFoundationModels", package: "AnyFoundationModels"),
+                .product(name: "ResponseFoundationModels", package: "AnyFoundationModels"),
+                .product(name: "OllamaFoundationModels", package: "AnyFoundationModels"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
@@ -41,7 +55,10 @@ let package = Package(
         ),
         .testTarget(
             name: "OneReaderTests",
-            dependencies: ["OneReader"],
+            dependencies: [
+                "OneReader",
+                .product(name: "SwiftAgent", package: "SwiftAgent"),
+            ],
             path: "Tests/OneReaderTests"
         )
     ]

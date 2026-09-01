@@ -16,11 +16,18 @@ The workflow:
 1. checks out complete history;
 2. selects Xcode 26.6 explicitly on the ARM64 `macos-26` image and reports the
    Swift/Xcode toolchain;
-3. runs whitespace and documentation-index checks;
-4. runs `swift test`;
-5. builds the release configuration;
-6. assembles and verifies an ad-hoc signed, sandboxed `.app` bundle;
-7. uploads the bundle as a short-lived build artifact.
+3. creates the deterministic ignored mirror for the pinned unused SwiftAgent
+   peer product with system/global Git configuration, signing, hooks,
+   attributes, and line-ending transforms disabled;
+4. runs `swift package resolve`, then verifies the committed dependency versions,
+   exact generated mirror revision, and a byte-unchanged `Package.resolved`;
+5. runs whitespace and documentation-index checks;
+6. runs `swift test`;
+7. builds the release configuration;
+8. assembles and verifies an ad-hoc signed, sandboxed `.app` bundle;
+9. repeats the lock checker and tracked-file diff after Release build and again
+   after app packaging;
+10. uploads the bundle as a short-lived build artifact.
 
 Concurrency cancels superseded runs for the same pull request or branch.
 Permissions are read-only.
@@ -37,9 +44,11 @@ For a tag release it rejects:
 - commits not reachable from `origin/main`;
 - a version that does not match the app bundle metadata.
 
-It then repeats tests, builds the release executable, creates an unsigned app
+It resolves first, validates the same dependency lock and mirror revision, then
+repeats tests and Release build. It rechecks that resolution/build/package never
+rewrote `Package.resolved`, creates an ad-hoc signed, sandboxed Developer Preview
 ZIP and SHA-256 checksum, and publishes a GitHub prerelease. The release notes
-state that signing and notarization are not yet provided.
+state that Developer ID signing and notarization are not yet provided.
 
 ## Repository settings
 

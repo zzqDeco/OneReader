@@ -27,6 +27,12 @@ actor AdapterCoordinator {
         return plan
     }
 
+    func deterministicPlan(sourceID: String, snapshotID: String) async throws -> AdapterPlan {
+        try await registry.deterministicPlan(
+            for: context(sourceID: sourceID, snapshotID: snapshotID)
+        )
+    }
+
     func prepareAndIndex(sourceID: String, snapshotID: String) async throws -> AdapterPlan {
         let plan = try await prepare(sourceID: sourceID, snapshotID: snapshotID)
         try await index(plan: plan)
@@ -42,6 +48,11 @@ actor AdapterCoordinator {
         let adapterID = locator?.adapterID
             ?? plan.capabilityRoutes[.list]
             ?? plan.primaryAdapterID
+        try await requireSelected(
+            adapterID: adapterID,
+            capability: .list,
+            plan: plan
+        )
         let adapted = try adaptedContext(base, for: locator, adapterID: adapterID)
         return try await registry.list(
             adapterID: adapterID,
@@ -60,6 +71,11 @@ actor AdapterCoordinator {
               locator.snapshotID == plan.snapshotID else {
             throw AdapterError.invalidLocator("Locator 不属于 AdapterPlan 的 Snapshot")
         }
+        try await requireSelected(
+            adapterID: locator.adapterID,
+            capability: .read,
+            plan: plan
+        )
         let base = try context(sourceID: plan.sourceID, snapshotID: plan.snapshotID)
         let adapted = try adaptedContext(base, for: locator, adapterID: locator.adapterID)
         let observation = try await registry.read(
@@ -104,6 +120,11 @@ actor AdapterCoordinator {
         let adapterID = locator?.adapterID
             ?? plan.capabilityRoutes[.render]
             ?? plan.primaryAdapterID
+        try await requireSelected(
+            adapterID: adapterID,
+            capability: .render,
+            plan: plan
+        )
         let adapted = try adaptedContext(base, for: locator, adapterID: adapterID)
         return try await registry.render(
             adapterID: adapterID,
@@ -168,6 +189,24 @@ actor AdapterCoordinator {
             derivedRootURL: database.layout.derivedURL,
             declaredMediaType: Self.mediaType(for: source.displayName)
         )
+    }
+
+    private func requireSelected(
+        adapterID: String,
+        capability: AdapterCapability,
+        plan: AdapterPlan
+    ) async throws {
+        let selected = Set(plan.auxiliaryAdapterIDs).union([plan.primaryAdapterID])
+        guard selected.contains(adapterID) else {
+            throw AdapterError.invalidLocator("Locator Adapter 不属于当前 AdapterPlan")
+        }
+        let descriptor = try await registry.descriptor(id: adapterID)
+        guard descriptor.capabilities.contains(capability) else {
+            throw AdapterError.capabilityUnavailable(
+                adapterID: adapterID,
+                capability: capability
+            )
+        }
     }
 
     private func adaptedContext(

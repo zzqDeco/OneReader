@@ -66,6 +66,23 @@ Persist queue/running/wait/completed/failure/cancellation/interruption state,
 ordered user-visible activity, and large immutable artifacts. Events describe
 actions and validation facts, never hidden reasoning.
 
+### ProviderProfile and ReadingAgentSession
+
+A Provider profile stores provider kind, endpoint, user-supplied model ID,
+timeout, optional context limit, tested capabilities, and only a Keychain
+reference. Apple on-device and loopback Ollama profiles are local; OpenAI
+Responses and Anthropic Messages profiles require HTTPS and a one-time
+per-Space-and-canonical-destination disclosure before any fragment is sent.
+
+A ReadingAgentSession is the sole mutable runtime owner for one Space. Each run
+binds its generation token and the host-derived exact Source/Snapshot manifest;
+both invalidate late model/tool results. Restart changes queued, running, or
+waiting runs to interrupted and records the matching event; network work
+resumes only through an explicit new run, and one interrupted/disclosure parent
+can create at most one linked child. Low-confidence adapter output is a
+persisted candidate with separate local confirm/dismiss behavior, not a
+resumable network operation.
+
 ## Capability responsibilities
 
 Adapters may independently implement Probe, Revision, List, Read, Search,
@@ -101,6 +118,32 @@ Trash. Original selected files and directories are never removal targets.
 Legacy JSON is backup input only. It is never treated as a valid new graph,
 plan, source position, or completion record. Transitional live progress uses
 `progress-v2.json`; only `progress-v1.json` is eligible for legacy backup.
+
+Agent structured output never writes through a model tool. The host first
+validates schemas, the run's exact manifest, freshly reprobed registry
+capabilities, deterministic evidence, saved Observations, graph versions, and
+frozen-plan unit IDs. Validation produces no side effect. One GRDB transaction
+then compares the session generation and run state, rechecks the manifest,
+commits the domain object and structured output, transitions the run, and
+appends the terminal event. Full transcripts remain durable even when the
+smaller model projection replaces large results with Artifact handles or
+structured summaries. Every model-call audit records an outcome and observed
+byte bounds. Output seen before a streaming or summary failure is append-only
+`partialFailure` audit data and is never installed into the mutable resumable
+session transcript. Its model-call metric and optional partial record commit in
+one transaction with a database-assigned sequence; a matching terminal
+cancelled Run can finish only this immutable audit after a newer generation is
+active. Oversized partial content is replaced by a digest/byte-count marker.
+Provider stream entries are normalized to the delta contract before
+aggregation; Anthropic cumulative prefixes must extend the prior prefix or the
+call fails closed.
+
+Provider endpoint changes are normalized and validated before persistence.
+Disclosure rows also retain a hash of Provider kind plus canonical effective
+endpoint, preventing a profile ID from carrying consent to a different
+destination. Source refresh is committed only through an orchestrator that
+first cancels live model work and then updates the Snapshot pointer, affected
+run states, outputs, events, and durable session generations transactionally.
 
 ## Adapter execution contract
 

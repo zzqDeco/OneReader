@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 1
+    static let schemaVersion = 6
 
     let layout: ApplicationSupportLayout
     let pool: DatabasePool
@@ -35,9 +35,9 @@ final class LibraryDatabase: @unchecked Sendable {
             configuration: configuration
         )
 
-        var migrator = DatabaseMigrator()
-        Self.registerMigrations(&migrator)
+        let migrator = Self.makeMigrator()
         try migrator.migrate(pool)
+        try interruptIncompleteAgentRuns()
         try LegacyProgressMigration.backUpIfNeeded(layout: layout, pool: pool)
     }
 
@@ -130,6 +130,16 @@ final class LibraryDatabase: @unchecked Sendable {
                     ORDER BY position, added_at
                     """,
                 arguments: [spaceID]
+            )
+        }
+    }
+
+    func spaceIDs(containing sourceID: String) throws -> [String] {
+        try pool.read { db in
+            try String.fetchAll(
+                db,
+                sql: "SELECT space_id FROM space_sources WHERE source_id = ? ORDER BY space_id",
+                arguments: [sourceID]
             )
         }
     }
@@ -252,6 +262,133 @@ final class LibraryDatabase: @unchecked Sendable {
             )
         }
     }
+
+    fileprivate func commitSnapshotRefreshAndInvalidateRuns(
+        _ snapshot: SourceSnapshot
+    ) throws -> [String: Int] {
+        try pool.write { db in
+            guard let state = try String.fetchOne(
+                db,
+                sql: "SELECT managed_state FROM sources WHERE id = ?",
+                arguments: [snapshot.sourceID]
+            ), state == SourceManagedState.ready.rawValue else {
+                throw LibraryStorageError.missingSource(snapshot.sourceID)
+            }
+            let spaceIDs = try String.fetchAll(
+                db,
+                sql: "SELECT space_id FROM space_sources WHERE source_id = ? ORDER BY space_id",
+                arguments: [snapshot.sourceID]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO snapshots
+                        (id, source_id, revision_kind, revision, digest, origin_url,
+                         managed_relative_path, byte_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    snapshot.id,
+                    snapshot.sourceID,
+                    snapshot.revisionKind.rawValue,
+                    snapshot.revision,
+                    snapshot.digest,
+                    snapshot.origin?.absoluteString,
+                    snapshot.managedRelativePath,
+                    snapshot.byteCount,
+                    snapshot.observedAt,
+                ]
+            )
+            try db.execute(
+                sql: """
+                    UPDATE sources
+                    SET latest_snapshot_id = ?, updated_at = ?
+                    WHERE id = ? AND managed_state = 'ready'
+                    """,
+                arguments: [snapshot.id, snapshot.observedAt, snapshot.sourceID]
+            )
+            guard db.changesCount == 1 else {
+                throw LibraryStorageError.missingSource(snapshot.sourceID)
+            }
+            let metadata = try JSONEncoder.databaseEncoder.encode([
+                "category": "source-revision-changed",
+                "sourceID": snapshot.sourceID,
+                "snapshotID": snapshot.id,
+            ])
+            var generations: [String: Int] = [:]
+            for spaceID in spaceIDs {
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT id
+                        FROM agent_runs
+                        WHERE space_id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                        ORDER BY created_at, id
+                        """,
+                    arguments: [spaceID]
+                )
+                for row in rows {
+                    let runID: String = row["id"]
+                    try db.execute(
+                        sql: """
+                            UPDATE agent_runs
+                            SET state = 'cancelled', finished_at = ?,
+                                error_category = 'source-revision-changed'
+                            WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                            """,
+                        arguments: [Date.now, runID]
+                    )
+                    try db.execute(
+                        sql: "UPDATE agent_outputs SET disposition = 'superseded' WHERE run_id = ?",
+                        arguments: [runID]
+                    )
+                    let sequence = try Int.fetchOne(
+                        db,
+                        sql: "SELECT COALESCE(MAX(sequence), -1) + 1 FROM agent_events WHERE run_id = ?",
+                        arguments: [runID]
+                    ) ?? 0
+                    try db.execute(
+                        sql: """
+                            INSERT INTO agent_events
+                                (id, run_id, sequence, kind, phase, message,
+                                 metadata_json, created_at)
+                            VALUES (?, ?, ?, 'cancelled', 'revision', ?, ?, ?)
+                            """,
+                        arguments: [
+                            UUID().uuidString.lowercased(),
+                            runID,
+                            sequence,
+                            "来源版本已刷新；旧 Run 已取消。",
+                            metadata,
+                            Date.now,
+                        ]
+                    )
+                }
+                try db.execute(
+                    sql: """
+                        UPDATE reading_agent_sessions
+                        SET generation = generation + 1,
+                            transcript_json = NULL,
+                            projection_json = NULL,
+                            updated_at = ?
+                        WHERE space_id = ?
+                        """,
+                    arguments: [Date.now, spaceID]
+                )
+                generations[spaceID] = try Int.fetchOne(
+                    db,
+                    sql: "SELECT generation FROM reading_agent_sessions WHERE space_id = ?",
+                    arguments: [spaceID]
+                ) ?? 0
+            }
+            return generations
+        }
+    }
+
+    #if DEBUG
+    func commitSnapshotRefreshForTesting(_ snapshot: SourceSnapshot) throws {
+        _ = try commitSnapshotRefreshAndInvalidateRuns(snapshot)
+    }
+    #endif
 
     func removalPlan(sourceID: String) throws -> ManagedRemovalPlan {
         try pool.read { db in
@@ -539,6 +676,12 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
+    static func makeMigrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        registerMigrations(&migrator)
+        return migrator
+    }
+
     private static func registerMigrations(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v1-library") { db in
             try db.execute(sql: """
@@ -741,6 +884,140 @@ final class LibraryDatabase: @unchecked Sendable {
                     ('agent_runtime_schema', '1');
                 """)
         }
+
+        migrator.registerMigration("v2-agent-runtime") { db in
+            try db.execute(sql: """
+                ALTER TABLE provider_profiles ADD COLUMN context_window INTEGER;
+                ALTER TABLE provider_profiles ADD COLUMN timeout_seconds DOUBLE NOT NULL DEFAULT 120;
+                ALTER TABLE provider_profiles ADD COLUMN capabilities_json BLOB NOT NULL DEFAULT X'5B5D';
+                ALTER TABLE provider_profiles ADD COLUMN last_tested_at DATETIME;
+                ALTER TABLE provider_profiles ADD COLUMN last_test_succeeded INTEGER;
+
+                ALTER TABLE agent_runs ADD COLUMN request_json BLOB;
+                ALTER TABLE agent_runs ADD COLUMN resumed_from_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL;
+
+                CREATE TABLE space_provider_overrides (
+                    space_id TEXT PRIMARY KEY NOT NULL REFERENCES reading_spaces(id) ON DELETE CASCADE,
+                    provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id) ON DELETE CASCADE,
+                    updated_at DATETIME NOT NULL
+                );
+
+                CREATE TABLE remote_provider_disclosures (
+                    space_id TEXT NOT NULL REFERENCES reading_spaces(id) ON DELETE CASCADE,
+                    provider_profile_id TEXT NOT NULL REFERENCES provider_profiles(id) ON DELETE CASCADE,
+                    acknowledged_at DATETIME NOT NULL,
+                    PRIMARY KEY (space_id, provider_profile_id)
+                );
+
+                CREATE TABLE agent_transcript_entries (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                    sequence INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content BLOB NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    UNIQUE(run_id, sequence)
+                );
+
+                CREATE TABLE reading_agent_sessions (
+                    space_id TEXT PRIMARY KEY NOT NULL REFERENCES reading_spaces(id) ON DELETE CASCADE,
+                    provider_profile_id TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL,
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    transcript_json BLOB,
+                    projection_json BLOB,
+                    updated_at DATETIME NOT NULL
+                );
+
+                CREATE INDEX agent_runs_space_created
+                    ON agent_runs(space_id, created_at DESC);
+                CREATE INDEX agent_events_run_sequence
+                    ON agent_events(run_id, sequence);
+
+                UPDATE library_metadata SET value = '2' WHERE key = 'database_schema';
+                UPDATE library_metadata SET value = '2' WHERE key = 'agent_runtime_schema';
+                """)
+        }
+
+        migrator.registerMigration("v3-agent-output") { db in
+            try db.execute(sql: """
+                CREATE TABLE agent_outputs (
+                    run_id TEXT PRIMARY KEY NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL,
+                    payload_json BLOB NOT NULL,
+                    disposition TEXT NOT NULL,
+                    created_at DATETIME NOT NULL
+                );
+
+                UPDATE library_metadata SET value = '3' WHERE key = 'database_schema';
+                UPDATE library_metadata SET value = '2' WHERE key = 'agent_runtime_schema';
+                """)
+        }
+
+        migrator.registerMigration("v4-agent-runtime-cas") { db in
+            try db.execute(sql: """
+                ALTER TABLE remote_provider_disclosures
+                    ADD COLUMN destination_identity TEXT NOT NULL DEFAULT '';
+
+                CREATE UNIQUE INDEX agent_runs_one_resumed_child
+                    ON agent_runs(resumed_from_run_id)
+                    WHERE resumed_from_run_id IS NOT NULL;
+
+                UPDATE library_metadata SET value = '4' WHERE key = 'database_schema';
+                UPDATE library_metadata SET value = '3' WHERE key = 'agent_runtime_schema';
+                """)
+        }
+
+        migrator.registerMigration("v5-agent-runtime-audit") { db in
+            try db.execute(sql: """
+                ALTER TABLE agent_runs ADD COLUMN provider_destination_identity TEXT;
+                ALTER TABLE agent_runs ADD COLUMN provider_revision_identity TEXT;
+
+                CREATE TABLE agent_context_snapshots (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                    sequence INTEGER NOT NULL,
+                    full_transcript_json BLOB NOT NULL,
+                    projected_transcript_json BLOB NOT NULL,
+                    projection_audit_json BLOB NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    UNIQUE(run_id, sequence)
+                );
+
+                CREATE TABLE agent_model_call_metrics (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                    round INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    input_bytes INTEGER NOT NULL,
+                    output_bytes INTEGER NOT NULL,
+                    input_token_upper_bound INTEGER NOT NULL,
+                    output_token_upper_bound INTEGER NOT NULL,
+                    duration_milliseconds INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    UNIQUE(run_id, round)
+                );
+
+                CREATE INDEX agent_context_snapshots_run_sequence
+                    ON agent_context_snapshots(run_id, sequence);
+                CREATE INDEX agent_model_call_metrics_run_round
+                    ON agent_model_call_metrics(run_id, round);
+
+                UPDATE library_metadata SET value = '5' WHERE key = 'database_schema';
+                UPDATE library_metadata SET value = '4' WHERE key = 'agent_runtime_schema';
+                """)
+        }
+
+        migrator.registerMigration("v6-agent-failure-audit") { db in
+            try db.execute(sql: """
+                ALTER TABLE agent_transcript_entries
+                    ADD COLUMN disposition TEXT NOT NULL DEFAULT 'complete';
+                ALTER TABLE agent_model_call_metrics
+                    ADD COLUMN outcome TEXT NOT NULL DEFAULT 'succeeded';
+
+                UPDATE library_metadata SET value = '6' WHERE key = 'database_schema';
+                UPDATE library_metadata SET value = '5' WHERE key = 'agent_runtime_schema';
+                """)
+        }
     }
 
     private static func decodeSource(_ row: Row) throws -> Source {
@@ -830,6 +1107,46 @@ private extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+protocol SourceRevisionCommitInterlock: Sendable {
+    func beforeSnapshotCommit(sourceID: String) async
+}
+
+struct SourceRevisionCoordinator: Sendable {
+    let database: LibraryDatabase
+    let agentRuntime: ReadingAgentRuntime
+    let commitInterlock: (any SourceRevisionCommitInterlock)?
+
+    init(
+        database: LibraryDatabase,
+        agentRuntime: ReadingAgentRuntime,
+        commitInterlock: (any SourceRevisionCommitInterlock)? = nil
+    ) {
+        self.database = database
+        self.agentRuntime = agentRuntime
+        self.commitInterlock = commitInterlock
+    }
+
+    func refresh(to snapshot: SourceSnapshot) async throws {
+        // Install per-Space barriers before cancellation. Existing Session
+        // references and new Runtime lookups cannot start a Run in the gap
+        // between cancellation and the atomic Snapshot transaction.
+        let lease = try await agentRuntime.beginSourceRevisionRefresh(
+            sourceID: snapshot.sourceID
+        )
+        do {
+            await commitInterlock?.beforeSnapshotCommit(sourceID: snapshot.sourceID)
+            let generations = try database.commitSnapshotRefreshAndInvalidateRuns(snapshot)
+            await agentRuntime.completeSourceRevisionRefresh(
+                lease: lease,
+                generations: generations
+            )
+        } catch {
+            await agentRuntime.abortSourceRevisionRefresh(lease: lease)
+            throw error
+        }
     }
 }
 

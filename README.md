@@ -18,20 +18,19 @@ Requirements:
 - Network access only when importing a remote source or using a remote Provider
 
 ```bash
+scripts/bootstrap-dependencies.sh
 swift run OneReader
 ```
 
-You can also open `Package.swift` in Xcode and run the `OneReader` executable
-scheme.
+Run the bootstrap once before opening `Package.swift` in Xcode, then use the
+`OneReader` executable scheme. It configures an ignored local mirror for one
+unused SwiftAgent transitive product whose upstream manifest requires a newer
+Swift tools version; it does not download or link that peer implementation.
 
 ## Validate
 
 ```bash
-swift test
-swift build --configuration release
-python3 scripts/check-doc-index.py
-scripts/package-app.sh
-git diff --check
+scripts/validate-native.sh
 ```
 
 An ad-hoc signed, sandboxed Developer Preview app bundle is written to
@@ -49,6 +48,8 @@ An ad-hoc signed, sandboxed Developer Preview app bundle is written to
 - Injectable 4 GiB confirmation/2 GiB reserve policy and Trash-based managed removal
 - Legacy progress backup under `Legacy/` without false identity migration
 - Source, adapter, locator, evidence, graph, annotation, and Agent audit contracts
+- Optional single Reading Agent with seven read-only tools and host-owned commits
+- Dedicated fail-closed Provider sessions, endpoint-bound disclosure, and Keychain secrets
 - Snapshot-bound locators with explicit current, relocated, or orphaned resolution
 
 ## Project management
