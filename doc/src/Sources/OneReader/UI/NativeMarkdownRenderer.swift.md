@@ -19,4 +19,6 @@ code syntax, link destinations, and omitted raw HTML therefore cannot capture an
 equal visible string elsewhere in the document. Mapping attributes are committed
 only when runs cover the entire rendered leaf. CommonMark code-span newline
 normalization, indented fences, and indented blocks fail closed for the whole
-leaf rather than returning a partial or syntax-anchored range.
+leaf rather than returning a partial or syntax-anchored range. The renderer
+marks such leaves with an unavailable-map sentinel; both mapping directions
+reject any selection intersecting it, including left/right cross-leaf ranges.

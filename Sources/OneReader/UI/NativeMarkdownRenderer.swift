@@ -106,6 +106,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
                 for: inlineCode.range,
                 rendered: inlineCode.code
             ),
+            unavailableSourceUTF16Range: sourceIndex?.utf16Range(for: inlineCode.range),
             decodesMarkdownText: false,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
@@ -122,6 +123,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let result = mappedAttributed(
             code,
             sourceUTF16Range: sourceIndex?.codeBlockContentRange(for: codeBlock.range),
+            unavailableSourceUTF16Range: sourceIndex?.utf16Range(for: codeBlock.range),
             decodesMarkdownText: false,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
@@ -317,6 +319,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         mappedAttributed(
             string,
             sourceUTF16Range: sourceIndex?.utf16Range(for: sourceRange),
+            unavailableSourceUTF16Range: sourceIndex?.utf16Range(for: sourceRange),
             decodesMarkdownText: decodesMarkdownText,
             attributes: attributes
         )
@@ -325,6 +328,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     private mutating func mappedAttributed(
         _ string: String,
         sourceUTF16Range: NSRange?,
+        unavailableSourceUTF16Range: NSRange? = nil,
         decodesMarkdownText: Bool,
         attributes: [NSAttributedString.Key: Any]? = nil
     ) -> NSMutableAttributedString {
@@ -335,9 +339,13 @@ struct NativeMarkdownRenderer: MarkupVisitor {
                 .foregroundColor: NSColor.labelColor,
             ]
         )
-        guard !string.isEmpty,
-              let sourceIndex,
+        guard !string.isEmpty else { return result }
+        guard let sourceIndex,
               let sourceUTF16Range else {
+            markSourceMappingUnavailable(
+                result,
+                sourceRange: unavailableSourceUTF16Range
+            )
             return result
         }
         let runs = MarkdownLeafSourceMapper.runs(
@@ -349,7 +357,13 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         guard MarkdownLeafSourceMapper.fullyCovers(
             renderedUTF16Length: (string as NSString).length,
             runs: runs
-        ) else { return result }
+        ) else {
+            markSourceMappingUnavailable(
+                result,
+                sourceRange: unavailableSourceUTF16Range ?? sourceUTF16Range
+            )
+            return result
+        }
         for run in runs {
             result.addAttributes(
                 [
@@ -360,6 +374,21 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             )
         }
         return result
+    }
+
+    private func markSourceMappingUnavailable(
+        _ result: NSMutableAttributedString,
+        sourceRange: NSRange?
+    ) {
+        guard result.length > 0 else { return }
+        var attributes: [NSAttributedString.Key: Any] = [
+            .oneReaderSourceMappingUnavailable: true,
+        ]
+        if let sourceRange {
+            attributes[.oneReaderSourceUTF16Start] = sourceRange.location
+            attributes[.oneReaderSourceUTF16End] = NSMaxRange(sourceRange)
+        }
+        result.addAttributes(attributes, range: result.fullRange)
     }
 
     private func paragraphStyle(
@@ -757,6 +786,19 @@ enum MarkdownSourceMap {
         in rendered: NSAttributedString
     ) -> NSRange? {
         guard sourceRange.location != NSNotFound, sourceRange.length >= 0 else { return nil }
+        var intersectsUnavailableLeaf = false
+        rendered.enumerateAttributes(
+            in: rendered.fullRange
+        ) { attributes, _, stop in
+            guard attributes[.oneReaderSourceMappingUnavailable] as? Bool == true,
+                  let sourceStart = attributes[.oneReaderSourceUTF16Start] as? Int,
+                  let sourceEnd = attributes[.oneReaderSourceUTF16End] as? Int,
+                  sourceStart < NSMaxRange(sourceRange),
+                  sourceEnd > sourceRange.location else { return }
+            intersectsUnavailableLeaf = true
+            stop.pointee = true
+        }
+        guard !intersectsUnavailableLeaf else { return nil }
         var renderedStart: Int?
         var renderedEnd: Int?
         rendered.enumerateAttribute(
@@ -796,6 +838,16 @@ enum MarkdownSourceMap {
         guard renderedRange.location != NSNotFound,
               renderedRange.length > 0,
               NSMaxRange(renderedRange) <= rendered.length else { return nil }
+        var intersectsUnavailableLeaf = false
+        rendered.enumerateAttribute(
+            .oneReaderSourceMappingUnavailable,
+            in: renderedRange
+        ) { value, _, stop in
+            guard value as? Bool == true else { return }
+            intersectsUnavailableLeaf = true
+            stop.pointee = true
+        }
+        guard !intersectsUnavailableLeaf else { return nil }
         var sourceStart: Int?
         var sourceEnd: Int?
         rendered.enumerateAttribute(
@@ -833,6 +885,9 @@ extension NSAttributedString.Key {
     )
     static let oneReaderSourceUTF16End = NSAttributedString.Key(
         "com.onereader.markdown.source-utf16-end"
+    )
+    static let oneReaderSourceMappingUnavailable = NSAttributedString.Key(
+        "com.onereader.markdown.source-mapping-unavailable"
     )
 }
 

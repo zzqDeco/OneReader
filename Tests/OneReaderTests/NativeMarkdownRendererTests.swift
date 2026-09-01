@@ -288,6 +288,39 @@ final class NativeMarkdownRendererTests: XCTestCase {
         ), "The visible space must not anchor to fence indentation syntax")
     }
 
+    func testCrossLeafSelectionContainingUnavailableCodeFailsClosed() throws {
+        let source = "pre `a\nb` post"
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let renderedValue = rendered.string as NSString
+        let codeRange = renderedValue.range(of: "a b")
+
+        XCTAssertNotEqual(codeRange.location, NSNotFound)
+        XCTAssertNil(MarkdownSourceMap.sourceRange(
+            forRenderedRange: NSRange(
+                location: codeRange.location - 1,
+                length: codeRange.length + 1
+            ),
+            in: rendered
+        ), "A leading mapped space must not become a partial Locator")
+        XCTAssertNil(MarkdownSourceMap.sourceRange(
+            forRenderedRange: NSRange(
+                location: codeRange.location,
+                length: codeRange.length + 1
+            ),
+            in: rendered
+        ), "A trailing mapped space must not become a partial Locator")
+
+        let sourceCodeRange = (source as NSString).range(of: "`a\nb`")
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: NSRange(
+                location: sourceCodeRange.location - 1,
+                length: sourceCodeRange.length + 1
+            ),
+            in: rendered
+        ), "Reverse mapping must also reject a range crossing an unavailable leaf")
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0

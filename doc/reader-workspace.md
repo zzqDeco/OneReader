@@ -69,9 +69,11 @@ code syntax, and omitted raw HTML are therefore never candidates for visible
 text. A leaf installs mapping attributes only when every visible UTF-16 unit is
 covered. Code-span newline normalization, indented fences, and indented code
 blocks therefore drop the whole leaf map instead of exposing a partial or
-syntax-anchored range. Selections and positions map rendered ranges back to
-exact source ranges (and fail closed when no map exists), so repeated text never
-falls back to a first/unique-match guess.
+syntax-anchored range. An explicit unavailable-map sentinel propagates that
+failure through selections crossing either edge of the leaf, so an adjacent
+mapped space cannot become a partial Locator. Selections and positions map
+rendered ranges back to exact source ranges (and fail closed when no map exists),
+so repeated text never falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB
