@@ -65,9 +65,13 @@ from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
 fenced-code delimiter/language lines are then removed before alignment. UTF-8
 byte columns are converted to source UTF-16 offsets, and escape/entity
 expansions retain the whole source token as their anchor. Link destinations,
-code syntax, and omitted raw HTML are therefore never candidates for visible text. Selections and positions map
-rendered ranges back to exact source ranges (and fail closed when no map exists),
-so repeated text never falls back to a first/unique-match guess.
+code syntax, and omitted raw HTML are therefore never candidates for visible
+text. A leaf installs mapping attributes only when every visible UTF-16 unit is
+covered. Code-span newline normalization, indented fences, and indented code
+blocks therefore drop the whole leaf map instead of exposing a partial or
+syntax-anchored range. Selections and positions map rendered ranges back to
+exact source ranges (and fail closed when no map exists), so repeated text never
+falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB

@@ -102,7 +102,10 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     mutating func visitInlineCode(_ inlineCode: InlineCode) -> NSMutableAttributedString {
         mappedAttributed(
             inlineCode.code,
-            sourceUTF16Range: sourceIndex?.inlineCodeContentRange(for: inlineCode.range),
+            sourceUTF16Range: sourceIndex?.inlineCodeContentRange(
+                for: inlineCode.range,
+                rendered: inlineCode.code
+            ),
             decodesMarkdownText: false,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
@@ -337,12 +340,17 @@ struct NativeMarkdownRenderer: MarkupVisitor {
               let sourceUTF16Range else {
             return result
         }
-        for run in MarkdownLeafSourceMapper.runs(
+        let runs = MarkdownLeafSourceMapper.runs(
             rendered: string,
             source: sourceIndex.source,
             sourceRange: sourceUTF16Range,
             decodesMarkdownText: decodesMarkdownText
-        ) {
+        )
+        guard MarkdownLeafSourceMapper.fullyCovers(
+            renderedUTF16Length: (string as NSString).length,
+            runs: runs
+        ) else { return result }
+        for run in runs {
             result.addAttributes(
                 [
                     .oneReaderSourceUTF16Start: run.source.location,
@@ -426,7 +434,10 @@ private struct MarkdownUTF16SourceIndex {
         return NSRange(location: lower, length: upper - lower)
     }
 
-    func inlineCodeContentRange(for range: SourceRange?) -> NSRange? {
+    func inlineCodeContentRange(
+        for range: SourceRange?,
+        rendered: String
+    ) -> NSRange? {
         guard let fullRange = utf16Range(for: range) else { return nil }
         let value = source as NSString
         guard NSMaxRange(fullRange) <= value.length else { return nil }
@@ -443,9 +454,37 @@ private struct MarkdownUTF16SourceIndex {
         }
         guard raw.length - closingStart == openingLength,
               closingStart >= openingLength else { return nil }
+        var contentStart = openingLength
+        var contentEnd = closingStart
+        let content = NSRange(
+            location: contentStart,
+            length: contentEnd - contentStart
+        )
+        guard raw.rangeOfCharacter(
+            from: .newlines,
+            options: [],
+            range: content
+        ).location == NSNotFound else { return nil }
+
+        if contentEnd - contentStart >= 2,
+           raw.character(at: contentStart) == 0x20,
+           raw.character(at: contentEnd - 1) == 0x20 {
+            let allSpaces = (contentStart..<contentEnd).allSatisfy {
+                raw.character(at: $0) == 0x20
+            }
+            if !allSpaces {
+                contentStart += 1
+                contentEnd -= 1
+            }
+        }
+        let normalizedRange = NSRange(
+            location: contentStart,
+            length: contentEnd - contentStart
+        )
+        guard raw.substring(with: normalizedRange) == rendered else { return nil }
         return NSRange(
-            location: fullRange.location + openingLength,
-            length: closingStart - openingLength
+            location: fullRange.location + normalizedRange.location,
+            length: normalizedRange.length
         )
     }
 
@@ -453,6 +492,12 @@ private struct MarkdownUTF16SourceIndex {
         guard let fullRange = utf16Range(for: range) else { return nil }
         let value = source as NSString
         guard NSMaxRange(fullRange) <= value.length else { return nil }
+        guard fullRange.location == 0
+                || value.character(at: fullRange.location - 1) == 0x0A
+                || value.character(at: fullRange.location - 1) == 0x0D else {
+            // swift-markdown may exclude opening-fence indentation from its range.
+            return nil
+        }
         let raw = value.substring(with: fullRange) as NSString
         let lines = Self.lineRanges(in: raw)
         guard let openingLine = lines.first else { return fullRange }
@@ -465,11 +510,11 @@ private struct MarkdownUTF16SourceIndex {
             leadingSpaces += 1
             cursor += 1
         }
-        guard leadingSpaces <= 3,
+        guard leadingSpaces == 0,
               cursor < NSMaxRange(openingContent),
               raw.character(at: cursor) == 0x60 || raw.character(at: cursor) == 0x7E else {
-            // Indented code blocks have no hidden fence or language-info syntax.
-            return fullRange
+            // Indented blocks and indented fences normalize structural spaces.
+            return nil
         }
         let fenceCharacter = raw.character(at: cursor)
         var openingFenceLength = 0
@@ -477,7 +522,7 @@ private struct MarkdownUTF16SourceIndex {
               raw.character(at: cursor + openingFenceLength) == fenceCharacter {
             openingFenceLength += 1
         }
-        guard openingFenceLength >= 3 else { return fullRange }
+        guard openingFenceLength >= 3 else { return nil }
 
         let contentStart = NSMaxRange(openingLine)
         var contentEnd = raw.length
@@ -652,6 +697,17 @@ private enum MarkdownLeafSourceMapper {
             }
         }
         return result
+    }
+
+    static func fullyCovers(renderedUTF16Length: Int, runs: [Run]) -> Bool {
+        guard renderedUTF16Length > 0, !runs.isEmpty else { return false }
+        var coveredEnd = 0
+        for run in runs {
+            guard run.rendered.length > 0,
+                  run.rendered.location == coveredEnd else { return false }
+            coveredEnd = NSMaxRange(run.rendered)
+        }
+        return coveredEnd == renderedUTF16Length
     }
 
     private static func entityRun(

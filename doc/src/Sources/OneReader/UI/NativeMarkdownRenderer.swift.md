@@ -16,4 +16,7 @@ UTF-16 offsets before escapes and HTML entities are aligned within that bounded
 range. Inline-code backtick runs and fenced-code delimiter/language lines are
 structurally excluded first; an ambiguous code boundary produces no map. Hidden
 code syntax, link destinations, and omitted raw HTML therefore cannot capture an
-equal visible string elsewhere in the document.
+equal visible string elsewhere in the document. Mapping attributes are committed
+only when runs cover the entire rendered leaf. CommonMark code-span newline
+normalization, indented fences, and indented blocks fail closed for the whole
+leaf rather than returning a partial or syntax-anchored range.

@@ -54,10 +54,11 @@ source ranges, and WebKit emits no callback after stop returns. A real v8
 fixture proves bootstrap rebuilds global search without opening the migrated
 Space. Markdown mapping fixtures exclude link destinations, raw HTML, inline
 backtick delimiters, code fences, and repeated language identifiers while
-preserving escapes, entities, and UTF-8-to-UTF-16 offsets. AppModel coverage
-proves a Provider mutation immediately removes an invalidated interrupted Run
-from Inspector state; nested HTML fixtures prove sanitizer and presentation use
-one Snapshot resource root.
+preserving escapes, entities, and UTF-8-to-UTF-16 offsets. Normalized multiline
+code spans and indented fences prove incomplete or syntax-anchored leaf maps are
+discarded wholesale. AppModel coverage proves a Provider mutation immediately
+removes an invalidated interrupted Run from Inspector state; nested HTML fixtures
+prove sanitizer and presentation use one Snapshot resource root.
 
 ## Native acceptance record
 

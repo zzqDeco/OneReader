@@ -47,7 +47,7 @@ resistance, endpoint checks, redaction, timeouts, and stream failure.
 
 ## Acceptance Evidence
 
-Current integrated evidence includes deterministic fake transcripts, 188 passing
+Current integrated evidence includes deterministic fake transcripts, 190 passing
 tests, ordered persisted events, rejected forged patches/quotes/Locators,
 immutable endpoint/revision-bound disclosure, real SDK-session transport
 isolation, redirect/lease/raw-response fail-closure, source-refresh and

@@ -250,6 +250,44 @@ final class NativeMarkdownRendererTests: XCTestCase {
         XCTAssertEqual(sourceValue.substring(with: literal), "`")
     }
 
+    func testNormalizedInlineCodeFailsClosedInsteadOfPartiallyMapping() throws {
+        let source = "`a\nb`"
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let fullRenderedRange = NSRange(location: 0, length: rendered.length)
+
+        XCTAssertEqual(rendered.string, "a b")
+        XCTAssertNil(MarkdownSourceMap.sourceRange(
+            forRenderedRange: fullRenderedRange,
+            in: rendered
+        ))
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: NSRange(location: 1, length: 1),
+            in: rendered
+        ), "A leaf requiring newline normalization must not expose a partial map")
+    }
+
+    func testIndentedFenceFailsClosedInsteadOfMappingStructuralSpaces() throws {
+        let source = """
+              ```
+               x
+              ````
+            """
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let visibleCodeRange = (rendered.string as NSString).range(of: " x")
+
+        XCTAssertNotEqual(visibleCodeRange.location, NSNotFound)
+        XCTAssertNil(MarkdownSourceMap.sourceRange(
+            forRenderedRange: visibleCodeRange,
+            in: rendered
+        ), "Fence indentation normalization must drop the entire code-leaf map")
+        XCTAssertNil(MarkdownSourceMap.sourceRange(
+            forRenderedRange: NSRange(location: visibleCodeRange.location, length: 1),
+            in: rendered
+        ), "The visible space must not anchor to fence indentation syntax")
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0
