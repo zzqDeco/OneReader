@@ -1449,6 +1449,8 @@ private enum ReadingAgentPrompt {
             Task: \(request.task.rawValue)
             Reading Space: \(request.spaceID)
             Expected snapshots: \(snapshots)
+            Target source: \(request.targetSourceID ?? "")
+            Target snapshot: \(request.targetSnapshotID ?? "")
             User goal: \(request.goal ?? "")
             User question: \(request.question ?? "")
             Validation correction: \(modelRequest.correction ?? "none")

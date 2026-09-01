@@ -405,7 +405,7 @@ final class ManagedLibraryTests: XCTestCase {
             space: space,
             createsSpace: false
         )
-        try database.commitRemoval(sourceID: removedSource.id)
+        _ = try database.commitRemoval(sourceID: removedSource.id)
         let epubRoot = database.layout.derivedURL.appendingPathComponent("epub", isDirectory: true)
         let abandoned = epubRoot.appendingPathComponent(".staging-orphan", isDirectory: true)
         let committed = epubRoot.appendingPathComponent("snapshot-keep", isDirectory: true)
@@ -442,7 +442,7 @@ final class ManagedLibraryTests: XCTestCase {
         let imported = try await library.importLocalSource(at: sourceURL)
         let managedContainer = imported.managedURL.deletingLastPathComponent()
 
-        try await library.removeSource(id: imported.source.id)
+        _ = try await library.removeSource(id: imported.source.id)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: managedContainer.path))
@@ -474,7 +474,7 @@ final class ManagedLibraryTests: XCTestCase {
         try FileManager.default.createDirectory(at: derived, withIntermediateDirectories: true)
         try Data("cache".utf8).write(to: derived.appendingPathComponent("spine.html"))
 
-        try await library.removeSource(id: imported.source.id)
+        _ = try await library.removeSource(id: imported.source.id)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: derived.path))
     }
@@ -496,7 +496,7 @@ final class ManagedLibraryTests: XCTestCase {
         let first = try await library.importLocalSource(at: firstURL)
         let second = try await library.importLocalSource(at: secondURL)
 
-        try await library.removeSource(id: first.source.id)
+        _ = try await library.removeSource(id: first.source.id)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.managedURL.path))
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: trashURL.path).isEmpty)

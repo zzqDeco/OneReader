@@ -14,3 +14,8 @@ prevents underlying paths or Source content reaching the model. The tool
 registry is closed and does not
 import AgentTools or expose network, shell, write, dispatch, MCP, Skills, or
 sub-agent operations.
+
+The SwiftAgent wrapper derives Source/Snapshot/Adapter identity from validated
+arguments or the Locator, hashes the Locator JSON, and records requested limits
+plus the byte range actually returned to the model. It never records query,
+body, path, or note text in Activity metadata.

@@ -1,6 +1,6 @@
 # Native Reader Workspace
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/native-reader-workspace`
 
@@ -49,8 +49,21 @@ latency, commands, accessibility labels, and presentation capability gating.
 
 ## Acceptance Evidence
 
-Pending: native screenshots, accessibility inspection, keyboard walkthrough,
-long-document scroll, PDF zoom, restart recovery, and offline reading.
+`scripts/validate-native.sh` passes the dependency lock, documentation index,
+release-policy fixtures, entitlement fixtures, all 163 tests, production build,
+Sandbox app assembly, codesign verification, and exact entitlement inspection.
+Focused coverage includes durable position restoration, indexed query-specific
+jumps including PDF pages, Space generation isolation, Agent target routing,
+immutable Source refresh and anchor relocation, pending frozen plans, atomic
+observation index recovery, Quick Look capability gating, unsaved Provider
+probes, outbound Fragment audit metadata, bounded WebKit resource streaming,
+and the schema-v8 local Source authorization lifecycle.
+
+The ad-hoc signed app was exercised with the managed `time-as-a-friend`
+repository in 1440 x 900 and 900 x 650 layouts. It exposed the native Library,
+source outline, selectable Chinese Markdown reading surface, explicit external
+link action, annotation controls, and compact/wide Inspector. The full record is
+owned by [v0.2 acceptance](../doc/acceptance.md).
 
 ## Non-goals
 
@@ -59,11 +72,11 @@ collaboration, OCR, and arbitrary embedded web browsing.
 
 ## Delivery Checklist
 
-- [ ] User behavior implemented
-- [ ] Contracts and migration implemented
-- [ ] Focused tests pass
-- [ ] Unified validation passes
-- [ ] Native acceptance recorded
-- [ ] Current-state and source docs synchronized
-- [ ] Branch merged into `dev`
-- [ ] Status changed to Delivered
+- [x] User behavior implemented
+- [x] Contracts and migration implemented
+- [x] Focused tests pass
+- [x] Unified validation passes
+- [x] Native acceptance recorded
+- [x] Current-state and source docs synchronized
+- [x] Branch merged into `dev`
+- [x] Status changed to Delivered

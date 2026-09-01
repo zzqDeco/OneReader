@@ -13,7 +13,9 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 6
+    static let schemaVersion = 8
+    static let adapterSchemaVersion = 1
+    static let agentRuntimeSchemaVersion = 5
 
     let layout: ApplicationSupportLayout
     let pool: DatabasePool
@@ -37,6 +39,7 @@ final class LibraryDatabase: @unchecked Sendable {
 
         let migrator = Self.makeMigrator()
         try migrator.migrate(pool)
+        try recoverInterruptedObservationIndexes()
         try interruptIncompleteAgentRuns()
         try LegacyProgressMigration.backUpIfNeeded(layout: layout, pool: pool)
     }
@@ -177,7 +180,8 @@ final class LibraryDatabase: @unchecked Sendable {
         source: Source,
         snapshot: SourceSnapshot,
         space: ReadingSpace,
-        createsSpace: Bool
+        createsSpace: Bool,
+        accessBookmark: Data? = nil
     ) throws {
         try pool.write { db in
             if createsSpace {
@@ -228,6 +232,17 @@ final class LibraryDatabase: @unchecked Sendable {
                 ]
             )
 
+            if let accessBookmark {
+                try db.execute(
+                    sql: """
+                        INSERT INTO source_access_bookmarks
+                            (source_id, bookmark_data, updated_at)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [source.id, accessBookmark, Date.now]
+                )
+            }
+
             try db.execute(
                 sql: """
                     INSERT INTO snapshots
@@ -263,8 +278,35 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
-    fileprivate func commitSnapshotRefreshAndInvalidateRuns(
-        _ snapshot: SourceSnapshot
+    func sourceAccessBookmark(sourceID: String) throws -> Data? {
+        try pool.read { db in
+            try Data.fetchOne(
+                db,
+                sql: "SELECT bookmark_data FROM source_access_bookmarks WHERE source_id = ?",
+                arguments: [sourceID]
+            )
+        }
+    }
+
+    func saveSourceAccessBookmark(_ data: Data, sourceID: String) throws {
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO source_access_bookmarks
+                        (source_id, bookmark_data, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(source_id) DO UPDATE SET
+                        bookmark_data = excluded.bookmark_data,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [sourceID, data, Date.now]
+            )
+        }
+    }
+
+    func commitSnapshotRefreshAndInvalidateRuns(
+        _ snapshot: SourceSnapshot,
+        migrations: SourceRevisionMigrationBatch = .empty
     ) throws -> [String: Int] {
         try pool.write { db in
             guard let state = try String.fetchOne(
@@ -309,84 +351,105 @@ final class LibraryDatabase: @unchecked Sendable {
             guard db.changesCount == 1 else {
                 throw LibraryStorageError.missingSource(snapshot.sourceID)
             }
+
+            for migration in migrations.annotations {
+                guard migration.state != .current else {
+                    throw ReaderPersistenceError.invalidAnnotation(
+                        "刷新迁移不能把旧 Snapshot 标记为 current"
+                    )
+                }
+                try db.execute(
+                    sql: """
+                        UPDATE annotations
+                        SET anchor_state = ?, updated_at = ?
+                        WHERE id = ? AND source_id = ?
+                        """,
+                    arguments: [
+                        migration.state.rawValue,
+                        snapshot.observedAt,
+                        migration.annotationID,
+                        snapshot.sourceID,
+                    ]
+                )
+                guard db.changesCount == 1 else {
+                    throw ReaderPersistenceError.invalidAnnotation(
+                        "待迁移标注不存在或不属于刷新来源"
+                    )
+                }
+            }
+
+            for migration in migrations.positions {
+                guard migration.sourceID == snapshot.sourceID,
+                      spaceIDs.contains(migration.spaceID) else {
+                    throw ReaderPersistenceError.invalidProgress(
+                        "刷新位置不属于当前来源或 Reading Space"
+                    )
+                }
+                guard let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT schema_version, payload_json FROM reading_progress WHERE space_id = ?",
+                    arguments: [migration.spaceID]
+                ) else { continue }
+                let schema: Int = row["schema_version"]
+                guard schema == ReadingProgress.currentSchemaVersion else {
+                    throw ReaderPersistenceError.unsupportedProgressSchema(schema)
+                }
+                let payload: Data = row["payload_json"]
+                var progress = try JSONDecoder.databaseDecoder.decode(
+                    ReadingProgress.self,
+                    from: payload
+                )
+                if let resolved = migration.resolvedLocator {
+                    guard resolved.sourceID == snapshot.sourceID,
+                          resolved.snapshotID == snapshot.id else {
+                        throw ReaderPersistenceError.invalidProgress(
+                            "刷新后的阅读位置未绑定新 Snapshot"
+                        )
+                    }
+                    progress.sourcePositions[snapshot.sourceID] = SourcePosition(
+                        sourceID: snapshot.sourceID,
+                        locator: resolved,
+                        updatedAt: snapshot.observedAt
+                    )
+                } else {
+                    progress.sourcePositions[snapshot.sourceID] = nil
+                }
+                progress.lastActiveAt = snapshot.observedAt
+                try db.execute(
+                    sql: """
+                        UPDATE reading_progress
+                        SET payload_json = ?, updated_at = ?
+                        WHERE space_id = ?
+                        """,
+                    arguments: [
+                        try JSONEncoder.databaseEncoder.encode(progress),
+                        progress.lastActiveAt,
+                        migration.spaceID,
+                    ]
+                )
+            }
             let metadata = try JSONEncoder.databaseEncoder.encode([
                 "category": "source-revision-changed",
                 "sourceID": snapshot.sourceID,
                 "snapshotID": snapshot.id,
             ])
-            var generations: [String: Int] = [:]
-            for spaceID in spaceIDs {
-                let rows = try Row.fetchAll(
-                    db,
-                    sql: """
-                        SELECT id
-                        FROM agent_runs
-                        WHERE space_id = ? AND state IN ('queued', 'running', 'waitingForUser')
-                        ORDER BY created_at, id
-                        """,
-                    arguments: [spaceID]
-                )
-                for row in rows {
-                    let runID: String = row["id"]
-                    try db.execute(
-                        sql: """
-                            UPDATE agent_runs
-                            SET state = 'cancelled', finished_at = ?,
-                                error_category = 'source-revision-changed'
-                            WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
-                            """,
-                        arguments: [Date.now, runID]
-                    )
-                    try db.execute(
-                        sql: "UPDATE agent_outputs SET disposition = 'superseded' WHERE run_id = ?",
-                        arguments: [runID]
-                    )
-                    let sequence = try Int.fetchOne(
-                        db,
-                        sql: "SELECT COALESCE(MAX(sequence), -1) + 1 FROM agent_events WHERE run_id = ?",
-                        arguments: [runID]
-                    ) ?? 0
-                    try db.execute(
-                        sql: """
-                            INSERT INTO agent_events
-                                (id, run_id, sequence, kind, phase, message,
-                                 metadata_json, created_at)
-                            VALUES (?, ?, ?, 'cancelled', 'revision', ?, ?, ?)
-                            """,
-                        arguments: [
-                            UUID().uuidString.lowercased(),
-                            runID,
-                            sequence,
-                            "来源版本已刷新；旧 Run 已取消。",
-                            metadata,
-                            Date.now,
-                        ]
-                    )
-                }
-                try db.execute(
-                    sql: """
-                        UPDATE reading_agent_sessions
-                        SET generation = generation + 1,
-                            transcript_json = NULL,
-                            projection_json = NULL,
-                            updated_at = ?
-                        WHERE space_id = ?
-                        """,
-                    arguments: [Date.now, spaceID]
-                )
-                generations[spaceID] = try Int.fetchOne(
-                    db,
-                    sql: "SELECT generation FROM reading_agent_sessions WHERE space_id = ?",
-                    arguments: [spaceID]
-                ) ?? 0
-            }
-            return generations
+            return try Self.invalidateAgentRuns(
+                in: db,
+                spaceIDs: spaceIDs,
+                errorCategory: "source-revision-changed",
+                phase: "revision",
+                message: "来源版本已刷新；旧 Run 已取消。",
+                metadata: metadata
+            )
         }
     }
 
     #if DEBUG
-    func commitSnapshotRefreshForTesting(_ snapshot: SourceSnapshot) throws {
-        _ = try commitSnapshotRefreshAndInvalidateRuns(snapshot)
+    func commitSnapshotRefreshForTesting(
+        _ snapshot: SourceSnapshot,
+        migrations: SourceRevisionMigrationBatch = .empty
+    ) throws {
+        _ = try commitSnapshotRefreshAndInvalidateRuns(snapshot, migrations: migrations)
     }
     #endif
 
@@ -444,8 +507,78 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
-    func commitRemoval(sourceID: String) throws {
+    func commitRemoval(sourceID: String) throws -> [String: Int] {
         try pool.write { db in
+            let spaceIDs = try String.fetchAll(
+                db,
+                sql: "SELECT space_id FROM space_sources WHERE source_id = ? ORDER BY space_id",
+                arguments: [sourceID]
+            )
+            let metadata = try JSONEncoder.databaseEncoder.encode([
+                "category": "source-removed",
+                "sourceID": sourceID,
+            ])
+            let generations = try Self.invalidateAgentRuns(
+                in: db,
+                spaceIDs: spaceIDs,
+                errorCategory: "source-removed",
+                phase: "source",
+                message: "来源已移除；旧 Run 已取消。",
+                metadata: metadata
+            )
+
+            try db.execute(
+                sql: "DELETE FROM annotations WHERE source_id = ?",
+                arguments: [sourceID]
+            )
+            try db.execute(
+                sql: "DELETE FROM reading_history WHERE source_id = ?",
+                arguments: [sourceID]
+            )
+            try db.execute(
+                sql: "DELETE FROM source_access_bookmarks WHERE source_id = ?",
+                arguments: [sourceID]
+            )
+            for spaceID in spaceIDs {
+                if let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT schema_version, payload_json FROM reading_progress WHERE space_id = ?",
+                    arguments: [spaceID]
+                ) {
+                    let schema: Int = row["schema_version"]
+                    guard schema == ReadingProgress.currentSchemaVersion else {
+                        throw ReaderPersistenceError.unsupportedProgressSchema(schema)
+                    }
+                    let payload: Data = row["payload_json"]
+                    var progress = try JSONDecoder.databaseDecoder.decode(
+                        ReadingProgress.self,
+                        from: payload
+                    )
+                    progress.sourcePositions[sourceID] = nil
+                    progress.graphVersion = nil
+                    progress.currentUnitID = nil
+                    progress.currentPlanStepID = nil
+                    progress.units = [:]
+                    progress.lastActiveAt = .now
+                    try db.execute(
+                        sql: "UPDATE reading_progress SET payload_json = ?, updated_at = ? WHERE space_id = ?",
+                        arguments: [
+                            try JSONEncoder.databaseEncoder.encode(progress),
+                            progress.lastActiveAt,
+                            spaceID,
+                        ]
+                    )
+                }
+                try db.execute(
+                    sql: "DELETE FROM reading_plans WHERE space_id = ?",
+                    arguments: [spaceID]
+                )
+                try db.execute(
+                    sql: "DELETE FROM reading_graphs WHERE space_id = ?",
+                    arguments: [spaceID]
+                )
+            }
+
             try db.execute(
                 sql: """
                     UPDATE sources
@@ -461,7 +594,85 @@ final class LibraryDatabase: @unchecked Sendable {
                 sql: "DELETE FROM space_sources WHERE source_id = ?",
                 arguments: [sourceID]
             )
+            return generations
         }
+    }
+
+    private static func invalidateAgentRuns(
+        in db: Database,
+        spaceIDs: [String],
+        errorCategory: String,
+        phase: String,
+        message: String,
+        metadata: Data
+    ) throws -> [String: Int] {
+        var generations: [String: Int] = [:]
+        for spaceID in spaceIDs {
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT id
+                    FROM agent_runs
+                    WHERE space_id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                    ORDER BY created_at, id
+                    """,
+                arguments: [spaceID]
+            )
+            for row in rows {
+                let runID: String = row["id"]
+                try db.execute(
+                    sql: """
+                        UPDATE agent_runs
+                        SET state = 'cancelled', finished_at = ?, error_category = ?
+                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                        """,
+                    arguments: [Date.now, errorCategory, runID]
+                )
+                try db.execute(
+                    sql: "UPDATE agent_outputs SET disposition = 'superseded' WHERE run_id = ?",
+                    arguments: [runID]
+                )
+                let sequence = try Int.fetchOne(
+                    db,
+                    sql: "SELECT COALESCE(MAX(sequence), -1) + 1 FROM agent_events WHERE run_id = ?",
+                    arguments: [runID]
+                ) ?? 0
+                try db.execute(
+                    sql: """
+                        INSERT INTO agent_events
+                            (id, run_id, sequence, kind, phase, message,
+                             metadata_json, created_at)
+                        VALUES (?, ?, ?, 'cancelled', ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        UUID().uuidString.lowercased(),
+                        runID,
+                        sequence,
+                        phase,
+                        message,
+                        metadata,
+                        Date.now,
+                    ]
+                )
+            }
+            try db.execute(
+                sql: """
+                    UPDATE reading_agent_sessions
+                    SET generation = generation + 1,
+                        transcript_json = NULL,
+                        projection_json = NULL,
+                        updated_at = ?
+                    WHERE space_id = ?
+                    """,
+                arguments: [Date.now, spaceID]
+            )
+            generations[spaceID] = try Int.fetchOne(
+                db,
+                sql: "SELECT generation FROM reading_agent_sessions WHERE space_id = ?",
+                arguments: [spaceID]
+            ) ?? 0
+        }
+        return generations
     }
 
     func saveAdapterPlan(_ plan: AdapterPlan) throws {
@@ -566,6 +777,225 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
+    func beginObservationIndex(snapshotID: String, planID: String) throws -> String {
+        let generationID = UUID().uuidString.lowercased()
+        try pool.write { db in
+            guard try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM adapter_plans
+                        WHERE id = ? AND snapshot_id = ?
+                    )
+                    """,
+                arguments: [planID, snapshotID]
+            ) ?? false else {
+                throw AdapterError.unsupportedContent("索引计划与 Snapshot 不匹配")
+            }
+            if let previousGeneration = try String.fetchOne(
+                db,
+                sql: "SELECT generation_id FROM observation_index_runs WHERE snapshot_id = ?",
+                arguments: [snapshotID]
+            ) {
+                try db.execute(
+                    sql: "DELETE FROM observation_index_staging WHERE generation_id = ?",
+                    arguments: [previousGeneration]
+                )
+            }
+            try db.execute(
+                sql: """
+                    INSERT INTO observation_index_runs
+                        (snapshot_id, plan_id, generation_id, state,
+                         observation_count, started_at, completed_at, error_category)
+                    VALUES (?, ?, ?, 'running', 0, ?, NULL, NULL)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        plan_id = excluded.plan_id,
+                        generation_id = excluded.generation_id,
+                        state = 'running',
+                        observation_count = 0,
+                        started_at = excluded.started_at,
+                        completed_at = NULL,
+                        error_category = NULL
+                    """,
+                arguments: [snapshotID, planID, generationID, Date.now]
+            )
+        }
+        return generationID
+    }
+
+    func stageObservation(
+        _ observation: Observation,
+        title: String?,
+        generationID: String
+    ) throws {
+        let locatorJSON = try JSONEncoder.databaseEncoder.encode(observation.locator)
+        try pool.write { db in
+            guard try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM observation_index_runs
+                        WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    )
+                    """,
+                arguments: [observation.snapshotID, generationID]
+            ) ?? false else {
+                throw CancellationError()
+            }
+            try db.execute(
+                sql: """
+                    INSERT INTO observation_index_staging
+                        (generation_id, observation_id, source_id, snapshot_id, adapter_id,
+                         locator_json, media_type, title, body, content_reference,
+                         digest, truncated, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(generation_id, observation_id) DO UPDATE SET
+                        locator_json = excluded.locator_json,
+                        media_type = excluded.media_type,
+                        title = excluded.title,
+                        body = excluded.body,
+                        content_reference = excluded.content_reference,
+                        digest = excluded.digest,
+                        truncated = excluded.truncated,
+                        created_at = excluded.created_at
+                    """,
+                arguments: [
+                    generationID,
+                    observation.id,
+                    observation.sourceID,
+                    observation.snapshotID,
+                    observation.adapterID,
+                    locatorJSON,
+                    observation.mediaType,
+                    title,
+                    observation.content,
+                    observation.contentReference,
+                    observation.contentDigest,
+                    observation.truncated,
+                    observation.observedAt,
+                ]
+            )
+        }
+    }
+
+    func completeObservationIndex(snapshotID: String, generationID: String) throws {
+        try pool.write { db in
+            guard try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM observation_index_runs
+                        WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    )
+                    """,
+                arguments: [snapshotID, generationID]
+            ) ?? false else { throw CancellationError() }
+            try db.execute(
+                sql: "DELETE FROM observation_fts WHERE snapshot_id = ?",
+                arguments: [snapshotID]
+            )
+            try db.execute(
+                sql: "DELETE FROM observations WHERE snapshot_id = ?",
+                arguments: [snapshotID]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO observations
+                        (id, source_id, snapshot_id, adapter_id, locator_json,
+                         media_type, title, body, content_reference, digest,
+                         truncated, created_at)
+                    SELECT observation_id, source_id, snapshot_id, adapter_id, locator_json,
+                           media_type, title, body, content_reference, digest,
+                           truncated, created_at
+                    FROM observation_index_staging
+                    WHERE generation_id = ? AND snapshot_id = ?
+                    ORDER BY observation_id
+                    """,
+                arguments: [generationID, snapshotID]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO observation_fts
+                        (observation_id, source_id, snapshot_id, title, body)
+                    SELECT id, source_id, snapshot_id, COALESCE(title, ''), COALESCE(body, '')
+                    FROM observations
+                    WHERE snapshot_id = ?
+                    ORDER BY created_at, id
+                    """,
+                arguments: [snapshotID]
+            )
+            let count = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM observations WHERE snapshot_id = ?",
+                arguments: [snapshotID]
+            ) ?? 0
+            try db.execute(
+                sql: """
+                    UPDATE observation_index_runs
+                    SET state = 'completed', observation_count = ?,
+                        completed_at = ?, error_category = NULL
+                    WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    """,
+                arguments: [count, Date.now, snapshotID, generationID]
+            )
+            guard db.changesCount == 1 else { throw CancellationError() }
+            try db.execute(
+                sql: "DELETE FROM observation_index_staging WHERE generation_id = ?",
+                arguments: [generationID]
+            )
+        }
+    }
+
+    func failObservationIndex(
+        snapshotID: String,
+        generationID: String,
+        category: String
+    ) throws {
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE observation_index_runs
+                    SET state = 'failed', completed_at = ?, error_category = ?
+                    WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    """,
+                arguments: [Date.now, category, snapshotID, generationID]
+            )
+            try db.execute(
+                sql: "DELETE FROM observation_index_staging WHERE generation_id = ?",
+                arguments: [generationID]
+            )
+        }
+    }
+
+    func isObservationIndexComplete(snapshotID: String) throws -> Bool {
+        try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM observation_index_runs
+                        WHERE snapshot_id = ? AND state = 'completed'
+                    )
+                    """,
+                arguments: [snapshotID]
+            ) ?? false
+        }
+    }
+
+    private func recoverInterruptedObservationIndexes() throws {
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE observation_index_runs
+                    SET state = 'failed', completed_at = ?, error_category = 'interrupted'
+                    WHERE state = 'running'
+                    """,
+                arguments: [Date.now]
+            )
+            try db.execute(sql: "DELETE FROM observation_index_staging")
+        }
+    }
+
     func searchObservations(
         query: String,
         snapshotID: String? = nil,
@@ -583,6 +1013,7 @@ final class LibraryDatabase: @unchecked Sendable {
                        observations.snapshot_id,
                        observations.adapter_id,
                        COALESCE(observations.title, '') AS title,
+                       COALESCE(observations.body, '') AS body,
                        snippet(observation_fts, 4, '[', ']', ' … ', 24) AS context,
                        bm25(observation_fts) AS score
                 FROM observation_fts
@@ -601,9 +1032,75 @@ final class LibraryDatabase: @unchecked Sendable {
             sql += " ORDER BY score LIMIT ?"
             arguments += [min(max(1, limit), 20)]
             let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return try rows.enumerated().map { index, row in
+            if !rows.isEmpty {
+                return try rows.enumerated().map { index, row in
+                    let locatorData: Data = row["locator_json"]
+                    let rootLocator = try JSONDecoder.databaseDecoder.decode(
+                        Locator.self,
+                        from: locatorData
+                    )
+                    let sourceID: String = row["source_id"]
+                    let rowSnapshotID: String = row["snapshot_id"]
+                    let adapterID: String = row["adapter_id"]
+                    let title: String = row["title"]
+                    let body: String = row["body"]
+                    let indexedContext: String = row["context"]
+                    let score: Double = row["score"]
+                    let anchored = Self.searchAnchor(
+                        rootLocator: rootLocator,
+                        body: body,
+                        query: query
+                    )
+                    let locator = anchored?.locator ?? rootLocator
+                    let context = anchored?.context ?? indexedContext
+                    return ContentSearchHit(
+                        id: "fts:\(locator.stableID):\(anchored?.utf16Offset ?? -1):\(index)",
+                        sourceID: sourceID,
+                        snapshotID: rowSnapshotID,
+                        adapterID: adapterID,
+                        locator: locator,
+                        title: title,
+                        context: context,
+                        rank: -score
+                    )
+                }
+            }
+
+            // unicode61 tokenizes long CJK runs as a single token. Keep FTS as the
+            // fast path, then use a bounded exact-substring query so Chinese and
+            // other unsegmented scripts remain searchable without rescanning the
+            // complete managed directory tree.
+            var fallbackSQL = """
+                SELECT observations.locator_json,
+                       observations.source_id,
+                       observations.snapshot_id,
+                       observations.adapter_id,
+                       COALESCE(observations.title, '') AS title,
+                       COALESCE(observations.body, '') AS body
+                FROM observations
+                JOIN sources
+                  ON sources.id = observations.source_id
+                WHERE sources.managed_state != 'removed'
+                  AND (
+                    instr(lower(COALESCE(observations.title, '')), lower(?)) > 0
+                    OR instr(lower(COALESCE(observations.body, '')), lower(?)) > 0
+                  )
+                """
+            var fallbackArguments: StatementArguments = [query, query]
+            if let snapshotID {
+                fallbackSQL += " AND observations.snapshot_id = ?"
+                fallbackArguments += [snapshotID]
+            }
+            fallbackSQL += " ORDER BY observations.created_at DESC, observations.id LIMIT ?"
+            fallbackArguments += [min(max(1, limit), 20)]
+            let fallbackRows = try Row.fetchAll(
+                db,
+                sql: fallbackSQL,
+                arguments: fallbackArguments
+            )
+            return try fallbackRows.enumerated().map { index, row in
                 let locatorData: Data = row["locator_json"]
-                let locator = try JSONDecoder.databaseDecoder.decode(
+                let rootLocator = try JSONDecoder.databaseDecoder.decode(
                     Locator.self,
                     from: locatorData
                 )
@@ -611,20 +1108,90 @@ final class LibraryDatabase: @unchecked Sendable {
                 let rowSnapshotID: String = row["snapshot_id"]
                 let adapterID: String = row["adapter_id"]
                 let title: String = row["title"]
-                let context: String = row["context"]
-                let score: Double = row["score"]
+                let body: String = row["body"]
+                let anchored = Self.searchAnchor(
+                    rootLocator: rootLocator,
+                    body: body,
+                    query: query
+                )
+                let locator = anchored?.locator ?? rootLocator
+                let context = anchored?.context ?? title
                 return ContentSearchHit(
-                    id: "fts:\(locator.stableID):\(index)",
+                    id: "substring:\(locator.stableID):\(anchored?.utf16Offset ?? -1):\(index)",
                     sourceID: sourceID,
                     snapshotID: rowSnapshotID,
                     adapterID: adapterID,
                     locator: locator,
                     title: title,
                     context: context,
-                    rank: -score
+                    rank: 0.5 / Double(index + 1)
                 )
             }
         }
+    }
+
+    private static func searchAnchor(
+        rootLocator: Locator,
+        body: String,
+        query: String
+    ) -> (locator: Locator, context: String, utf16Offset: Int)? {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !body.isEmpty else { return nil }
+        let candidates = [normalized] + normalized
+            .split(whereSeparator: \Character.isWhitespace)
+            .map(String.init)
+            .filter { $0 != normalized }
+        guard let range = candidates.lazy.compactMap({ candidate in
+            body.range(
+                of: candidate,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            )
+        }).first else { return nil }
+
+        let exact = String(body[range])
+        let prefixStart = body.index(
+            range.lowerBound,
+            offsetBy: -48,
+            limitedBy: body.startIndex
+        ) ?? body.startIndex
+        let suffixEnd = body.index(
+            range.upperBound,
+            offsetBy: 48,
+            limitedBy: body.endIndex
+        ) ?? body.endIndex
+        let prefix = String(body[prefixStart..<range.lowerBound])
+        let suffix = String(body[range.upperBound..<suffixEnd])
+        let utf16Range = NSRange(range, in: body)
+        let startLine = body[..<range.lowerBound].reduce(1) { partial, character in
+            character == "\n" ? partial + 1 : partial
+        }
+        let endLine = body[range].reduce(startLine) { partial, character in
+            character == "\n" ? partial + 1 : partial
+        }
+        var payload = rootLocator.payload
+        payload["startUTF16"] = String(utf16Range.location)
+        payload["endUTF16"] = String(NSMaxRange(utf16Range))
+        payload["startLine"] = String(startLine)
+        payload["endLine"] = String(endLine)
+        let locator = Locator(
+            sourceID: rootLocator.sourceID,
+            snapshotID: rootLocator.snapshotID,
+            adapterID: rootLocator.adapterID,
+            schemaVersion: rootLocator.schemaVersion,
+            payload: payload,
+            structuralPath: rootLocator.structuralPath,
+            textQuote: TextQuote(
+                prefix: prefix.isEmpty ? nil : prefix,
+                exact: exact,
+                suffix: suffix.isEmpty ? nil : suffix
+            ),
+            fingerprint: AdapterUtilities.sha256(exact)
+        )
+        return (
+            locator,
+            AdapterUtilities.excerpt(from: body, matching: range),
+            utf16Range.location
+        )
     }
 
     func rebuildObservationIndex() throws {
@@ -650,6 +1217,16 @@ final class LibraryDatabase: @unchecked Sendable {
                 ) ?? 0
             }
             return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM observations") ?? 0
+        }
+    }
+
+    func observationCount(snapshotID: String) throws -> Int {
+        try pool.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM observations WHERE snapshot_id = ?",
+                arguments: [snapshotID]
+            ) ?? 0
         }
     }
 
@@ -1018,6 +1595,55 @@ final class LibraryDatabase: @unchecked Sendable {
                 UPDATE library_metadata SET value = '5' WHERE key = 'agent_runtime_schema';
                 """)
         }
+
+        migrator.registerMigration("v7-atomic-observation-index") { db in
+            try db.execute(sql: """
+                CREATE TABLE observation_index_runs (
+                    snapshot_id TEXT PRIMARY KEY NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+                    plan_id TEXT NOT NULL REFERENCES adapter_plans(id) ON DELETE CASCADE,
+                    generation_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    observation_count INTEGER NOT NULL DEFAULT 0,
+                    started_at DATETIME NOT NULL,
+                    completed_at DATETIME,
+                    error_category TEXT
+                );
+
+                CREATE TABLE observation_index_staging (
+                    generation_id TEXT NOT NULL,
+                    observation_id TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    snapshot_id TEXT NOT NULL,
+                    adapter_id TEXT NOT NULL,
+                    locator_json BLOB NOT NULL,
+                    media_type TEXT NOT NULL,
+                    title TEXT,
+                    body TEXT,
+                    content_reference TEXT,
+                    digest TEXT NOT NULL,
+                    truncated INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    PRIMARY KEY (generation_id, observation_id)
+                );
+                CREATE INDEX observation_index_staging_snapshot
+                    ON observation_index_staging(snapshot_id, generation_id);
+
+                UPDATE library_metadata SET value = '7' WHERE key = 'database_schema';
+                """)
+        }
+
+        migrator.registerMigration("v8-source-access-bookmarks") { db in
+            try db.execute(sql: """
+                CREATE TABLE source_access_bookmarks (
+                    source_id TEXT PRIMARY KEY NOT NULL
+                        REFERENCES sources(id) ON DELETE CASCADE,
+                    bookmark_data BLOB NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+
+                UPDATE library_metadata SET value = '8' WHERE key = 'database_schema';
+                """)
+        }
     }
 
     private static func decodeSource(_ row: Row) throws -> Source {
@@ -1091,6 +1717,24 @@ struct ManagedRemovalPlan: Sendable, Equatable {
     let sourceID: String
     let exclusiveManagedRelativePaths: [String]
     let snapshotIDs: [String]
+}
+
+struct AnnotationRevisionMigration: Sendable, Equatable {
+    let annotationID: String
+    let state: AnnotationAnchorState
+}
+
+struct SourcePositionRevisionMigration: Sendable, Equatable {
+    let spaceID: String
+    let sourceID: String
+    let resolvedLocator: Locator?
+}
+
+struct SourceRevisionMigrationBatch: Sendable, Equatable {
+    let annotations: [AnnotationRevisionMigration]
+    let positions: [SourcePositionRevisionMigration]
+
+    static let empty = SourceRevisionMigrationBatch(annotations: [], positions: [])
 }
 
 private extension JSONEncoder {

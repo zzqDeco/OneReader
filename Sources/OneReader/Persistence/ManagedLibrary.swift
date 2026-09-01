@@ -10,6 +10,16 @@ struct ManagedImportResult: Sendable {
     let reusedContent: Bool
 }
 
+struct ManagedRefreshCandidate: Sendable {
+    let source: Source
+    let previousSnapshotID: String
+    let snapshot: SourceSnapshot
+    let managedURL: URL
+    let reusedContent: Bool
+    let changed: Bool
+    fileprivate let createdContainerURL: URL?
+}
+
 actor ManagedLibrary {
     typealias TrashHandler = @Sendable (URL) throws -> URL
 
@@ -59,6 +69,11 @@ actor ManagedLibrary {
             }
         }
 
+        let accessBookmark = try? sourceURL.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
         let inspection = try await Task.detached(priority: .userInitiated) {
             try LocalSourceInspector.inspect(sourceURL)
         }.value
@@ -72,7 +87,8 @@ actor ManagedLibrary {
             revisionKind: inspection.isDirectory ? .directoryTreeDigest : .contentDigest,
             revision: inspection.primaryRevision,
             intoSpaceID: spaceID,
-            allowLargeImport: allowLargeImport
+            allowLargeImport: allowLargeImport,
+            accessBookmark: accessBookmark
         )
     }
 
@@ -107,6 +123,196 @@ actor ManagedLibrary {
         )
     }
 
+    func stageLocalRefresh(
+        sourceID: String,
+        allowLargeImport: Bool = false
+    ) async throws -> ManagedRefreshCandidate {
+        guard let source = try database.fetchSources().first(where: { $0.id == sourceID }),
+              source.managedState == .ready,
+              let originURL = source.originURL,
+              source.originKind == .localFile || source.originKind == .localDirectory else {
+            throw LibraryStorageError.missingSource(sourceID)
+        }
+        let authorizedURL: URL
+        if let bookmark = try database.sourceAccessBookmark(sourceID: sourceID) {
+            var isStale = false
+            do {
+                authorizedURL = try URL(
+                    resolvingBookmarkData: bookmark,
+                    options: [.withSecurityScope, .withoutUI],
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+                if isStale,
+                   let renewed = try? authorizedURL.bookmarkData(
+                       options: [.withSecurityScope],
+                       includingResourceValuesForKeys: nil,
+                       relativeTo: nil
+                   ) {
+                    try database.saveSourceAccessBookmark(renewed, sourceID: sourceID)
+                }
+            } catch {
+                throw LibraryStorageError.sourceAccessRequiresAuthorization(
+                    source.displayName
+                )
+            }
+        } else {
+            authorizedURL = originURL
+        }
+        let didAccess = authorizedURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { authorizedURL.stopAccessingSecurityScopedResource() }
+        }
+        guard fileManager.isReadableFile(atPath: authorizedURL.path) else {
+            throw LibraryStorageError.sourceAccessRequiresAuthorization(
+                source.displayName
+            )
+        }
+        let inspection = try await Task.detached(priority: .userInitiated) {
+            try LocalSourceInspector.inspect(authorizedURL)
+        }.value
+        guard inspection.isDirectory == (source.originKind == .localDirectory) else {
+            throw LibraryStorageError.unsupportedSource("来源的文件/目录类型已改变")
+        }
+        return try stageInspectedRefresh(
+            source: source,
+            sourceURL: authorizedURL,
+            inspection: inspection,
+            revisionKind: inspection.isDirectory ? .directoryTreeDigest : .contentDigest,
+            revision: inspection.primaryRevision,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    func authorizeLocalSource(sourceID: String, selectedURL: URL) throws {
+        guard let source = try database.fetchSources().first(where: { $0.id == sourceID }),
+              let originURL = source.originURL,
+              source.originKind == .localFile || source.originKind == .localDirectory,
+              selectedURL.standardizedFileURL == originURL.standardizedFileURL else {
+            throw LibraryStorageError.unsupportedSource("请选择原来的本地来源")
+        }
+        let didAccess = selectedURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { selectedURL.stopAccessingSecurityScopedResource() }
+        }
+        let bookmark = try selectedURL.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        try database.saveSourceAccessBookmark(bookmark, sourceID: sourceID)
+    }
+
+    func stageFetchedRefresh(
+        sourceID: String,
+        at stagedSourceURL: URL,
+        revisionKind: SourceRevisionKind,
+        revision: String? = nil,
+        allowLargeImport: Bool = false
+    ) async throws -> ManagedRefreshCandidate {
+        guard let source = try database.fetchSources().first(where: { $0.id == sourceID }),
+              source.managedState == .ready,
+              source.originKind == .remoteURL || source.originKind == .githubRepository else {
+            throw LibraryStorageError.missingSource(sourceID)
+        }
+        let inspection = try await Task.detached(priority: .userInitiated) {
+            try LocalSourceInspector.inspect(stagedSourceURL)
+        }.value
+        return try stageInspectedRefresh(
+            source: source,
+            sourceURL: stagedSourceURL,
+            inspection: inspection,
+            revisionKind: revisionKind,
+            revision: revision ?? inspection.digest,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    func discardRefreshCandidate(_ candidate: ManagedRefreshCandidate) throws {
+        guard candidate.changed,
+              let containerURL = candidate.createdContainerURL,
+              try database.existingManagedPath(forDigest: candidate.snapshot.digest) == nil,
+              fileManager.fileExists(atPath: containerURL.path) else { return }
+        try fileManager.removeItem(at: containerURL)
+    }
+
+    private func stageInspectedRefresh(
+        source: Source,
+        sourceURL: URL,
+        inspection: LocalSourceInspection,
+        revisionKind: SourceRevisionKind,
+        revision: String,
+        allowLargeImport: Bool
+    ) throws -> ManagedRefreshCandidate {
+        guard !revision.isEmpty, revisionKind != .unresolved,
+              let previousSnapshotID = source.latestSnapshotID,
+              let previous = try database.fetchSnapshots(sourceID: source.id)
+                .first(where: { $0.id == previousSnapshotID }) else {
+            throw LibraryStorageError.unsupportedSource("来源缺少可刷新的当前 Snapshot")
+        }
+        if previous.revision == revision,
+           previous.revisionKind == revisionKind,
+           previous.digest == inspection.digest,
+           let relativePath = previous.managedRelativePath {
+            return ManagedRefreshCandidate(
+                source: source,
+                previousSnapshotID: previousSnapshotID,
+                snapshot: previous,
+                managedURL: try database.layout.url(forRelativePath: relativePath),
+                reusedContent: true,
+                changed: false,
+                createdContainerURL: nil
+            )
+        }
+        if inspection.byteCount > storagePolicy.largeImportThreshold,
+           !allowLargeImport {
+            throw LibraryStorageError.largeImportRequiresConfirmation(inspection.byteCount)
+        }
+        let existingRelativePath = try reusableManagedPath(
+            try database.existingManagedPath(forDigest: inspection.digest),
+            for: inspection
+        )
+        let additionalBytes = existingRelativePath == nil ? inspection.byteCount : 0
+        let capacity = try storagePolicy.availableCapacity(at: database.layout.rootURL)
+        let projectedCapacity = capacity - additionalBytes
+        guard projectedCapacity >= storagePolicy.minimumFreeCapacity else {
+            throw LibraryStorageError.insufficientFreeSpace(
+                required: storagePolicy.minimumFreeCapacity,
+                available: max(0, projectedCapacity)
+            )
+        }
+        let stored = try stageAndCommitContent(
+            sourceURL: sourceURL,
+            inspection: inspection,
+            existingRelativePath: existingRelativePath
+        )
+        let now = Date.now
+        let snapshotID = UUID().uuidString.lowercased()
+        let snapshot = SourceSnapshot(
+            id: snapshotID,
+            sourceID: source.id,
+            revision: revision,
+            revisionKind: revisionKind,
+            digest: inspection.digest,
+            observedAt: now,
+            origin: source.originURL,
+            managedRelativePath: try database.layout.relativePath(for: stored.url),
+            byteCount: inspection.byteCount
+        )
+        var refreshedSource = source
+        refreshedSource.latestSnapshotID = snapshotID
+        refreshedSource.updatedAt = now
+        return ManagedRefreshCandidate(
+            source: refreshedSource,
+            previousSnapshotID: previousSnapshotID,
+            snapshot: snapshot,
+            managedURL: stored.url,
+            reusedContent: stored.reusedContent,
+            changed: true,
+            createdContainerURL: stored.createdContainer ? stored.containerURL : nil
+        )
+    }
+
     private func importInspectedSource(
         at sourceURL: URL,
         inspection: LocalSourceInspection,
@@ -116,7 +322,8 @@ actor ManagedLibrary {
         revisionKind: SourceRevisionKind,
         revision: String,
         intoSpaceID spaceID: String?,
-        allowLargeImport: Bool
+        allowLargeImport: Bool,
+        accessBookmark: Data? = nil
     ) throws -> ManagedImportResult {
         guard !revision.isEmpty, revisionKind != .unresolved else {
             throw LibraryStorageError.unsupportedSource("来源缺少不可变 revision")
@@ -197,7 +404,8 @@ actor ManagedLibrary {
                 source: source,
                 snapshot: snapshot,
                 space: space,
-                createsSpace: createsSpace
+                createsSpace: createsSpace,
+                accessBookmark: accessBookmark
             )
         } catch {
             if stored.createdContainer {
@@ -229,7 +437,7 @@ actor ManagedLibrary {
         )
     }
 
-    func removeSource(id sourceID: String) throws {
+    func removeSource(id sourceID: String) throws -> [String: Int] {
         let plan = try database.removalPlan(sourceID: sourceID)
         var movedItems: [(original: URL, trashed: URL)] = []
 
@@ -243,8 +451,9 @@ actor ManagedLibrary {
                 let trashedURL = try trashHandler(containerURL)
                 movedItems.append((containerURL, trashedURL))
             }
-            try database.commitRemoval(sourceID: sourceID)
+            let generations = try database.commitRemoval(sourceID: sourceID)
             removeDerivedData(forSnapshotIDs: plan.snapshotIDs)
+            return generations
         } catch {
             for item in movedItems.reversed() {
                 try? fileManager.createDirectory(

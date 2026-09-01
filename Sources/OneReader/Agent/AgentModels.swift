@@ -86,6 +86,8 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
     let task: AgentTaskKind
     let goal: String?
     let question: String?
+    let targetSourceID: String?
+    let targetSnapshotID: String?
     let expectedSnapshotIDs: Set<String>
     let snapshotManifest: [String: String]
 
@@ -94,6 +96,8 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         task: AgentTaskKind,
         goal: String? = nil,
         question: String? = nil,
+        targetSourceID: String? = nil,
+        targetSnapshotID: String? = nil,
         expectedSnapshotIDs: Set<String> = [],
         snapshotManifest: [String: String] = [:]
     ) {
@@ -101,6 +105,8 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         self.task = task
         self.goal = goal
         self.question = question
+        self.targetSourceID = targetSourceID
+        self.targetSnapshotID = targetSnapshotID
         self.expectedSnapshotIDs = expectedSnapshotIDs
         self.snapshotManifest = snapshotManifest
     }

@@ -111,6 +111,11 @@ observations and an FTS5 projection transactionally. FTS results retain source,
 snapshot, adapter, locator, title, and jump context; rebuilding the index uses
 the durable observations as truth.
 
+FTS5 `unicode61` remains the fast path. When its tokenization produces no hit,
+the database performs a bounded exact-substring query over durable Observation
+rows. This keeps Chinese and other unsegmented scripts searchable without
+falling through to an expensive scan of every managed file in a directory.
+
 Removed sources are filtered from FTS queries and rejected by the coordinator
 immediately. Rebuildable EPUB extraction directories are keyed by Snapshot ID
 and reclaimed when their Source is removed; abandoned `.staging-*` extraction

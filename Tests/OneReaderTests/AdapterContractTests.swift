@@ -256,8 +256,11 @@ final class AdapterContractTests: XCTestCase {
         try Data("# Start\n\nCross source evidence.".utf8).write(
             to: input.appendingPathComponent("README.md")
         )
-        try Data("supporting evidence".utf8).write(
+        try Data("supporting evidence appears first; repeated evidence appears later".utf8).write(
             to: input.appendingPathComponent("notes.txt")
+        )
+        try Data("# 中文\n\n时间管理的意义在于管理自己。".utf8).write(
+            to: input.appendingPathComponent("chapter-cn.md")
         )
         try Data([0, 1, 2]).write(to: input.appendingPathComponent("cover.bin"))
 
@@ -278,7 +281,10 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertTrue(plan.auxiliaryAdapterIDs.contains(PlainTextAdapter.id))
         XCTAssertTrue(plan.auxiliaryAdapterIDs.contains(QuickLookAdapter.id))
         let nodes = try await coordinator.list(plan: plan)
-        let markdown = try XCTUnwrap(nodes.first { $0.locator.adapterID == MarkdownAdapter.id })
+        let markdown = try XCTUnwrap(nodes.first {
+            $0.locator.adapterID == MarkdownAdapter.id
+                && $0.locator.relativePath == "README.md"
+        })
         let observation = try await coordinator.read(plan: plan, locator: markdown.locator)
         XCTAssertTrue(observation.content.contains("Cross source evidence"))
         let hits = try await coordinator.search(plan: plan, query: "evidence")
@@ -290,8 +296,22 @@ final class AdapterContractTests: XCTestCase {
             try database.searchObservations(query: "evidence").count,
             2
         )
+        let repeatedHit = try XCTUnwrap(
+            database.searchObservations(query: "evidence").first {
+                $0.locator.relativePath == "notes.txt"
+            }
+        )
+        XCTAssertEqual(repeatedHit.locator.textQuote?.exact.lowercased(), "evidence")
+        XCTAssertEqual(repeatedHit.locator.payload["startUTF16"], "11")
+        XCTAssertNotNil(repeatedHit.locator.textQuote?.prefix)
+        XCTAssertTrue(try XCTUnwrap(repeatedHit.locator.textQuote?.suffix).contains("repeated"))
+        let chineseHits = try database.searchObservations(query: "时间管理")
+        XCTAssertEqual(chineseHits.count, 1)
+        XCTAssertTrue(chineseHits[0].context.contains("时间管理"))
+        XCTAssertEqual(chineseHits[0].locator.textQuote?.exact, "时间管理")
+        XCTAssertNotNil(chineseHits[0].locator.payload["startUTF16"])
 
-        try database.commitRemoval(sourceID: imported.source.id)
+        _ = try database.commitRemoval(sourceID: imported.source.id)
         XCTAssertTrue(try database.searchObservations(query: "evidence").isEmpty)
         do {
             _ = try await coordinator.prepare(
@@ -302,6 +322,51 @@ final class AdapterContractTests: XCTestCase {
         } catch let error as LibraryStorageError {
             XCTAssertEqual(error, .missingSource(imported.source.id))
         }
+    }
+
+    func testIndexedPDFHitPreservesPageAndAddsExactQuoteAnchor() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-PDFIndex")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("fixture.pdf")
+        try Data("%PDF-1.4\nfixture".utf8).write(to: input)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: input)
+        let rootLocator = Locator(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id,
+            adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "4"],
+            structuralPath: "page/4"
+        )
+        let body = "Page five begins here. Indexed PDF evidence is jumpable."
+        try database.saveObservation(
+            Observation(
+                id: "pdf-observation",
+                sourceID: imported.source.id,
+                snapshotID: imported.snapshot.id,
+                adapterID: PDFAdapter.id,
+                locator: rootLocator,
+                mediaType: "text/plain; source=application/pdf",
+                content: body,
+                contentReference: imported.snapshot.managedRelativePath,
+                contentDigest: AdapterUtilities.sha256(body),
+                truncated: false,
+                observedAt: .now
+            ),
+            title: "Page 5"
+        )
+
+        let hit = try XCTUnwrap(database.searchObservations(query: "PDF evidence").first)
+        XCTAssertEqual(hit.locator.pdfPageIndex, 4)
+        XCTAssertEqual(hit.locator.structuralPath, "page/4")
+        XCTAssertEqual(hit.locator.textQuote?.exact, "PDF evidence")
+        let expectedRange = try XCTUnwrap(body.range(of: "PDF evidence"))
+        XCTAssertEqual(
+            hit.locator.payload["startUTF16"],
+            String(NSRange(expectedRange, in: body).location)
+        )
+        XCTAssertEqual(hit.snapshotID, imported.snapshot.id)
     }
 
     func testDirectoryPresentationHonorsSubdirectoryLocator() async throws {

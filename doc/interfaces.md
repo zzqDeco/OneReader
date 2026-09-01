@@ -111,13 +111,17 @@ tests; deduplicated bytes are not charged twice.
 
 Source removal is a two-system transaction: exclusively owned managed
 containers move to Trash before the database marks the Source removed and
-deletes its Space memberships. Shared containers remain referenced. If the
-database commit fails, the host attempts to restore moved containers from
-Trash. Original selected files and directories are never removal targets.
+deletes its Space memberships. The database side also deletes Source-bound
+annotations/history, clears its position, invalidates affected graphs/frozen
+plans and route progress, cancels active Agent runs, and advances durable
+session generations. Shared containers remain referenced. If the database
+commit fails, the host attempts to restore moved containers from Trash.
+Original selected files and directories are never removal targets.
 
 Legacy JSON is backup input only. It is never treated as a valid new graph,
-plan, source position, or completion record. Transitional live progress uses
-`progress-v2.json`; only `progress-v1.json` is eligible for legacy backup.
+plan, source position, or completion record. Current reader state is stored in
+GRDB only; `progress-v1.json` is eligible for one unbound legacy backup and is
+never reused as live storage.
 
 Agent structured output never writes through a model tool. The host first
 validates schemas, the run's exact manifest, freshly reprobed registry

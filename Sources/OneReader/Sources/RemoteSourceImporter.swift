@@ -41,6 +41,13 @@ enum RemoteSourceError: LocalizedError, Equatable {
     }
 }
 
+struct GitHubRepositoryCoordinate: Codable, Hashable, Sendable {
+    let owner: String
+    let repository: String
+
+    var slug: String { "\(owner)/\(repository)" }
+}
+
 struct WebSnapshotManifest: Codable, Hashable, Sendable {
     static let filename = ".onereader-web-snapshot.json"
     static let schemaVersion = 1
@@ -102,6 +109,93 @@ actor RemoteSourceImporter {
             intoSpaceID: spaceID,
             allowLargeImport: allowLargeImport,
             requiresHTML: true
+        )
+    }
+
+    func stageRefresh(
+        source: Source,
+        allowLargeImport: Bool = false
+    ) async throws -> ManagedRefreshCandidate {
+        guard let originURL = source.originURL else {
+            throw LibraryStorageError.unsupportedSource("远程来源缺少原始 URL")
+        }
+        if source.originKind == .githubRepository {
+            return try await stageGitHubRefresh(
+                sourceID: source.id,
+                repositoryURL: originURL,
+                allowLargeImport: allowLargeImport
+            )
+        }
+        guard source.originKind == .remoteURL else {
+            throw LibraryStorageError.unsupportedSource(originURL.absoluteString)
+        }
+        return try await stageRemoteURLRefresh(
+            sourceID: source.id,
+            requestedURL: originURL,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    private func stageRemoteURLRefresh(
+        sourceID: String,
+        requestedURL: URL,
+        allowLargeImport: Bool
+    ) async throws -> ManagedRefreshCandidate {
+        try Self.validateWebURL(requestedURL)
+        guard let requestedHost = requestedURL.host else {
+            throw RemoteSourceError.invalidResponse
+        }
+        try hostValidator(requestedHost)
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "OneReader-Remote-Refresh-\(UUID().uuidString.lowercased())",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        let downloadedURL = temporaryRoot.appendingPathComponent("downloaded")
+        let response = try await download(
+            requestedURL,
+            to: downloadedURL,
+            allowedHosts: Set([requestedURL.host?.lowercased()].compactMap { $0 }),
+            maximumBytes: 4 * 1_024 * 1_024 * 1_024,
+            accept: "text/html,application/xhtml+xml;q=0.9,application/pdf,application/epub+zip,text/markdown,text/plain,*/*;q=0.1"
+        )
+        let mediaType = response.mimeType?.lowercased() ?? "application/octet-stream"
+        let isHTML = mediaType == "text/html" || mediaType == "application/xhtml+xml"
+        if !isHTML {
+            return try await library.stageFetchedRefresh(
+                sourceID: sourceID,
+                at: downloadedURL,
+                revisionKind: .contentDigest,
+                allowLargeImport: allowLargeImport
+            )
+        }
+
+        let htmlData = try Data(contentsOf: downloadedURL, options: [.mappedIfSafe])
+        guard htmlData.count <= 25 * 1_024 * 1_024 else {
+            throw RemoteSourceError.payloadTooLarge(
+                limit: 25 * 1_024 * 1_024,
+                actual: Int64(htmlData.count)
+            )
+        }
+        guard let html = String(data: htmlData, encoding: .utf8) else {
+            throw RemoteSourceError.invalidResponse
+        }
+        let finalURL = response.url ?? requestedURL
+        let snapshotRoot = temporaryRoot.appendingPathComponent("web-snapshot", isDirectory: true)
+        try fileManager.createDirectory(at: snapshotRoot, withIntermediateDirectories: true)
+        _ = try await materializeWebSnapshot(
+            html: html,
+            requestedURL: requestedURL,
+            finalURL: finalURL,
+            at: snapshotRoot
+        )
+        return try await library.stageFetchedRefresh(
+            sourceID: sourceID,
+            at: snapshotRoot,
+            revisionKind: .webSnapshot,
+            allowLargeImport: allowLargeImport
         )
     }
 
@@ -189,7 +283,7 @@ actor RemoteSourceImporter {
         intoSpaceID spaceID: String? = nil,
         allowLargeImport: Bool = false
     ) async throws -> ManagedImportResult {
-        let coordinate = try GitHubBookSource.parseCoordinate(from: repositoryURL)
+        let coordinate = try Self.parseGitHubCoordinate(from: repositoryURL)
         let allowedAPIHosts: Set<String> = ["api.github.com"]
         let metadataPayload = try await fetchData(
             Self.githubAPIURL(["repos", coordinate.owner, coordinate.repository]),
@@ -251,6 +345,72 @@ actor RemoteSourceImporter {
             revisionKind: .gitCommit,
             revision: commit.sha,
             intoSpaceID: spaceID,
+            allowLargeImport: allowLargeImport
+        )
+    }
+
+    private func stageGitHubRefresh(
+        sourceID: String,
+        repositoryURL: URL,
+        allowLargeImport: Bool
+    ) async throws -> ManagedRefreshCandidate {
+        let coordinate = try Self.parseGitHubCoordinate(from: repositoryURL)
+        let allowedAPIHosts: Set<String> = ["api.github.com"]
+        let metadataPayload = try await fetchData(
+            Self.githubAPIURL(["repos", coordinate.owner, coordinate.repository]),
+            allowedHosts: allowedAPIHosts,
+            maximumBytes: 2 * 1_024 * 1_024,
+            accept: "application/vnd.github+json"
+        )
+        guard let metadata = try? JSONDecoder().decode(
+            GitHubSnapshotMetadata.self,
+            from: metadataPayload.data
+        ) else {
+            throw RemoteSourceError.invalidGitHubMetadata
+        }
+        let commitPayload = try await fetchData(
+            Self.githubAPIURL([
+                "repos", coordinate.owner, coordinate.repository,
+                "commits", metadata.defaultBranch,
+            ]),
+            allowedHosts: allowedAPIHosts,
+            maximumBytes: 2 * 1_024 * 1_024,
+            accept: "application/vnd.github+json"
+        )
+        guard let commit = try? JSONDecoder().decode(
+            GitHubSnapshotCommit.self,
+            from: commitPayload.data
+        ), Self.isFullGitSHA(commit.sha) else {
+            throw RemoteSourceError.invalidGitHubCommit
+        }
+
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "OneReader-GitHub-Refresh-\(UUID().uuidString.lowercased())",
+            isDirectory: true
+        )
+        let archiveURL = temporaryRoot.appendingPathComponent("repository.zip")
+        let extractedURL = temporaryRoot.appendingPathComponent("extracted", isDirectory: true)
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try await download(
+            Self.githubArchiveURL(coordinate: coordinate, revision: commit.sha),
+            to: archiveURL,
+            allowedHosts: ["codeload.github.com"],
+            maximumBytes: 1 * 1_024 * 1_024 * 1_024,
+            accept: "application/zip"
+        )
+        try SecureArchiveExtractor.extract(
+            archiveURL: archiveURL,
+            to: extractedURL,
+            policy: .github,
+            fileManager: fileManager
+        )
+        let repositoryRoot = try extractedRepositoryRoot(at: extractedURL)
+        return try await library.stageFetchedRefresh(
+            sourceID: sourceID,
+            at: repositoryRoot,
+            revisionKind: .gitCommit,
+            revision: commit.sha,
             allowLargeImport: allowLargeImport
         )
     }
@@ -456,6 +616,25 @@ actor RemoteSourceImporter {
         return components.count >= 2
     }
 
+    static func parseGitHubCoordinate(from url: URL) throws -> GitHubRepositoryCoordinate {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "github.com" || host == "www.github.com" else {
+            throw RemoteSourceError.invalidGitHubMetadata
+        }
+        let parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+        guard parts.count >= 2 else {
+            throw RemoteSourceError.invalidGitHubMetadata
+        }
+        let repository = parts[1].hasSuffix(".git")
+            ? String(parts[1].dropLast(4))
+            : parts[1]
+        guard !parts[0].isEmpty, !repository.isEmpty else {
+            throw RemoteSourceError.invalidGitHubMetadata
+        }
+        return GitHubRepositoryCoordinate(owner: parts[0], repository: repository)
+    }
+
     private static func validateWebURL(_ url: URL) throws {
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme == "https" else {
@@ -537,7 +716,7 @@ actor RemoteSourceImporter {
     }
 
     private static func githubArchiveURL(
-        coordinate: RepositoryCoordinate,
+        coordinate: GitHubRepositoryCoordinate,
         revision: String
     ) -> URL {
         URL(

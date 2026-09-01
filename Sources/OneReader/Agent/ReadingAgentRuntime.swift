@@ -951,4 +951,9 @@ actor ReadingAgentRuntime {
         }
         await sourceRevisionBarrier.release(lease)
     }
+
+    func cancelSession(forSpaceID spaceID: String) async {
+        guard let session = sessions[spaceID] else { return }
+        await session.cancel()
+    }
 }

@@ -84,44 +84,6 @@ enum SourceRevisionKind: String, Codable, Sendable {
     case unresolved
 }
 
-enum SourceKind: String, Codable, CaseIterable, Sendable {
-    case githubRepository
-    case pdf
-
-    var displayName: String {
-        switch self {
-        case .githubRepository: "GitHub Repo"
-        case .pdf: "PDF"
-        }
-    }
-}
-
-enum SourceCapability: String, Codable, CaseIterable, Sendable {
-    case list
-    case read
-    case render
-    case search
-    case resolve
-}
-
-enum SourceAvailability: String, Codable, Sendable {
-    case resolving
-    case ready
-    case offline
-    case stale
-}
-
-struct ReadingSource: Identifiable, Codable, Hashable, Sendable {
-    let id: String
-    var title: String
-    let kind: SourceKind
-    let origin: URL?
-    var revision: String?
-    let capabilities: Set<SourceCapability>
-    var availability: SourceAvailability
-    var detail: String
-}
-
 struct SourceSnapshot: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let sourceID: String
@@ -335,26 +297,6 @@ struct ReadingUnit: Identifiable, Codable, Hashable, Sendable {
     let sourceOrder: Int
     let preferredPresentation: PresentationKind
 
-    var repositoryFragment: SourceFragment? {
-        fragments.first { fragment in
-            fragment.locator.adapterID == "onereader.markdown"
-                || fragment.locator.adapterID == "onereader.github-markdown"
-        }
-    }
-
-    var pdfFragment: SourceFragment? {
-        fragments.first { $0.locator.adapterID == "onereader.pdf" }
-
-    }
-
-    var availablePresentations: [PresentationKind] {
-        switch (repositoryFragment != nil, pdfFragment != nil) {
-        case (true, true): [.markdown, .pdf, .comparison]
-        case (true, false): [.markdown]
-        case (false, true): [.pdf]
-        case (false, false): []
-        }
-    }
 }
 
 struct ReadingGraph: Identifiable, Codable, Hashable, Sendable {
@@ -392,22 +334,6 @@ enum ReadingGoal: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct PlannedUnit: Identifiable, Codable, Hashable, Sendable {
-    let unitID: String
-    let position: Int
-    let reason: String
-
-    var id: String { unitID }
-}
-
-struct ReadingPlan: Identifiable, Codable, Hashable, Sendable {
-    let id: String
-    let graphVersion: String
-    let goal: ReadingGoal
-    let orderedUnits: [PlannedUnit]
-    let createdAt: Date
-}
-
 enum UnitProgressState: String, Codable, Sendable {
     case unseen
     case previewed
@@ -437,6 +363,7 @@ struct ReadingProgress: Codable, Hashable, Sendable {
     var graphVersion: String?
     var activeGoal: ReadingGoal
     var currentUnitID: String?
+    var currentPlanStepID: String?
     var units: [String: UnitProgress]
     var sourcePositions: [String: SourcePosition]
     var lastActiveAt: Date
@@ -447,6 +374,7 @@ struct ReadingProgress: Codable, Hashable, Sendable {
             graphVersion: nil,
             activeGoal: .systematic,
             currentUnitID: nil,
+            currentPlanStepID: nil,
             units: [:],
             sourcePositions: [:],
             lastActiveAt: .now
@@ -466,36 +394,32 @@ struct ReadingProgress: Codable, Hashable, Sendable {
     }
 }
 
-struct RepositoryCoordinate: Codable, Hashable, Sendable {
-    let owner: String
-    let repository: String
-
-    var slug: String {
-        "\(owner)/\(repository)"
-    }
-}
-
-struct RepositoryChapter: Identifiable, Codable, Hashable, Sendable {
-    let title: String
-    let path: String
-    let order: Int
-
-    var id: String { path }
-}
-
-struct RepositoryBook: Codable, Hashable, Sendable {
-    let coordinate: RepositoryCoordinate
-    let defaultBranch: String
-    let source: ReadingSource
-    let snapshot: SourceSnapshot
-    let chapters: [RepositoryChapter]
-}
-
-struct PDFSection: Identifiable, Codable, Hashable, Sendable {
+struct ReadingHistoryEntry: Identifiable, Codable, Hashable, Sendable {
     let id: String
-    let title: String
-    let pageIndex: Int
-    let order: Int
+    let spaceID: String
+    let sourceID: String?
+    let snapshotID: String?
+    let locator: Locator?
+    let openedAt: Date
+    let durationSeconds: Double
+
+    init(
+        id: String = UUID().uuidString.lowercased(),
+        spaceID: String,
+        sourceID: String?,
+        snapshotID: String?,
+        locator: Locator?,
+        openedAt: Date = .now,
+        durationSeconds: Double = 0
+    ) {
+        self.id = id
+        self.spaceID = spaceID
+        self.sourceID = sourceID
+        self.snapshotID = snapshotID
+        self.locator = locator
+        self.openedAt = openedAt
+        self.durationSeconds = max(0, durationSeconds)
+    }
 }
 
 enum AdapterCapability: String, Codable, CaseIterable, Hashable, Sendable {

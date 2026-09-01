@@ -705,6 +705,98 @@ final class AgentPersistenceAndToolTests: XCTestCase {
         }
     }
 
+    func testToolActivityAuditsOutboundFragmentIdentityAndByteRangeWithoutContent() async throws {
+        let fixture = try await makeImportedFixture(
+            sourceText: "# Private chapter\n\nGrounded evidence that must not enter event metadata.\n"
+        )
+        defer { fixture.remove() }
+        let registry = try AdapterRegistry.standard()
+        let coordinator = AdapterCoordinator(database: fixture.database, registry: registry)
+        let plan = try await coordinator.prepare(
+            sourceID: fixture.imported.source.id,
+            snapshotID: fixture.imported.snapshot.id
+        )
+        let nodes = try await coordinator.list(plan: plan, limit: 5)
+        let locator = try XCTUnwrap(nodes.first?.locator)
+        let locatorJSON = try encodeLocator(locator)
+        let manifest = try fixture.database.currentSnapshotManifest(
+            spaceID: fixture.imported.space.id
+        )
+        let request = AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            expectedSnapshotIDs: Set(manifest.values),
+            snapshotManifest: manifest
+        )
+        let run = AgentRun(
+            id: UUID().uuidString.lowercased(),
+            spaceID: request.spaceID,
+            task: request.task,
+            generation: 1,
+            state: .running,
+            providerProfileID: nil,
+            createdAt: .now,
+            startedAt: .now,
+            finishedAt: nil,
+            errorCategory: nil
+        )
+        try fixture.database.insertAgentRunForTesting(run, request: request)
+        let pair = AsyncThrowingStream<AgentEvent, Error>.makeStream()
+        let recorder = AgentEventRecorder(
+            database: fixture.database,
+            runID: run.id,
+            continuation: pair.continuation
+        )
+        let clock = AgentGenerationClock(initialGeneration: 0)
+        let generation = await clock.begin()
+        let runtime = ReadingToolRuntime(
+            host: ReadingToolHost(
+                database: fixture.database,
+                coordinator: coordinator,
+                registry: registry
+            ),
+            request: request,
+            runID: run.id,
+            generation: generation,
+            limits: .standard,
+            clock: clock,
+            budget: AgentRunBudget(limits: .standard),
+            gate: ToolConcurrencyGate(limit: 4),
+            recorder: recorder
+        )
+
+        _ = try await runtime.execute(
+            tool: .readFragment,
+            arguments: GeneratedReadingToolArguments(
+                sourceID: plan.sourceID,
+                snapshotID: plan.snapshotID,
+                adapterID: locator.adapterID,
+                locatorJSON: locatorJSON,
+                query: "",
+                limit: 0,
+                artifactID: "",
+                offset: 0
+            )
+        )
+        pair.continuation.finish()
+
+        let events = try fixture.database.fetchAgentEvents(runID: run.id)
+        let finished = try XCTUnwrap(events.last { $0.kind == .toolFinished })
+        XCTAssertEqual(finished.metadata["sourceID"], plan.sourceID)
+        XCTAssertEqual(finished.metadata["snapshotID"], plan.snapshotID)
+        XCTAssertEqual(finished.metadata["adapterID"], locator.adapterID)
+        XCTAssertEqual(finished.metadata["locatorDigest"], AdapterUtilities.sha256(locatorJSON))
+        let byteCount = try XCTUnwrap(finished.metadata["byteCount"])
+        XCTAssertEqual(finished.metadata["sentByteRange"], "0..<\(byteCount)")
+        let serialized = try String(
+            decoding: JSONEncoder().encode(finished.metadata),
+            as: UTF8.self
+        )
+        XCTAssertFalse(serialized.contains("Grounded evidence"))
+        XCTAssertFalse(serialized.contains(fixture.inputRoot.path))
+        XCTAssertFalse(serialized.contains("Private chapter"))
+    }
+
     func testToolFailureBoundaryRedactsUnderlyingManagedPath() async throws {
         let fixture = try await makeImportedFixture()
         defer { fixture.remove() }

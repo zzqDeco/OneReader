@@ -56,6 +56,13 @@ sub-agent surface. See [Reading Agent runtime](reading-agent-runtime.md).
 - GRDB `DatabasePool` owns migrations, WAL concurrency, FTS5 indexes, and
   serialized transactions.
 
+The window uses one outer `NavigationSplitView` for Library navigation. Inside
+an open Space, a SwiftUI reading stack owns Outline/Sources/Route/Search,
+content, and the Inspector. The Inspector is an in-layout trailing column at
+wide sizes and a dismissible overlay drawer at compact sizes. It deliberately
+does not use a second AppKit split view or window-level Inspector, avoiding
+conflicting minimum-width constraints around PDFKit and selectable text.
+
 ## Managed Library
 
 `~/Library/Application Support/OneReader/` contains:
@@ -88,8 +95,11 @@ tree.
 
 Removing a Source moves only exclusively owned content-addressed containers to
 the macOS Trash, then marks the Source removed and detaches Space membership in
-one database transaction. If metadata commit fails, the host attempts to move
-the trashed container back. Shared bytes remain until the final active Source
+one database transaction. That same commit removes Source-bound annotations and
+history, clears the Source position, invalidates graphs/frozen plans and their
+unit/plan progress, and cancels active Agent runs while advancing each affected
+session generation. If metadata commit fails, the host attempts to move the
+trashed container back. Shared bytes remain until the final active Source
 reference is removed; the user-selected original is never touched.
 
 The database schema records sources, snapshots, Space membership, adapter
@@ -97,12 +107,17 @@ plans, observations/FTS, graphs/plans, annotations, progress/history, Provider
 profiles, Agent runs/events/artifacts, and migration facts. Provider secrets
 are represented only by Keychain references.
 
+Schema v8 stores security-scoped bookmark data separately from Source identity
+for local file/directory refresh across Sandbox launches. The bookmark is never
+exposed to an adapter or Agent, is renewed when stale, and is deleted when the
+Source is removed. Legacy local Sources without a bookmark require an explicit
+native reauthorization of the original path.
+
 `progress-v1.json` is not decoded into new identities. After the first database
 migration succeeds, it is atomically moved to `Legacy/` and recorded in
-`migration_manifest` with `boundToNewObjects=false`.
-The compatibility reader writes any new vertical-slice state to
-`progress-v2.json`, so recreating the database cannot mistake current output
-for legacy migration input.
+`migration_manifest` with `boundToNewObjects=false`. All current annotations,
+progress, history, graphs, and plans live only in `Library.sqlite`; there is no
+parallel live JSON progress store.
 
 ## Revision and evidence rules
 
@@ -131,9 +146,9 @@ for legacy migration input.
 - Staging cleanup can remove only internal rebuildable data, never a selected
   original or committed Source.
 - Database initialization and legacy migration run off the main actor. A failed
-  database initialization may still restore the distinct current
-  `progress-v2.json`, but saving stays disabled unless that load succeeds. The
-  app never overwrites unread or unsupported progress with an empty state.
+  database initialization surfaces a blocking Library notice and installs no
+  persistence authority; the app never overwrites unread state with an empty
+  replacement.
 - There is no bundled fallback book. Network failure must remain visible and
   must not fabricate a revision or content.
 
@@ -151,10 +166,21 @@ unknown documents become managed immutable files. Redirect, archive, HTML, and
 resource boundaries are enforced before an adapter sees the snapshot. See
 [Source adapters](source-adapters.md).
 
-## Work owned by later v0.2 slices
+## Native reader workspace
 
-- full Library/reader UI, annotations, history, and accessibility acceptance;
-- sandbox packaging and exact-tag release artifacts.
+The first launch is an empty Library. Drag/drop, Open, Open With, and URL paste
+all enter one import coordinator; format selection is never a product-level
+choice. A Source can enter a new Space or join the active Space. Deterministic
+indexing is deduplicated per Source/Snapshot generation, so opening a newly
+imported Source cannot race a second index job and leave Processing stuck.
 
-OCR, sync, accounts, collaboration, third-party plugins, model-controlled file
-writes, and notarization remain outside v0.2.
+Native PDFKit, selectable Markdown/text/code, controlled WebKit, and Quick Look
+presentations share the same reading surface. Search results, annotations,
+history, source positions, ReadingUnits, and frozen plan steps retain their
+snapshot-bound Locators. Reader preferences persist independently in
+`UserDefaults`; all Library facts remain in GRDB. See
+[Reader workspace](reader-workspace.md).
+
+The remaining v0.2 delivery slice owns exact-tag DMG/ZIP release artifacts and
+their manifest. OCR, sync, accounts, collaboration, third-party plugins,
+model-controlled file writes, and notarization remain outside v0.2.

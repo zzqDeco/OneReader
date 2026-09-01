@@ -289,6 +289,32 @@ final class ProviderConnectionTesterTests: XCTestCase {
         XCTAssertEqual(stored.lastTestSucceeded, true)
     }
 
+    func testUnsavedDraftProbeReturnsCapabilitiesWithoutStalePersistenceFailure() async throws {
+        let fixture = try ProviderTestFixture()
+        defer { fixture.remove() }
+        let draft = fixture.profile(timeout: 1)
+        let tester = ProviderConnectionTester(
+            database: fixture.database,
+            factory: StubProviderLanguageModelFactory(
+                model: ProbeLanguageModel(behavior: .success)
+            )
+        )
+
+        let result = await tester.test(
+            profile: draft,
+            secret: nil,
+            persistResult: false
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.category, "ok")
+        XCTAssertEqual(
+            result.capabilities,
+            [.connection, .structuredGeneration, .toolCalling, .streaming]
+        )
+        XCTAssertTrue(try fixture.database.fetchProviderProfiles().isEmpty)
+    }
+
     func testAnthropicCapabilityProbeNormalizesCumulativePrefixes() async throws {
         let fixture = try ProviderTestFixture()
         defer { fixture.remove() }

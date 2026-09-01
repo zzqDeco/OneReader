@@ -30,12 +30,22 @@
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>PDF document</string>
+            <string>Readable material</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
             <key>LSItemContentTypes</key>
             <array>
                 <string>com.adobe.pdf</string>
+                <string>org.idpf.epub-container</string>
+                <string>net.daringfireball.markdown</string>
+                <string>public.plain-text</string>
+                <string>public.html</string>
+                <string>public.source-code</string>
+                <string>public.data</string>
+                <string>public.folder</string>
+                <string>public.directory</string>
             </array>
         </dict>
     </array>

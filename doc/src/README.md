@@ -5,11 +5,12 @@ architecture document.
 
 | Source area | Note |
 | --- | --- |
-| Domain contracts and planning | [Domain models](Sources/OneReader/Domain/Models.swift.md) |
-| GitHub repository access | [GitHub book source](Sources/OneReader/Sources/GitHubBookSource.swift.md) |
-| PDF loading and outline mapping | [PDF book source](Sources/OneReader/Sources/PDFBookSource.swift.md) |
+| Source, Snapshot, adapter, and evidence contracts | [Domain models](Sources/OneReader/Domain/Models.swift.md) |
+| Reader annotations, progress, presentation, and preferences | [Reader workspace models](Sources/OneReader/Domain/ReaderWorkspaceModels.swift.md) |
 | Application state | [App model](Sources/OneReader/App/AppModel.swift.md) |
-| Native workspace | [Workspace view](Sources/OneReader/UI/WorkspaceView.swift.md) |
+| Native workspace and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
+| Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
+| Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
 | Application Support layout | [Library paths](Sources/OneReader/Persistence/ApplicationSupportLayout.swift.md) |
 | Database and migrations | [Library database](Sources/OneReader/Persistence/LibraryDatabase.swift.md) |
 | Atomic managed import | [Managed Library](Sources/OneReader/Persistence/ManagedLibrary.swift.md) |
@@ -28,7 +29,6 @@ architecture document.
 | Read-only model tool boundary | [Reading tools](Sources/OneReader/Agent/ReadingTools.swift.md) |
 | Structured-output evidence gate | [Agent output validator](Sources/OneReader/Agent/AgentOutputValidator.swift.md) |
 | Agent audit and Provider persistence | [Agent persistence](Sources/OneReader/Persistence/AgentPersistence.swift.md) |
-| Transitional progress file | [Progress store](Sources/OneReader/Persistence/ProgressStore.swift.md) |
 
 Add a source note when a file owns a durable contract, security boundary,
 persistence format, or cross-feature orchestration responsibility.

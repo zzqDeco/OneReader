@@ -26,6 +26,12 @@ while the database records the same ordered events. Events expose phases,
 tools, durations/budgets, validation outcomes, and error categories; they never
 expose hidden reasoning.
 
+For read-only tool calls, events retain only redacted audit identity: Source,
+Snapshot, Adapter, a SHA-256 Locator digest, requested bounds, and the exact
+outbound tool-result byte range. Body text, file paths, API material, and user
+notes are never copied into event metadata. The Inspector renders this metadata
+so the remote disclosure can be audited against actual fragments.
+
 Every new run increments the Space generation and binds the exact
 `sourceID -> snapshotID` manifest plus immutable Provider destination/revision
 identities owned by the host at that instant. Tools, models, validation,

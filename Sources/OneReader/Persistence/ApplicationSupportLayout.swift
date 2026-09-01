@@ -138,6 +138,7 @@ struct ApplicationSupportLayout: Sendable {
 enum LibraryStorageError: LocalizedError, Equatable {
     case unsupportedSource(String)
     case sourceUnavailable(String)
+    case sourceAccessRequiresAuthorization(String)
     case pathEscapesLibrary(String)
     case symbolicLinkNotAllowed(String)
     case referencedResourceOutsideSource(String)
@@ -153,6 +154,8 @@ enum LibraryStorageError: LocalizedError, Equatable {
             "不支持导入该来源：\(path)"
         case let .sourceUnavailable(path):
             "来源不可读取：\(path)"
+        case let .sourceAccessRequiresAuthorization(name):
+            "需要重新授权才能刷新本地来源：\(name)"
         case let .pathEscapesLibrary(path):
             "路径超出 OneReader 托管范围：\(path)"
         case let .symbolicLinkNotAllowed(path):

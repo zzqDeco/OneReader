@@ -146,7 +146,11 @@ struct ProviderConnectionTester: Sendable {
         self.limits = limits
     }
 
-    func test(profile: ProviderProfile, secret: String?) async -> ProviderConnectionTest {
+    func test(
+        profile: ProviderProfile,
+        secret: String?,
+        persistResult: Bool = true
+    ) async -> ProviderConnectionTest {
         let started = ContinuousClock.now
         let testedAt = Date.now
         var capabilities = Set<ProviderCapability>()
@@ -248,6 +252,7 @@ struct ProviderConnectionTester: Sendable {
             category: category,
             testedAt: testedAt
         )
+        guard persistResult else { return result }
         do {
             guard try database.recordProviderConnectionTest(result) else {
                 return ProviderConnectionTest(

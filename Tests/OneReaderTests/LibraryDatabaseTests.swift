@@ -16,7 +16,7 @@ final class LibraryDatabaseTests: XCTestCase {
             [
                 "adapter_schema": "1",
                 "agent_runtime_schema": "5",
-                "database_schema": "6",
+                "database_schema": "8",
             ]
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))
@@ -54,6 +54,55 @@ final class LibraryDatabaseTests: XCTestCase {
         XCTAssertEqual(detail["boundToNewObjects"] as? Bool, false)
         XCTAssertTrue(try database.fetchSources().isEmpty)
         XCTAssertTrue(try database.fetchSpaces().isEmpty)
+    }
+
+    func testSourceAccessBookmarkIsStoredWithImportAndRemovedWithSource() throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try LibraryDatabase(rootURL: root)
+        let snapshotID = "bookmark-snapshot"
+        let source = Source(
+            id: "bookmark-source",
+            displayName: "book.md",
+            originKind: .localFile,
+            originURL: URL(fileURLWithPath: "/tmp/book.md"),
+            managedState: .ready,
+            latestSnapshotID: snapshotID
+        )
+        let snapshot = SourceSnapshot(
+            id: snapshotID,
+            sourceID: source.id,
+            revision: "revision",
+            revisionKind: .contentDigest,
+            digest: "digest",
+            observedAt: .now,
+            origin: source.originURL,
+            managedRelativePath: nil,
+            byteCount: 0
+        )
+        let space = ReadingSpace(id: "bookmark-space", title: "Book")
+        let bookmark = Data([0, 1, 2, 3])
+
+        try database.commitImport(
+            source: source,
+            snapshot: snapshot,
+            space: space,
+            createsSpace: true,
+            accessBookmark: bookmark
+        )
+        XCTAssertEqual(
+            try database.sourceAccessBookmark(sourceID: source.id),
+            bookmark
+        )
+        let replacement = Data([4, 5, 6])
+        try database.saveSourceAccessBookmark(replacement, sourceID: source.id)
+        XCTAssertEqual(
+            try database.sourceAccessBookmark(sourceID: source.id),
+            replacement
+        )
+
+        _ = try database.commitRemoval(sourceID: source.id)
+        XCTAssertNil(try database.sourceAccessBookmark(sourceID: source.id))
     }
 
     func testV5FailureAuditRowsBackfillAndCorruptEnumsFailClosed() throws {
@@ -108,6 +157,63 @@ final class LibraryDatabaseTests: XCTestCase {
                 )
             )
         }
+    }
+
+    func testObservationIndexPublishesAtomicallyAndInterruptedStagingIsRebuilt() async throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("index.txt")
+        try Data("Atomic index evidence".utf8).write(to: sourceURL)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(
+            database: database,
+            storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max,
+                minimumFreeCapacity: 0,
+                capacityProvider: { _ in .max }
+            )
+        )
+        let imported = try await library.importLocalSource(at: sourceURL)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepare(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id
+        )
+        let nodes = try await coordinator.list(plan: plan)
+        let node = try XCTUnwrap(nodes.first)
+        let observation = try await coordinator.read(
+            plan: plan,
+            locator: node.locator,
+            persistObservation: false
+        )
+        let interruptedGeneration = try database.beginObservationIndex(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        )
+        try database.stageObservation(
+            observation,
+            title: node.title,
+            generationID: interruptedGeneration
+        )
+
+        XCTAssertEqual(try database.observationCount(snapshotID: plan.snapshotID), 0)
+        XCTAssertFalse(try database.isObservationIndexComplete(snapshotID: plan.snapshotID))
+        XCTAssertTrue(try database.searchObservations(query: "evidence").isEmpty)
+
+        let restarted = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        XCTAssertFalse(try restarted.isObservationIndexComplete(snapshotID: plan.snapshotID))
+        XCTAssertThrowsError(
+            try restarted.completeObservationIndex(
+                snapshotID: plan.snapshotID,
+                generationID: interruptedGeneration
+            )
+        )
+        let restartedCoordinator = try AdapterCoordinator.standard(database: restarted)
+        try await restartedCoordinator.index(plan: plan)
+
+        XCTAssertTrue(try restarted.isObservationIndexComplete(snapshotID: plan.snapshotID))
+        XCTAssertEqual(try restarted.observationCount(snapshotID: plan.snapshotID), 1)
+        XCTAssertEqual(try restarted.searchObservations(query: "evidence").count, 1)
     }
 
     private func prepareVersion5AuditFixture(at root: URL) throws {

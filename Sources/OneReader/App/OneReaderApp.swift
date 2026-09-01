@@ -8,7 +8,7 @@ struct OneReaderApp: App {
         WindowGroup {
             WorkspaceView()
                 .environmentObject(model)
-                .frame(minWidth: 700, minHeight: 560)
+                .frame(minWidth: 900, minHeight: 650)
         }
         .defaultSize(width: 1_440, height: 900)
         .windowStyle(.titleBar)
@@ -16,33 +16,53 @@ struct OneReaderApp: App {
         .commands {
             SidebarCommands()
             CommandGroup(after: .newItem) {
-                Button("导入 GitHub Repo…") {
+                Button("打开材料…") {
+                    model.presentLocalSourceImporter()
+                }
+                .keyboardShortcut("o", modifiers: [.command])
+
+                Button("添加 URL…") {
                     model.isImportSheetPresented = true
                 }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .keyboardShortcut("l", modifiers: [.command])
 
-                Button("打开 PDF…") {
-                    model.presentLocalPDFImporter()
+                if model.isReadingWorkspaceOpen {
+                    Button("加入当前 Reading Space…") {
+                        model.presentLocalSourceImporter(destination: .currentSpace)
+                    }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
                 }
-                .keyboardShortcut("o", modifiers: [.command, .option])
             }
             CommandMenu("阅读") {
-                Button("上一个阅读单元") {
-                    model.selectPreviousUnit()
+                Button("上一项") {
+                    model.selectPreviousNode()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
 
-                Button("下一个阅读单元") {
-                    model.selectNextUnit()
+                Button("下一项") {
+                    model.selectNextNode()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
 
                 Divider()
 
-                Button("标记当前单元已完成") {
-                    model.markCurrentUnitCompleted(advance: false)
+                Button("添加书签") {
+                    model.addBookmark()
                 }
-                .keyboardShortcut(.return, modifiers: [.command, .shift])
+                .keyboardShortcut("d", modifiers: [.command])
+
+                Button("高亮所选文本") {
+                    model.addHighlight()
+                }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(!model.canCreateHighlight)
+
+                Divider()
+
+                Button("搜索 Reading Space") {
+                    model.navigationTab = .search
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             }
             CommandMenu("窗口布局") {
                 Button("紧凑窗口") {
@@ -55,6 +75,11 @@ struct OneReaderApp: App {
                 }
                 .keyboardShortcut("2", modifiers: [.control, .option])
             }
+        }
+
+        Settings {
+            ReaderSettingsView()
+                .environmentObject(model)
         }
     }
 }

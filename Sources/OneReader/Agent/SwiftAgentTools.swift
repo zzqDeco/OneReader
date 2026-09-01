@@ -88,16 +88,16 @@ actor ReadingToolRuntime {
     ) async throws -> ReadingToolPromptOutput {
         try await clock.check(generation)
         let callNumber = try await budget.consumeToolCall()
+        let requestMetadata = auditMetadata(
+            tool: tool,
+            arguments: arguments,
+            callNumber: callNumber
+        )
         try await recorder.emit(
             .toolStarted,
             phase: phase(for: tool),
             message: "读取工具开始：\(tool.rawValue)",
-            metadata: [
-                "tool": tool.rawValue,
-                "call": String(callNumber),
-                "sourceID": arguments.sourceID,
-                "snapshotID": arguments.snapshotID,
-            ]
+            metadata: requestMetadata
         )
 
         let result: ReadingToolResult
@@ -122,7 +122,7 @@ actor ReadingToolRuntime {
                 .toolFinished,
                 phase: phase(for: tool),
                 message: "读取工具未能完成：\(tool.rawValue)",
-                metadata: ["tool": tool.rawValue, "category": category]
+                metadata: requestMetadata.merging(["category": category]) { current, _ in current }
             )
             throw ReadingAgentError.toolExecutionFailed(category)
         }
@@ -147,12 +147,13 @@ actor ReadingToolRuntime {
             .toolFinished,
             phase: phase(for: tool),
             message: "读取工具完成：\(tool.rawValue)",
-            metadata: [
+            metadata: requestMetadata.merging([
                 "tool": tool.rawValue,
                 "digest": result.digest,
                 "byteCount": String(result.byteCount),
                 "truncated": String(result.truncated),
-            ]
+                "sentByteRange": sentByteRange(arguments: arguments, result: result),
+            ]) { current, _ in current }
         )
         return ReadingToolPromptOutput(value: result.content)
     }
@@ -164,6 +165,48 @@ actor ReadingToolRuntime {
         case .resolveLocator: "resolve"
         case .inspectPresentation: "presentation"
         }
+    }
+
+    private func auditMetadata(
+        tool: ReadingToolName,
+        arguments: GeneratedReadingToolArguments,
+        callNumber: Int
+    ) -> [String: String] {
+        var metadata = [
+            "tool": tool.rawValue,
+            "call": String(callNumber),
+        ]
+        let locator = arguments.locatorJSON.nilIfEmpty.flatMap { encoded -> Locator? in
+            guard let data = encoded.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(Locator.self, from: data)
+        }
+        let sourceID = arguments.sourceID.nilIfEmpty ?? locator?.sourceID
+        let snapshotID = arguments.snapshotID.nilIfEmpty ?? locator?.snapshotID
+        let adapterID = arguments.adapterID.nilIfEmpty ?? locator?.adapterID
+        if let sourceID { metadata["sourceID"] = sourceID }
+        if let snapshotID { metadata["snapshotID"] = snapshotID }
+        if let adapterID { metadata["adapterID"] = adapterID }
+        if let locatorJSON = arguments.locatorJSON.nilIfEmpty {
+            metadata["locatorDigest"] = AdapterUtilities.sha256(locatorJSON)
+        }
+        if let artifactID = arguments.artifactID.nilIfEmpty {
+            metadata["artifactID"] = artifactID
+        }
+        if tool == .readFragment {
+            metadata["requestedOffset"] = String(max(0, arguments.offset))
+            metadata["requestedLimit"] = String(limits.maxReadCharacters)
+        } else if arguments.limit > 0 {
+            metadata["requestedLimit"] = String(arguments.limit)
+        }
+        return metadata
+    }
+
+    private func sentByteRange(
+        arguments: GeneratedReadingToolArguments,
+        result: ReadingToolResult
+    ) -> String {
+        let start = arguments.artifactID.nilIfEmpty == nil ? 0 : max(0, arguments.offset)
+        return "\(start)..<\(start + result.byteCount)"
     }
 
     private static var encoder: JSONEncoder {

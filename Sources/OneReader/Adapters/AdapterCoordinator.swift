@@ -65,7 +65,8 @@ actor AdapterCoordinator {
     func read(
         plan: AdapterPlan,
         locator: Locator,
-        maxCharacters: Int = 16_384
+        maxCharacters: Int = 16_384,
+        persistObservation: Bool = true
     ) async throws -> Observation {
         guard locator.sourceID == plan.sourceID,
               locator.snapshotID == plan.snapshotID else {
@@ -84,7 +85,9 @@ actor AdapterCoordinator {
             at: locator,
             maxCharacters: maxCharacters
         )
-        try database.saveObservation(observation, title: locator.relativePath)
+        if persistObservation {
+            try database.saveObservation(observation, title: locator.relativePath)
+        }
         return observation
     }
 
@@ -142,27 +145,81 @@ actor AdapterCoordinator {
         return try await registry.resolve(locator, in: adapted)
     }
 
+    func resolveStaged(
+        _ locator: Locator,
+        source: Source,
+        snapshot: SourceSnapshot,
+        managedURL: URL
+    ) async throws -> LocatorResolution {
+        guard locator.sourceID == source.id,
+              snapshot.sourceID == source.id,
+              managedURL.isFileURL,
+              FileManager.default.fileExists(atPath: managedURL.path) else {
+            throw AdapterError.invalidLocator("刷新候选与 Locator 的来源身份不一致")
+        }
+        let base = AdapterContext(
+            source: source,
+            snapshot: snapshot,
+            managedURL: managedURL,
+            contentRootURL: managedURL,
+            derivedRootURL: database.layout.derivedURL,
+            declaredMediaType: Self.mediaType(for: source.displayName)
+        )
+        let adapted = try adaptedContext(base, for: locator, adapterID: locator.adapterID)
+        return try await registry.resolve(locator, in: adapted)
+    }
+
     func index(plan: AdapterPlan) async throws {
         try Task.checkCancellation()
         guard plan.capabilityRoutes[.list] != nil,
               plan.capabilityRoutes[.read] != nil else {
             return
         }
-        let nodes = try await list(plan: plan, limit: 2_000)
-        for node in nodes where node.isReadable {
-            try Task.checkCancellation()
-            do {
-                _ = try await read(
-                    plan: plan,
-                    locator: node.locator,
-                    maxCharacters: 1_000_000
-                )
-            } catch let error as AdapterError {
-                if case .capabilityUnavailable = error { continue }
-                throw error
+        let generationID = try database.beginObservationIndex(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        )
+        do {
+            let nodes = try await list(plan: plan, limit: 2_000)
+            for node in nodes where node.isReadable {
+                try Task.checkCancellation()
+                do {
+                    let observation = try await read(
+                        plan: plan,
+                        locator: node.locator,
+                        maxCharacters: 1_000_000,
+                        persistObservation: false
+                    )
+                    try database.stageObservation(
+                        observation,
+                        title: node.locator.relativePath ?? node.title,
+                        generationID: generationID
+                    )
+                } catch let error as AdapterError {
+                    if case .capabilityUnavailable = error { continue }
+                    throw error
+                }
             }
+            try Task.checkCancellation()
+            try database.completeObservationIndex(
+                snapshotID: plan.snapshotID,
+                generationID: generationID
+            )
+        } catch is CancellationError {
+            try? database.failObservationIndex(
+                snapshotID: plan.snapshotID,
+                generationID: generationID,
+                category: "cancelled"
+            )
+            throw CancellationError()
+        } catch {
+            try? database.failObservationIndex(
+                snapshotID: plan.snapshotID,
+                generationID: generationID,
+                category: "index-failed"
+            )
+            throw error
         }
-        try Task.checkCancellation()
     }
 
     private func context(sourceID: String, snapshotID: String) throws -> AdapterContext {

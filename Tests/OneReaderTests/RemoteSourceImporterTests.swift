@@ -4,6 +4,18 @@ import ZIPFoundation
 @testable import OneReader
 
 final class RemoteSourceImporterTests: XCTestCase {
+    func testGitHubRepositoryURLParsingBelongsToRemoteSnapshotImporter() throws {
+        let coordinate = try RemoteSourceImporter.parseGitHubCoordinate(
+            from: URL(string: "https://github.com/xiaolai/time-as-a-friend.git")!
+        )
+        XCTAssertEqual(coordinate.slug, "xiaolai/time-as-a-friend")
+        XCTAssertThrowsError(
+            try RemoteSourceImporter.parseGitHubCoordinate(
+                from: URL(string: "https://example.com/xiaolai/time-as-a-friend")!
+            )
+        )
+    }
+
     override func tearDown() {
         RemoteURLProtocol.setHandler(nil)
         super.tearDown()

@@ -3,13 +3,21 @@
 Owns the GRDB `DatabasePool`, ordered migrations, WAL/foreign-key setup,
 transactional source/snapshot/Space commits, schema metadata, and legacy
 progress migration manifest. It also computes shared-content-aware removal
-plans and commits Source removal with Space detachment in one transaction.
+plans and commits Source removal with Space detachment, annotation/history
+cleanup, graph/plan invalidation, progress reset, active-Run cancellation, and
+durable Agent-generation advancement in one transaction.
 
-Adapter plans and Observations are encoded with stable JSON settings. Saving an
-Observation updates its FTS5 row in the same write transaction; the index can
-be rebuilt solely from durable Observation rows.
+Adapter plans and Observations are encoded with stable JSON settings. Schema v7
+stages a complete Snapshot observation index under one run, then atomically
+replaces visible Observation and FTS5 rows and records completion. Startup drops
+interrupted staging so a partial index can never be mistaken for ready data.
+The index can be rebuilt solely from durable Observation rows.
 Search joins active Source state so a removed Source cannot remain visible
-through stale FTS rows.
+through stale FTS rows. When FTS `unicode61` produces no match, a bounded
+Observation-row substring query supplies exact Chinese/unsegmented-script
+results without scanning a managed repository tree. Every returned hit derives
+a query-specific quote/range Locator and preserves format identity such as a PDF
+page.
 
 It records Provider Keychain references but never API keys. A legacy progress
 file is moved only after database migration succeeds and is explicitly marked
@@ -21,8 +29,16 @@ records never become the mutable resumable session transcript. Migration tests
 open a real v5 database with existing transcript/metric rows, verify default
 backfill through v6, and prove unknown enum values fail closed.
 
-`SourceRevisionCoordinator` is the production refresh entry point. It first
-invalidates in-memory Agent sessions for affected Spaces, then one database
-transaction installs the new immutable Snapshot, advances the Source pointer,
-cancels persisted active/waiting runs, supersedes candidates, records events,
-and increments durable generations.
+`SourceRevisionCoordinator` is the Agent-session refresh barrier. Product
+refresh stages the managed revision and resolves anchors first; the final
+database transaction inserts the immutable Snapshot, advances the Source,
+stores relocated/orphaned annotation states and position migrations, and
+invalidates stale Agent runs. The coordinator first invalidates in-memory Agent
+sessions for affected Spaces; that transaction also cancels persisted
+active/waiting runs, supersedes candidates, records events, and increments
+durable generations.
+
+Schema v8 adds Source-keyed security-scoped bookmark storage. Import can insert
+the bookmark in the same transaction as Source/Snapshot/Space identity; Source
+removal deletes it even though the historical Source row remains marked
+removed.

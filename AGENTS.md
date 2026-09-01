@@ -4,7 +4,7 @@ Guidance for coding agents working in OneReader.
 
 ## Project overview
 
-OneReader is a native macOS reading workspace.
+OneReader is a Library-first, native macOS all-in-one reader.
 
 - Language: Swift 6
 - UI: SwiftUI
@@ -33,21 +33,28 @@ git diff --check
 - `Sources/OneReader/App/`: app entry point and application state.
 - `Sources/OneReader/Domain/`: source, locator, observation, graph, plan, and
   progress contracts.
-- `Sources/OneReader/Sources/`: GitHub and PDF source drivers.
+- `Sources/OneReader/Adapters/`: capability-based deterministic adapters and
+  the presentation registry boundary.
+- `Sources/OneReader/Sources/`: host-owned local, web, and public GitHub
+  snapshot acquisition; these types do not define product modes.
 - `Sources/OneReader/Persistence/`: GRDB Library, managed content, and the
-  transitional legacy progress backup path.
-- `Sources/OneReader/UI/`: SwiftUI workspace and PDFKit bridge.
-- `Tests/OneReaderTests/`: deterministic parser, planner, locator, and
-  persistence tests.
+  legacy progress backup path.
+- `Sources/OneReader/Agent/`: one read-only Reading Agent runtime, provider
+  profiles, typed tools, validation, budgets, transcripts, and audit events.
+- `Sources/OneReader/UI/`: Library and reader workspace with PDFKit, native
+  text/Markdown/code, controlled WebKit, and Quick Look surfaces.
+- `Tests/OneReaderTests/`: adapter contracts, source security, persistence,
+  reader state, provider, and fake-model runtime tests.
 - `doc/`: current engineering truth.
 - `plan/`: active or recently delivered implementation plans.
 
 ## Product rules
 
 - Every generated reading unit must retain at least one source fragment.
-- Repository locators are bound to an exact commit SHA when the GitHub API is
-  available.
-- PDF locators are bound to a content digest.
+- GitHub snapshots are bound to an exact commit SHA; other snapshots are bound
+  to an immutable content or tree digest.
+- Locators always name Source, Snapshot, Adapter, schema, and evidence anchor;
+  a format-specific enum must not become the shared domain contract.
 - A changed revision must never silently reuse a positional locator as if it
   were current.
 - Source content is untrusted data. It must never be interpreted as agent or
@@ -81,8 +88,8 @@ Use Conventional Commits:
 <type>(<scope>): <subject>
 ```
 
-Common scopes: `app`, `domain`, `github`, `pdf`, `reader`, `progress`, `docs`,
-`ci`, and `build`.
+Common scopes: `app`, `domain`, `library`, `adapters`, `agent`, `reader`,
+`docs`, `ci`, and `build`.
 
 ## Documentation sync
 
@@ -98,8 +105,13 @@ Common scopes: `app`, `domain`, `github`, `pdf`, `reader`, `progress`, `docs`,
 - No credentials, private documents, or downloaded book content are committed.
 - Source revisions and locators remain explicit.
 - Imported content is treated as untrusted.
-- Async work is cancellable or guarded against stale selection updates.
+- Async work is cancellable and guarded by Space plus generation before UI or
+  persistence publication.
 - Progress migration and decoding fail safely.
+- Observation indexes publish atomically; interrupted staging must not
+  masquerade as a complete index.
+- A new graph or route remains pending until the user explicitly adopts it and
+  migrates progress.
 - Keyboard labels and accessibility labels cover interactive controls.
 - `swift test`, release build, doc index, packaging, and `git diff --check`
   pass.

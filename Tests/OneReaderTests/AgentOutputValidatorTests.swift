@@ -214,6 +214,38 @@ final class AgentOutputValidatorTests: XCTestCase {
         }
     }
 
+    func testAdapterProposalMustMatchExplicitRouteTarget() async throws {
+        let fixture = try await makeValidatorFixture()
+        defer { fixture.remove() }
+        let deterministic = try XCTUnwrap(
+            fixture.database.fetchAdapterPlan(snapshotID: fixture.imported.snapshot.id)
+        )
+        let proposal = adapterPlan(
+            from: deterministic,
+            id: "agent-wrong-target",
+            confidence: 0.95
+        )
+
+        do {
+            _ = try await fixture.validator.validate(
+                .adapterPlan(proposal),
+                request: AgentRunRequest(
+                    spaceID: fixture.imported.space.id,
+                    task: .routeAdapters,
+                    targetSourceID: "different-source",
+                    targetSnapshotID: deterministic.snapshotID,
+                    expectedSnapshotIDs: [deterministic.snapshotID]
+                )
+            )
+            XCTFail("Expected explicit target mismatch rejection")
+        } catch {
+            XCTAssertEqual(
+                error as? ReadingAgentError,
+                .validationRejected("adapter-route-target-mismatch")
+            )
+        }
+    }
+
     func testEvidenceAnswerRequiresObservedQuote() async throws {
         let fixture = try await makeValidatorFixture()
         defer { fixture.remove() }

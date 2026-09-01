@@ -1047,6 +1047,21 @@ extension LibraryDatabase {
         }
     }
 
+    func readingGraph(spaceID: String, version: String) throws -> ReadingGraph? {
+        try pool.read { db in
+            guard let data = try Data.fetchOne(
+                db,
+                sql: """
+                    SELECT payload_json FROM reading_graphs
+                    WHERE space_id = ? AND version = ?
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                arguments: [spaceID, version]
+            ) else { return nil }
+            return try AgentPersistenceCoder.decoder.decode(ReadingGraph.self, from: data)
+        }
+    }
+
 
     func finalizeAgentRun(
         runID: String,
