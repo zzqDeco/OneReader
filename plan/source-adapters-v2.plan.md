@@ -1,6 +1,6 @@
 # Source Adapters v2
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/source-adapters-v2`
 
@@ -65,8 +65,8 @@ FTS rebuilds, cancellation, Git exact SHA, and Quick Look limits.
   passed.
 - Integrated coverage now includes plan-bound search publication, recursive PDF
   page/EPUB spine indexing in directories, per-child EPUB derived roots, and a
-  shared sanitizer/presentation resource root for nested directory HTML.
-  Promotion waits for the final exact-head Sol max review.
+  shared sanitizer/presentation resource root for nested directory HTML. The
+  final exact-head Sol max review accepted the integrated candidate.
 - Real-book interaction, screenshots, VoiceOver, and wide/narrow workspace
   acceptance remain explicitly owned by `feature/native-reader-workspace`.
 
@@ -84,4 +84,4 @@ JavaScript execution, and cross-origin resource loading.
 - [x] Native presentation packaging evidence recorded; workspace interaction deferred
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev` (local fast-forward; no remote configured)
-- [ ] Integrated Sol max review accepted and status changed to Delivered
+- [x] Integrated Sol max review accepted and status changed to Delivered

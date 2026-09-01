@@ -1,6 +1,6 @@
 # Reading Agent Runtime
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/reading-agent-runtime`
 
@@ -71,8 +71,8 @@ provenance now prevents evidence-answer or completed-route recovery from
 starting structure work; scout/materialize resume at the next phase. Explicit
 cancellation is Run-ID scoped, interrupted Runs can be abandoned, and stale
 Provider/Source bindings cancel them automatically; App-level Provider mutation
-paths immediately refresh the selected Space's persisted recovery projection. Final exact-head
-Sol max review remains the delivery gate.
+paths immediately refresh the selected Space's persisted recovery projection.
+The final exact-head Sol max review accepted the integrated runtime.
 
 ## Non-goals
 
@@ -88,4 +88,4 @@ Skills, dispatch, hidden chain-of-thought display, and unattended network replay
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [ ] Final Sol max review accepted and status changed to Delivered
+- [x] Final Sol max review accepted and status changed to Delivered

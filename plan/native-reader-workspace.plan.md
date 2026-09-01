@@ -1,6 +1,6 @@
 # Native Reader Workspace
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/native-reader-workspace`
 
@@ -82,4 +82,4 @@ collaboration, OCR, and arbitrary embedded web browsing.
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [ ] Integrated Sol max review accepted and status changed to Delivered
+- [x] Integrated Sol max review accepted and status changed to Delivered

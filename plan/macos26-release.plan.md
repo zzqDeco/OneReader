@@ -1,6 +1,6 @@
 # macOS 26 Release
 
-Status: Active
+Status: Delivered
 
 Branch: `ci/macos26-release`
 
@@ -70,4 +70,4 @@ automatic release before a remote exists, Intel binary, and real Provider calls.
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [ ] Final Sol max review and regenerated exact-head artifacts accepted; status changed to Delivered
+- [x] Final Sol max review and regenerated exact-head artifacts accepted; status changed to Delivered

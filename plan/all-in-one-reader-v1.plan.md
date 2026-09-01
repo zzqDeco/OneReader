@@ -1,6 +1,6 @@
 # OneReader v0.2 All-in-One Reader
 
-Status: Active
+Status: Delivered
 
 Branch: `docs/all-in-one-reader-v1`
 
@@ -88,4 +88,4 @@ controlled writes, App Store distribution, and notarization.
 - [x] Five slice plans delivered
 - [x] Unified native acceptance passed
 - [x] `dev` ready for a separate promotion pull request
-- [ ] Final Sol max review accepted and status changed to Delivered
+- [x] Final Sol max review accepted and status changed to Delivered
