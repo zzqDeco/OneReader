@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import XCTest
 @testable import OneReader
 
@@ -602,6 +603,244 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testRemoteDisclosureAnswerResumeDoesNotLaunchReadingStructurePipeline() async throws {
+        let root = temporaryRoot("DisclosureAnswerResume")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secrets = InMemoryProviderSecretStore()
+        let fixture = try await makeAnswerFixture(
+            root: root,
+            providerKind: .openAIResponses,
+            secretStore: secrets
+        )
+        let trace = AppPipelineTrace()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: fixture.libraryRoot,
+            defaults: defaults,
+            secretStore: secrets,
+            agentDriverFactory: AnswerOnlyDriverFactory(
+                answer: fixture.answer,
+                trace: trace
+            )
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.openSpace(fixture.imported.space.id)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activeProvider != nil
+        }
+
+        model.askAgent("What is the evidence?")
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentAttentionKind == .disclosure
+        }
+        model.confirmWaitingAgentRun()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.evidenceAnswer == fixture.answer
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        let records = await trace.records()
+        XCTAssertEqual(
+            records,
+            [.init(task: .answerWithEvidence, targetSourceID: nil)]
+        )
+        XCTAssertTrue(model.agentRuns.allSatisfy { $0.task == .answerWithEvidence })
+    }
+
+    func testInterruptedAnswerResumeDoesNotLaunchReadingStructurePipeline() async throws {
+        let root = temporaryRoot("InterruptedAnswerResume")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secrets = InMemoryProviderSecretStore()
+        let fixture = try await makeAnswerFixture(
+            root: root,
+            providerKind: .appleOnDevice,
+            secretStore: secrets
+        )
+        let interruptedRunID = try createInterruptedAnswerRun(fixture: fixture)
+        let trace = AppPipelineTrace()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: fixture.libraryRoot,
+            defaults: defaults,
+            secretStore: secrets,
+            agentDriverFactory: AnswerOnlyDriverFactory(
+                answer: fixture.answer,
+                trace: trace
+            )
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.openSpace(fixture.imported.space.id)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentRun?.id == interruptedRunID
+                && model.waitingAgentAttentionKind == .interrupted
+        }
+
+        model.confirmWaitingAgentRun()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.evidenceAnswer == fixture.answer
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        let records = await trace.records()
+        XCTAssertEqual(
+            records,
+            [.init(task: .answerWithEvidence, targetSourceID: nil)]
+        )
+        XCTAssertTrue(model.agentRuns.allSatisfy { $0.task == .answerWithEvidence })
+    }
+
+    func testAbandonInterruptedRunClearsInspectorAttention() async throws {
+        let root = temporaryRoot("AbandonInterrupted")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secrets = InMemoryProviderSecretStore()
+        let fixture = try await makeAnswerFixture(
+            root: root,
+            providerKind: .appleOnDevice,
+            secretStore: secrets
+        )
+        let interruptedRunID = try createInterruptedAnswerRun(fixture: fixture)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: fixture.libraryRoot,
+            defaults: defaults,
+            secretStore: secrets,
+            agentDriverFactory: AnswerOnlyDriverFactory(
+                answer: fixture.answer,
+                trace: AppPipelineTrace()
+            )
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.openSpace(fixture.imported.space.id)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentRun?.id == interruptedRunID
+        }
+
+        model.abandonInterruptedAgentRun()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentRun == nil
+        }
+
+        let abandoned = try XCTUnwrap(
+            fixture.database.fetchAgentRuns().first { $0.id == interruptedRunID }
+        )
+        XCTAssertEqual(abandoned.state, .cancelled)
+        XCTAssertEqual(abandoned.errorCategory, "user-abandoned")
+    }
+
+    func testInterruptedScoutAndMaterializeResumeFromTheirNextPipelinePhase() async throws {
+        for interruptedTask in [AgentTaskKind.scoutSpace, .materializeGraph] {
+            let root = temporaryRoot("PipelineResume-\(interruptedTask.rawValue)")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let secrets = InMemoryProviderSecretStore()
+            let fixture = try await makeAnswerFixture(
+                root: root,
+                providerKind: .appleOnDevice,
+                secretStore: secrets
+            )
+            let interruptedRunID = try createInterruptedRun(
+                fixture: fixture,
+                task: interruptedTask,
+                pipeline: .readingStructure
+            )
+            let locator = try XCTUnwrap(fixture.answer.citations.first?.locator)
+            let patch = GraphPatch(
+                id: "pipeline-patch-\(interruptedTask.rawValue)",
+                schemaVersion: GraphPatch.currentSchemaVersion,
+                graphID: "pipeline-graph-\(interruptedTask.rawValue)",
+                baseGraphVersion: nil,
+                snapshotIDs: [fixture.imported.snapshot.id],
+                upsertUnits: [readingUnit(
+                    id: "pipeline-unit-\(interruptedTask.rawValue)",
+                    locator: locator
+                )],
+                removeUnitIDs: [],
+                generatedAt: .now
+            )
+            let trace = AppPipelineTrace()
+            let defaults = try XCTUnwrap(
+                UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+            )
+            let model = AppModel(
+                libraryRootURL: fixture.libraryRoot,
+                defaults: defaults,
+                secretStore: secrets,
+                agentDriverFactory: PipelineContinuationDriverFactory(
+                    patch: patch,
+                    trace: trace
+                )
+            )
+            try await waitUntil { model.isBootstrapComplete }
+            model.openSpace(fixture.imported.space.id)
+            try await waitUntil(timeout: .seconds(5)) {
+                model.waitingAgentRun?.id == interruptedRunID
+            }
+
+            model.confirmWaitingAgentRun()
+            try await waitUntil(timeout: .seconds(5)) {
+                model.agentRuns.contains {
+                    $0.task == .projectRoute && $0.state == .failed
+                }
+            }
+
+            let records = await trace.records().map(\.task)
+            switch interruptedTask {
+            case .scoutSpace:
+                XCTAssertEqual(records, [.scoutSpace, .materializeGraph, .projectRoute])
+            case .materializeGraph:
+                XCTAssertEqual(records, [.materializeGraph, .projectRoute])
+            case .routeAdapters, .projectRoute, .answerWithEvidence:
+                XCTFail("Unexpected fixture task")
+            }
+        }
+    }
+
+    func testV8MigrationRebuildsLibrarySearchWithoutOpeningSpace() async throws {
+        let root = temporaryRoot("V8SearchRebuild")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try prepareVersion8SearchFixture(
+            libraryRoot: root.appendingPathComponent("Library", isDirectory: true)
+        )
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: fixture.libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil(timeout: .seconds(5)) { model.isBootstrapComplete }
+        XCTAssertFalse(model.isReadingWorkspaceOpen)
+        XCTAssertNil(model.selectedSpaceID)
+
+        let observer = try DatabasePool(path: fixture.databaseURL.path)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(8))
+        var isComplete = false
+        while !isComplete, clock.now < deadline {
+            isComplete = try await observer.read { db in
+                try Bool.fetchOne(
+                    db,
+                    sql: """
+                        SELECT EXISTS(
+                            SELECT 1 FROM observation_index_runs
+                            WHERE snapshot_id = ? AND plan_id = ? AND state = 'completed'
+                        )
+                        """,
+                    arguments: [fixture.snapshotID, fixture.planID]
+                ) ?? false
+            }
+            if !isComplete { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        XCTAssertTrue(isComplete, "Bootstrap should rebuild every active v8 plan")
+        try observer.close()
+
+        let verification = try LibraryDatabase(rootURL: fixture.libraryRoot)
+        XCTAssertEqual(try verification.schemaMetadata()["database_schema"], "9")
+        XCTAssertEqual(
+            try verification.searchObservations(query: "migration-evidence").count,
+            1
+        )
+        XCTAssertTrue(try verification.adapterPlansRequiringSearchIndex().isEmpty)
+    }
+
     func testInvalidLibraryRootFailsClosedAndPreservesUnrelatedFile() async throws {
         let root = temporaryRoot("Invalid")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -634,6 +873,294 @@ final class AppModelLibraryTests: XCTestCase {
     private func temporaryRoot(_ suffix: String) -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("OneReaderAppModel-\(suffix)-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func makeAnswerFixture(
+        root: URL,
+        providerKind: ProviderKind,
+        secretStore: InMemoryProviderSecretStore
+    ) async throws -> AppAnswerFixture {
+        let inputs = root.appendingPathComponent("Inputs", isDirectory: true)
+        let libraryRoot = root.appendingPathComponent("Library", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let input = inputs.appendingPathComponent("answer.md")
+        try Data("# Session\n\nEvidence.\n".utf8).write(to: input)
+        let database = try LibraryDatabase(rootURL: libraryRoot)
+        let library = try ManagedLibrary(
+            database: database,
+            storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max,
+                minimumFreeCapacity: 0,
+                capacityProvider: { _ in .max }
+            )
+        )
+        let imported = try await library.importLocalSource(at: input)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepare(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id
+        )
+        let nodes = try await coordinator.list(plan: plan)
+        let node = try XCTUnwrap(nodes.first)
+        var rootPayload = node.locator.payload
+        rootPayload["startLine"] = nil
+        rootPayload["endLine"] = nil
+        rootPayload["headingLevel"] = nil
+        let rootLocator = Locator(
+            sourceID: node.locator.sourceID,
+            snapshotID: node.locator.snapshotID,
+            adapterID: node.locator.adapterID,
+            payload: rootPayload
+        )
+        let observation = try await coordinator.read(plan: plan, locator: rootLocator)
+        XCTAssertTrue(observation.content.contains("Evidence."))
+        let reference: String?
+        if providerKind.requiresSecret {
+            reference = await secretStore.save(secret: "test-secret", reference: nil)
+        } else {
+            reference = nil
+        }
+        let profile = ProviderProfile(
+            displayName: "Answer test provider",
+            kind: providerKind,
+            endpoint: providerKind == .openAIResponses
+                ? URL(string: "https://example.invalid/v1")
+                : nil,
+            modelID: "answer-test-model",
+            keychainReference: reference,
+            isDefault: true,
+            capabilities: [.connection, .structuredGeneration, .toolCalling],
+            lastTestedAt: .now,
+            lastTestSucceeded: true
+        )
+        try database.saveProviderProfile(profile)
+        let answer = EvidenceAnswer(
+            schemaVersion: EvidenceAnswer.currentSchemaVersion,
+            answer: "The source contains grounded evidence.",
+            citations: [EvidenceCitation(
+                id: "answer-citation",
+                fragmentID: nil,
+                sourceID: imported.source.id,
+                snapshotID: imported.snapshot.id,
+                locator: observation.locator,
+                quote: "Evidence."
+            )],
+            limitations: []
+        )
+        return AppAnswerFixture(
+            libraryRoot: libraryRoot,
+            database: database,
+            imported: imported,
+            profile: profile,
+            answer: answer
+        )
+    }
+
+    private func createInterruptedAnswerRun(fixture: AppAnswerFixture) throws -> String {
+        try createInterruptedRun(
+            fixture: fixture,
+            task: .answerWithEvidence,
+            pipeline: nil,
+            question: "What is the evidence?"
+        )
+    }
+
+    private func createInterruptedRun(
+        fixture: AppAnswerFixture,
+        task: AgentTaskKind,
+        pipeline: AgentPipelineKind?,
+        question: String? = nil
+    ) throws -> String {
+        let manifest = try fixture.database.currentSnapshotManifest(
+            spaceID: fixture.imported.space.id
+        )
+        let request = AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: task,
+            pipeline: pipeline,
+            question: question,
+            expectedSnapshotIDs: Set(manifest.values),
+            snapshotManifest: manifest
+        )
+        let run = AgentRun(
+            id: UUID().uuidString.lowercased(),
+            spaceID: request.spaceID,
+            task: request.task,
+            generation: 1,
+            state: .queued,
+            providerProfileID: fixture.profile.id,
+            providerDestinationIdentity: try ProviderPolicy.destinationIdentity(fixture.profile),
+            providerRevisionIdentity: try ProviderPolicy.revisionIdentity(fixture.profile),
+            createdAt: .now,
+            startedAt: nil,
+            finishedAt: nil,
+            errorCategory: nil
+        )
+        try fixture.database.beginAgentRun(run, request: request)
+        try fixture.database.markAgentRunRunningCAS(
+            id: run.id,
+            spaceID: run.spaceID,
+            generation: run.generation
+        )
+        return run.id
+    }
+
+    private func prepareVersion8SearchFixture(
+        libraryRoot: URL
+    ) throws -> AppV8SearchFixture {
+        let layout = ApplicationSupportLayout(rootURL: libraryRoot)
+        try layout.prepare()
+        let managedDirectory = layout.sourcesURL
+            .appendingPathComponent("legacy-v8", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: managedDirectory,
+            withIntermediateDirectories: true
+        )
+        let managedURL = managedDirectory.appendingPathComponent("payload")
+        let body = "# migration-evidence\n\nLegacy content remains globally searchable.\n"
+        let bodyData = Data(body.utf8)
+        try bodyData.write(to: managedURL)
+        let digest = AdapterUtilities.sha256(bodyData)
+        let sourceID = "source-v8-search"
+        let snapshotID = "snapshot-v8-search"
+        let spaceID = "space-v8-search"
+        let planID = "plan-v8-search"
+        let plan = AdapterPlan(
+            id: planID,
+            schemaVersion: AdapterPlan.currentSchemaVersion,
+            sourceID: sourceID,
+            snapshotID: snapshotID,
+            primaryAdapterID: MarkdownAdapter.id,
+            auxiliaryAdapterIDs: [],
+            capabilityRoutes: Dictionary(
+                uniqueKeysWithValues: AdapterCapability.allCases.map { ($0, MarkdownAdapter.id) }
+            ),
+            evidence: [ProbeEvidence(
+                id: "v8-markdown-probe",
+                adapterID: MarkdownAdapter.id,
+                rule: "fixture",
+                detail: "Version 8 migration fixture",
+                confidence: 1
+            )],
+            confidence: 1,
+            reason: "Version 8 active search plan",
+            isUserOverride: false,
+            createdAt: .now
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let planJSON = try encoder.encode(plan)
+        let locator = Locator(
+            sourceID: sourceID,
+            snapshotID: snapshotID,
+            adapterID: MarkdownAdapter.id,
+            payload: ["path": "legacy.md"]
+        )
+        let locatorJSON = try encoder.encode(locator)
+        let pool = try DatabasePool(path: layout.databaseURL.path)
+        try LibraryDatabase.makeMigrator().migrate(
+            pool,
+            upTo: "v8-source-access-bookmarks"
+        )
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO sources
+                        (id, display_name, origin_kind, origin_url, managed_state,
+                         latest_snapshot_id, created_at, updated_at)
+                    VALUES (?, 'legacy.md', 'localFile', NULL, 'ready', ?, ?, ?)
+                    """,
+                arguments: [sourceID, snapshotID, Date.now, Date.now]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO snapshots
+                        (id, source_id, revision_kind, revision, digest, origin_url,
+                         managed_relative_path, byte_count, created_at)
+                    VALUES (?, ?, 'contentDigest', ?, ?, NULL, ?, ?, ?)
+                    """,
+                arguments: [
+                    snapshotID,
+                    sourceID,
+                    digest,
+                    digest,
+                    try layout.relativePath(for: managedURL),
+                    bodyData.count,
+                    Date.now,
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO reading_spaces
+                        (id, title, is_favorite, created_at, updated_at)
+                    VALUES (?, 'Legacy library', 0, ?, ?)
+                    """,
+                arguments: [spaceID, Date.now, Date.now]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO space_sources (space_id, source_id, position, added_at)
+                    VALUES (?, ?, 0, ?)
+                    """,
+                arguments: [spaceID, sourceID, Date.now]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO adapter_plans
+                        (id, source_id, snapshot_id, schema_version, payload_json,
+                         confidence, is_user_override, created_at)
+                    VALUES (?, ?, ?, ?, ?, 1, 0, ?)
+                    """,
+                arguments: [
+                    planID,
+                    sourceID,
+                    snapshotID,
+                    plan.schemaVersion,
+                    planJSON,
+                    plan.createdAt,
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO observations
+                        (id, source_id, snapshot_id, adapter_id, locator_json,
+                         media_type, title, body, digest, truncated, created_at)
+                    VALUES ('observation-v8-search', ?, ?, ?, ?, 'text/markdown',
+                            'legacy.md', ?, ?, 0, ?)
+                    """,
+                arguments: [
+                    sourceID,
+                    snapshotID,
+                    MarkdownAdapter.id,
+                    locatorJSON,
+                    body,
+                    digest,
+                    Date.now,
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO observation_fts
+                        (observation_id, source_id, snapshot_id, title, body)
+                    VALUES ('observation-v8-search', ?, ?, 'legacy.md', ?)
+                    """,
+                arguments: [sourceID, snapshotID, body]
+            )
+        }
+        XCTAssertEqual(try pool.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT value FROM library_metadata WHERE key = 'database_schema'"
+            )
+        }, "8")
+        try pool.close()
+        return AppV8SearchFixture(
+            libraryRoot: libraryRoot,
+            databaseURL: layout.databaseURL,
+            snapshotID: snapshotID,
+            planID: planID
+        )
     }
 
     private func anchoredLocator(
@@ -682,6 +1209,21 @@ final class AppModelLibraryTests: XCTestCase {
     }
 }
 
+private struct AppAnswerFixture {
+    let libraryRoot: URL
+    let database: LibraryDatabase
+    let imported: ManagedImportResult
+    let profile: ProviderProfile
+    let answer: EvidenceAnswer
+}
+
+private struct AppV8SearchFixture {
+    let libraryRoot: URL
+    let databaseURL: URL
+    let snapshotID: String
+    let planID: String
+}
+
 private actor AppPipelineTrace {
     struct Record: Equatable, Sendable {
         let task: AgentTaskKind
@@ -695,6 +1237,81 @@ private actor AppPipelineTrace {
     }
 
     func records() -> [Record] { values }
+}
+
+private struct AnswerOnlyDriverFactory: ReadingAgentDriverFactory {
+    let answer: EvidenceAnswer
+    let trace: AppPipelineTrace
+
+    func makeDriver(context: AgentDriverContext) -> any ReadingAgentModelDriver {
+        AnswerOnlyDriver(context: context, answer: answer, trace: trace)
+    }
+}
+
+private struct AnswerOnlyDriver: ReadingAgentModelDriver {
+    let context: AgentDriverContext
+    let answer: EvidenceAnswer
+    let trace: AppPipelineTrace
+
+    func generate(
+        _ request: AgentModelRequest,
+        runtime: ReadingToolRuntime,
+        previousTranscript: Data?
+    ) async throws -> AgentModelResult {
+        _ = try await context.budget.consumeModelRound()
+        await trace.append(.init(
+            task: request.request.task,
+            targetSourceID: request.request.targetSourceID
+        ))
+        guard request.request.task == .answerWithEvidence else {
+            throw ReadingAgentError.providerUnavailable(
+                "answer-test-unexpected-\(request.request.task.rawValue)"
+            )
+        }
+        return AgentModelResult(output: .evidenceAnswer(answer), usage: nil)
+    }
+}
+
+private struct PipelineContinuationDriverFactory: ReadingAgentDriverFactory {
+    let patch: GraphPatch
+    let trace: AppPipelineTrace
+
+    func makeDriver(context: AgentDriverContext) -> any ReadingAgentModelDriver {
+        PipelineContinuationDriver(context: context, patch: patch, trace: trace)
+    }
+}
+
+private struct PipelineContinuationDriver: ReadingAgentModelDriver {
+    let context: AgentDriverContext
+    let patch: GraphPatch
+    let trace: AppPipelineTrace
+
+    func generate(
+        _ request: AgentModelRequest,
+        runtime: ReadingToolRuntime,
+        previousTranscript: Data?
+    ) async throws -> AgentModelResult {
+        _ = try await context.budget.consumeModelRound()
+        await trace.append(.init(
+            task: request.request.task,
+            targetSourceID: request.request.targetSourceID
+        ))
+        switch request.request.task {
+        case .scoutSpace:
+            return AgentModelResult(
+                output: .scoutingSummary("The persisted pipeline scout is complete."),
+                usage: nil
+            )
+        case .materializeGraph:
+            return AgentModelResult(output: .graphPatch(patch), usage: nil)
+        case .projectRoute:
+            throw ReadingAgentError.providerUnavailable("pipeline-resume-test-stop")
+        case .routeAdapters, .answerWithEvidence:
+            throw ReadingAgentError.providerUnavailable(
+                "pipeline-resume-unexpected-\(request.request.task.rawValue)"
+            )
+        }
+    }
 }
 
 private struct AppPipelineDriverFactory: ReadingAgentDriverFactory {

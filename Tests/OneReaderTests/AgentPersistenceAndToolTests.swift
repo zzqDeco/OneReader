@@ -3,6 +3,16 @@ import XCTest
 @testable import OneReader
 
 final class AgentPersistenceAndToolTests: XCTestCase {
+    func testLegacyAgentRequestWithoutPipelineProvenanceStillDecodes() throws {
+        let legacy = Data(#"{"spaceID":"legacy-space","task":"scoutSpace","expectedSnapshotIDs":[],"snapshotManifest":{}}"#.utf8)
+
+        let request = try JSONDecoder().decode(AgentRunRequest.self, from: legacy)
+
+        XCTAssertEqual(request.spaceID, "legacy-space")
+        XCTAssertEqual(request.task, .scoutSpace)
+        XCTAssertNil(request.pipeline)
+    }
+
     func testProviderProfileStoresOnlyKeychainReferenceAndSpaceOverride() async throws {
         let fixture = try await makeImportedFixture()
         defer { fixture.remove() }
@@ -319,6 +329,59 @@ final class AgentPersistenceAndToolTests: XCTestCase {
             spaceID: fixture.imported.space.id,
             profileID: profile.id
         ))
+    }
+
+    func testProviderRevisionAutomaticallyCancelsInterruptedRun() async throws {
+        let fixture = try await makeImportedFixture()
+        defer { fixture.remove() }
+        var profile = ProviderProfile(
+            displayName: "Remote",
+            kind: .openAIResponses,
+            endpoint: URL(string: "https://example.invalid/v1"),
+            modelID: "model-a",
+            keychainReference: "provider:test",
+            isDefault: true
+        )
+        try fixture.database.saveProviderProfile(profile)
+        let manifest = try fixture.database.currentSnapshotManifest(
+            spaceID: fixture.imported.space.id
+        )
+        let request = AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .answerWithEvidence,
+            question: "What changed?",
+            expectedSnapshotIDs: Set(manifest.values),
+            snapshotManifest: manifest
+        )
+        let run = AgentRun(
+            id: UUID().uuidString.lowercased(),
+            spaceID: request.spaceID,
+            task: request.task,
+            generation: 1,
+            state: .interrupted,
+            providerProfileID: profile.id,
+            providerDestinationIdentity: try ProviderPolicy.destinationIdentity(profile),
+            providerRevisionIdentity: try ProviderPolicy.revisionIdentity(profile),
+            createdAt: .now,
+            startedAt: .now,
+            finishedAt: .now,
+            errorCategory: "app-restart"
+        )
+        try fixture.database.insertAgentRunForTesting(run, request: request)
+
+        profile.modelID = "model-b"
+        profile.updatedAt = .now
+        try fixture.database.saveProviderProfile(profile)
+
+        let invalidated = try XCTUnwrap(
+            fixture.database.fetchAgentRuns().first(where: { $0.id == run.id })
+        )
+        XCTAssertEqual(invalidated.state, .cancelled)
+        XCTAssertEqual(invalidated.errorCategory, "provider-configuration-changed")
+        XCTAssertEqual(
+            try fixture.database.fetchAgentEvents(runID: run.id).last?.kind,
+            .cancelled
+        )
     }
 
     func testEvidenceQuoteMatchingIsExactUTF8NotCanonicalEquivalent() async throws {
@@ -705,6 +768,58 @@ final class AgentPersistenceAndToolTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? ReadingAgentError, .runNotCurrent)
         }
+    }
+
+    func testSourceRefreshAutomaticallyCancelsInterruptedRun() async throws {
+        let fixture = try await makeImportedFixture()
+        defer { fixture.remove() }
+        let manifest = try fixture.database.currentSnapshotManifest(
+            spaceID: fixture.imported.space.id
+        )
+        let request = AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            pipeline: .readingStructure,
+            expectedSnapshotIDs: Set(manifest.values),
+            snapshotManifest: manifest
+        )
+        let run = AgentRun(
+            id: UUID().uuidString.lowercased(),
+            spaceID: request.spaceID,
+            task: request.task,
+            generation: 1,
+            state: .interrupted,
+            providerProfileID: nil,
+            createdAt: .now,
+            startedAt: .now,
+            finishedAt: .now,
+            errorCategory: "app-restart"
+        )
+        try fixture.database.insertAgentRunForTesting(run, request: request)
+        let old = fixture.imported.snapshot
+        let refreshed = SourceSnapshot(
+            id: "\(old.id)-interrupted-refresh",
+            sourceID: old.sourceID,
+            revision: "interrupted-refresh",
+            revisionKind: old.revisionKind,
+            digest: String(repeating: "c", count: 64),
+            observedAt: .now,
+            origin: old.origin,
+            managedRelativePath: old.managedRelativePath,
+            byteCount: old.byteCount
+        )
+
+        try fixture.database.commitSnapshotRefreshForTesting(refreshed)
+
+        let invalidated = try XCTUnwrap(
+            fixture.database.fetchAgentRuns().first(where: { $0.id == run.id })
+        )
+        XCTAssertEqual(invalidated.state, .cancelled)
+        XCTAssertEqual(invalidated.errorCategory, "source-revision-changed")
+        XCTAssertEqual(
+            try fixture.database.fetchAgentEvents(runID: run.id).last?.kind,
+            .cancelled
+        )
     }
 
     func testToolActivityAuditsOutboundFragmentIdentityAndByteRangeWithoutContent() async throws {

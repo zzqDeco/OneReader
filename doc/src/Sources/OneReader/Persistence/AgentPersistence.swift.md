@@ -9,8 +9,9 @@ as concurrent mutable state.
 Provider rows contain only Keychain references. Each Run stores immutable
 destination and Provider-revision identities. Editing a profile or Space
 override transactionally cancels every active Run whose binding is stale,
-supersedes pending output, appends an audit event, and advances the session
-generation. Disclosure facts bind a hash of Provider kind and canonical
+including interrupted recovery candidates, supersedes pending output, appends
+an audit event, and advances the session generation. Disclosure facts bind a
+hash of Provider kind and canonical
 endpoint; confirmation uses the Run-bound identity. Provider connection results
 carry the exact tested revision and update capabilities/status only when a
 same-transaction comparison proves that revision is still current.
@@ -32,8 +33,8 @@ observed entry. Cancellation audit may finish for a matching terminal-cancelled
 Run after its Space session has advanced, but it cannot mutate that session or
 domain state. A unique
 partial index permits only one resumed child per parent run. Beginning a newer run
-transactionally supersedes older queued/running/waiting rows and their pending
-output. The sole production finalization path compares the active session
+transactionally supersedes older queued/running/waiting/interrupted rows and
+their pending output. The sole production finalization path compares the active session
 generation and run state, rechecks the exact Snapshot manifest, applies the
 host-owned domain mutation, saves output, transitions state, and appends the
 final event inside one write transaction. There is no separate production

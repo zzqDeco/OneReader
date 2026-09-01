@@ -182,6 +182,9 @@ struct ReaderInspectorView: View {
                         if model.waitingAgentAttentionKind == .adapterCandidate {
                             Button("保留基础方案") { model.dismissWaitingAgentRun() }
                         }
+                        if model.waitingAgentAttentionKind == .interrupted {
+                            Button("放弃 Run") { model.abandonInterruptedAgentRun() }
+                        }
                         Spacer()
                         Button(
                             model.waitingAgentAttentionKind == .interrupted

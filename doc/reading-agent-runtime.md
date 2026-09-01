@@ -54,12 +54,24 @@ Snapshot ID from that manifest. The target survives request reconstruction,
 resume persistence, prompt projection, and final validation; an adapter result
 for another current Source in the same Space is still rejected.
 
+Host-created structure runs also persist optional pipeline provenance.
+Recovery uses the persisted task plus that provenance as a checkpoint:
+`routeAdapters` continues with the next Source, `scoutSpace` continues with
+graph materialization, and `materializeGraph` continues with route projection.
+Completed `projectRoute` and `answerWithEvidence` runs stop. A legacy or
+standalone request without provenance also stops, which is safer than inventing
+downstream work after recovery.
+
 Application startup atomically marks incomplete runs interrupted and appends a
 matching Activity event; it never replays Provider or fetch calls. Only an
 explicit resume creates a new run linked to the interrupted run. A database
 uniqueness constraint and parent-state compare-and-swap permit only one child
 for that parent. A persisted low-confidence candidate may instead be confirmed
 or dismissed locally after restart without making another Provider request.
+The Inspector can terminate an interrupted Run as `user-abandoned`, preserving
+its audit history while removing the recovery prompt. Provider revision changes,
+Space Provider changes, Source refresh, and newer generations also cancel
+interrupted Runs that are no longer recoverable.
 
 Remote disclosure waits are resumable after acknowledgment. A routing proposal
 below 0.85 confidence is different: it remains a stored candidate while the
@@ -74,6 +86,10 @@ reopens the Space to new runs.
 
 Session cancellation persists the old Run and captures its task/recorder before
 the actor first suspends; it never rereads mutable task state after an `await`.
+The UI captures the exact Run ID and Space before scheduling explicit
+cancellation, and the Session performs an ID-scoped compare-and-swap. If a
+replacement Run is active when that delayed request arrives, cancellation is a
+no-op for the replacement.
 Every asynchronous start attempt carries a host token checked after each
 suspension and again before task installation. Caller task cancellation is
 checked at those same boundaries; if it arrives after persistence, the queued
@@ -130,7 +146,8 @@ Provider kind and the canonical effective endpoint. A separate Provider
 revision identity also binds the model, Keychain reference, context window,
 timeout, and tested capabilities used by the Run. Editing any run-relevant
 field or changing a Space override transactionally cancels stale persisted runs,
-supersedes their pending outputs, advances the session generation, and makes an
+including interrupted recovery candidates, supersedes their pending outputs,
+advances the session generation, and makes an
 old destination consent inapplicable to a new endpoint. Disclosure confirmation
 accepts a Run ID and never re-resolves a mutable profile before recording consent.
 

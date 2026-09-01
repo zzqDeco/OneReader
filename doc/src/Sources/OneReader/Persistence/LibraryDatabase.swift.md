@@ -13,6 +13,9 @@ from `search_documents`, records one active AdapterPlan per Snapshot, keys index
 runs by Snapshot plus plan ID, and publishes only after an active-plan
 compare-and-swap. Startup drops interrupted staging so a partial or superseded
 plan can never be mistaken for current searchable data.
+After a v8-to-v9 migration, active searchable plans without a completed
+projection are queryable as deterministic rebuild work. App bootstrap schedules
+all of them, so global search recovers without opening each Space.
 Search joins active Source state so a removed Source cannot remain visible
 through stale FTS rows. When FTS `unicode61` produces no match, a bounded
 active-search-projection substring query supplies exact Chinese/unsegmented-script
@@ -36,7 +39,7 @@ database transaction inserts the immutable Snapshot, advances the Source,
 stores relocated/orphaned annotation states and position migrations, and
 invalidates stale Agent runs. The coordinator first invalidates in-memory Agent
 sessions for affected Spaces; that transaction also cancels persisted
-active/waiting runs, supersedes candidates, records events, and increments
+active/waiting/interrupted runs, supersedes candidates, records events, and increments
 durable generations.
 
 Schema v8 adds Source-keyed security-scoped bookmark storage. Import can insert

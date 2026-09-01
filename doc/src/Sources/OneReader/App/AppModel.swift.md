@@ -31,13 +31,21 @@ published. Opening a Space restores its most recent persisted position.
 
 The product Agent pipeline routes every current Snapshot before scouting. A
 low-confidence plan waits for confirmation; confirm/dismiss/resume continues at
-the next Source checkpoint, while another waiting state pauses again. Space
+the next persisted pipeline checkpoint, while standalone evidence answers and
+completed route projection stop. The model captures the exact active Run ID for
+explicit cancellation, exposes an auditable abandon action for interrupted
+work, and lets Provider/Source invalidation remove unrecoverable recovery
+prompts. Space
 transitions rely on Run-ID-bound stream termination rather than an unscoped
 delayed session cancel. Completed graph/route revisions are
 loaded as pending while the reader remains on a frozen plan; adoption and valid
 progress migration require an explicit user action. Source refresh stages and
 probes new bytes under the existing Source identity, resolves annotation and
 position anchors, and commits the new Snapshot plus migration states atomically.
+
+Bootstrap also enumerates every active searchable AdapterPlan that lacks a
+completed schema-v9 projection and schedules background indexing without
+opening its Space.
 
 Activity maps persisted redacted metadata into the Inspector, including Source,
 Snapshot, Adapter, Locator digest, and outbound byte range for read tools.

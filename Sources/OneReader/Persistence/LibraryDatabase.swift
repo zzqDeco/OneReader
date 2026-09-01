@@ -613,7 +613,8 @@ final class LibraryDatabase: @unchecked Sendable {
                 sql: """
                     SELECT id
                     FROM agent_runs
-                    WHERE space_id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                    WHERE space_id = ?
+                      AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                     ORDER BY created_at, id
                     """,
                 arguments: [spaceID]
@@ -624,7 +625,8 @@ final class LibraryDatabase: @unchecked Sendable {
                     sql: """
                         UPDATE agent_runs
                         SET state = 'cancelled', finished_at = ?, error_category = ?
-                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                        WHERE id = ?
+                          AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                         """,
                     arguments: [Date.now, errorCategory, runID]
                 )
@@ -727,6 +729,35 @@ final class LibraryDatabase: @unchecked Sendable {
                 arguments: [snapshotID]
             ) else { return nil }
             return try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: data)
+        }
+    }
+
+    func adapterPlansRequiringSearchIndex() throws -> [AdapterPlan] {
+        try pool.read { db in
+            let payloads = try Data.fetchAll(
+                db,
+                sql: """
+                    SELECT adapter_plans.payload_json
+                    FROM active_adapter_plans
+                    JOIN adapter_plans
+                      ON adapter_plans.id = active_adapter_plans.plan_id
+                    JOIN sources
+                      ON sources.id = adapter_plans.source_id
+                     AND sources.latest_snapshot_id = adapter_plans.snapshot_id
+                    LEFT JOIN observation_index_runs
+                      ON observation_index_runs.snapshot_id = adapter_plans.snapshot_id
+                     AND observation_index_runs.plan_id = adapter_plans.id
+                    WHERE sources.managed_state != 'removed'
+                      AND (
+                        observation_index_runs.state IS NULL
+                        OR observation_index_runs.state != 'completed'
+                      )
+                    ORDER BY sources.updated_at DESC, adapter_plans.id
+                    """
+            )
+            return try payloads
+                .map { try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: $0) }
+                .filter { $0.capabilityRoutes[.search] != nil }
         }
     }
 

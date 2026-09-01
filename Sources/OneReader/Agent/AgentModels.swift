@@ -81,9 +81,14 @@ struct ProviderConnectionTest: Codable, Hashable, Sendable {
     let testedAt: Date
 }
 
+enum AgentPipelineKind: String, Codable, Hashable, Sendable {
+    case readingStructure
+}
+
 struct AgentRunRequest: Codable, Hashable, Sendable {
     let spaceID: String
     let task: AgentTaskKind
+    let pipeline: AgentPipelineKind?
     let goal: String?
     let question: String?
     let targetSourceID: String?
@@ -94,6 +99,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
     init(
         spaceID: String,
         task: AgentTaskKind,
+        pipeline: AgentPipelineKind? = nil,
         goal: String? = nil,
         question: String? = nil,
         targetSourceID: String? = nil,
@@ -103,6 +109,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
     ) {
         self.spaceID = spaceID
         self.task = task
+        self.pipeline = pipeline
         self.goal = goal
         self.question = question
         self.targetSourceID = targetSourceID

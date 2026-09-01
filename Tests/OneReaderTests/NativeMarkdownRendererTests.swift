@@ -110,4 +110,84 @@ final class NativeMarkdownRendererTests: XCTestCase {
             renderedRanges[2]
         )
     }
+
+    func testSourceMapUsesASTRangesAndExcludesHiddenMarkdownSyntax() throws {
+        let source = """
+            中文 [label](same) same &amp; \\*
+
+            <div>
+            same
+            </div>
+
+            final same
+            """
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let sourceValue = source as NSString
+        let renderedValue = rendered.string as NSString
+        let sameRanges = ranges(of: "same", in: sourceValue)
+        XCTAssertEqual(sameRanges.count, 4)
+
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: sameRanges[0],
+            in: rendered
+        ), "A link destination is syntax, not visible text")
+        XCTAssertNil(MarkdownSourceMap.renderedRange(
+            forSourceRange: sameRanges[2],
+            in: rendered
+        ), "Raw HTML blocks are intentionally omitted from the native surface")
+
+        for sourceRange in [sameRanges[1], sameRanges[3]] {
+            let renderedRange = try XCTUnwrap(MarkdownSourceMap.renderedRange(
+                forSourceRange: sourceRange,
+                in: rendered
+            ))
+            XCTAssertEqual(renderedValue.substring(with: renderedRange), "same")
+            XCTAssertEqual(
+                MarkdownSourceMap.sourceRange(
+                    forRenderedRange: renderedRange,
+                    in: rendered
+                ),
+                sourceRange
+            )
+        }
+
+        let entityRange = sourceValue.range(of: "&amp;")
+        let renderedEntity = try XCTUnwrap(MarkdownSourceMap.renderedRange(
+            forSourceRange: entityRange,
+            in: rendered
+        ))
+        XCTAssertEqual(renderedValue.substring(with: renderedEntity), "&")
+        XCTAssertEqual(
+            MarkdownSourceMap.sourceRange(forRenderedRange: renderedEntity, in: rendered),
+            entityRange
+        )
+
+        let escapedRange = sourceValue.range(of: "\\*")
+        let renderedEscape = try XCTUnwrap(MarkdownSourceMap.renderedRange(
+            forSourceRange: escapedRange,
+            in: rendered
+        ))
+        XCTAssertEqual(renderedValue.substring(with: renderedEscape), "*")
+        XCTAssertEqual(
+            MarkdownSourceMap.sourceRange(forRenderedRange: renderedEscape, in: rendered),
+            escapedRange
+        )
+    }
+
+    private func ranges(of needle: String, in value: NSString) -> [NSRange] {
+        var result: [NSRange] = []
+        var cursor = 0
+        while cursor < value.length {
+            let range = value.range(
+                of: needle,
+                options: [],
+                range: NSRange(location: cursor, length: value.length - cursor)
+            )
+            guard range.location != NSNotFound else { break }
+            result.append(range)
+            cursor = NSMaxRange(range)
+        }
+        return result
+    }
 }

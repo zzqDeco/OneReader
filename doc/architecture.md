@@ -120,7 +120,10 @@ projection. One active AdapterPlan is selected per Snapshot. Index staging and
 publication are keyed by both Snapshot and plan ID, and final publication uses
 an active-plan compare-and-swap. A late index from a superseded plan cannot
 replace current search results, while ordinary Agent/tool reads remain durable
-evidence without becoming global FTS content.
+evidence without becoming global FTS content. The v8 migration intentionally
+discards the unbound legacy FTS projection; application bootstrap then finds
+all active searchable plans without completed v9 projections and rebuilds them
+in the background, including Spaces the user has not opened.
 
 `progress-v1.json` is not decoded into new identities. After the first database
 migration succeeds, it is atomically moved to `Legacy/` and recorded in

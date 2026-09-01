@@ -49,7 +49,7 @@ latency, commands, accessibility labels, and presentation capability gating.
 
 ## Acceptance Evidence
 
-The latest `swift test` passes all 173 tests. The unified gate additionally owns
+The latest `swift test` passes all 185 tests. The unified gate additionally owns
 the dependency lock, documentation index, release-policy fixtures, entitlement fixtures, production build,
 Sandbox app assembly, codesign verification, and exact entitlement inspection.
 Focused coverage includes durable position restoration, indexed query-specific
@@ -58,7 +58,8 @@ immutable Source refresh and anchor relocation, pending frozen plans, atomic
 observation index recovery, Quick Look capability gating, unsaved Provider
 probes, outbound Fragment audit metadata, bounded WebKit resource streaming,
 the schema-v8 local Source authorization lifecycle, schema-v9 plan-bound search
-projection, exact Markdown source/render mapping, and serialized WebKit stop.
+projection plus automatic v8 rebuild, AST-range Markdown source/render mapping,
+and serialized WebKit stop.
 
 The ad-hoc signed app was exercised with the managed `time-as-a-friend`
 repository in 1440 x 900 and 900 x 650 layouts. It exposed the native Library,

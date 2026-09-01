@@ -83,6 +83,13 @@ can create at most one linked child. Low-confidence adapter output is a
 persisted candidate with separate local confirm/dismiss behavior, not a
 resumable network operation.
 
+Structure-pipeline requests additionally persist host-owned provenance. Resume
+continues from the task's next phase, while standalone questions and completed
+route projection schedule nothing further. An interrupted Run may be abandoned
+as an auditable terminal state; Provider or Source binding changes cancel stale
+interrupted Runs automatically. Explicit cancellation is scoped to the captured
+Run ID and cannot target a later replacement.
+
 ## Capability responsibilities
 
 Adapters may independently implement Probe, Revision, List, Read, Search,

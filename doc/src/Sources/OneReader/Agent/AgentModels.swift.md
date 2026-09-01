@@ -16,3 +16,10 @@ partial failures. Oversized partial content is represented by a bounded digest
 marker while the metric preserves the full observed-byte count. `AgentRun` binds immutable destination and
 Provider-revision identities so mutable profile lookup cannot change the
 authority of an existing Run.
+
+`AgentRunRequest.pipeline` records host-owned pipeline provenance separately
+from the task kind. The current `readingStructure` pipeline can therefore
+resume from a persisted phase without treating a standalone evidence question
+as permission to scout, construct a graph, or replace a route. The optional
+field keeps requests persisted before this contract decodable; missing
+provenance fails closed by scheduling no downstream phase.

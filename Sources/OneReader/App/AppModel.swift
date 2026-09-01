@@ -104,6 +104,8 @@ final class AppModel: ObservableObject {
     private var importTasks: [UUID: Task<Void, Never>] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var agentTask: Task<Void, Never>?
+    private var activeAgentRunID: String?
+    private var activeAgentRunSpaceID: String?
     private var indexTasks: [String: Task<Void, Never>] = [:]
     private var indexSnapshotIDs: [String: String] = [:]
     private var indexPlanIDs: [String: String] = [:]
@@ -318,6 +320,7 @@ final class AppModel: ObservableObject {
             self.remoteImporter = remoteImporter
             self.agentRuntime = runtime
             try reloadLibraryState()
+            try schedulePendingSearchIndexRebuilds()
         } catch {
             notice = AppNotice(title: "资料库无法打开", message: error.localizedDescription)
         }
@@ -1043,11 +1046,15 @@ final class AppModel: ObservableObject {
     }
 
     func cancelAgentRun() {
+        let runID = activeAgentRunID ?? agentRuns.first {
+            $0.state == .queued || $0.state == .running
+        }?.id
+        let spaceID = activeAgentRunSpaceID ?? selectedSpaceID
         agentTask?.cancel()
-        guard let runtime = agentRuntime, let spaceID = selectedSpaceID else { return }
+        guard let runtime = agentRuntime, let spaceID, let runID else { return }
         Task {
             if let session = try? await runtime.session(forSpaceID: spaceID) {
-                await session.cancel()
+                await session.cancel(runID: runID)
             }
             loadAgentActivity(spaceID: spaceID)
         }
@@ -1096,18 +1103,11 @@ final class AppModel: ObservableObject {
                       workspaceGeneration == generation,
                       resumedState == .completed else { return }
                 startIndexingAdapterPlan(for: request, spaceID: run.spaceID)
-                if request.task == .routeAdapters {
-                    await executeAgentPipeline(
-                        spaceID: run.spaceID,
-                        generation: generation,
-                        routingAfterSourceID: request.targetSourceID
-                    )
-                } else {
-                    await executeDownstreamAgentPipeline(
-                        spaceID: run.spaceID,
-                        generation: generation
-                    )
-                }
+                await continueAgentPipeline(
+                    after: request,
+                    spaceID: run.spaceID,
+                    generation: generation
+                )
             } catch {
                 if selectedSpaceID == run.spaceID {
                     notice = AppNotice(title: "无法继续 Agent Run", message: error.localizedDescription)
@@ -1129,14 +1129,32 @@ final class AppModel: ObservableObject {
                 let session = try await runtime.session(forSpaceID: run.spaceID)
                 try await session.dismissAdapterCandidate(runID: run.id)
                 loadAgentActivity(spaceID: run.spaceID)
-                await executeAgentPipeline(
+                await continueAgentPipeline(
+                    after: request,
                     spaceID: run.spaceID,
-                    generation: generation,
-                    routingAfterSourceID: request.targetSourceID
+                    generation: generation
                 )
             } catch {
                 if selectedSpaceID == run.spaceID {
                     notice = AppNotice(title: "无法保留基础方案", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    func abandonInterruptedAgentRun() {
+        guard let run = waitingAgentRun,
+              waitingAgentAttentionKind == .interrupted,
+              let runtime = agentRuntime else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let session = try await runtime.session(forSpaceID: run.spaceID)
+                try await session.abandon(runID: run.id)
+                loadAgentActivity(spaceID: run.spaceID)
+            } catch {
+                if selectedSpaceID == run.spaceID {
+                    notice = AppNotice(title: "无法放弃 Agent Run", message: error.localizedDescription)
                 }
             }
         }
@@ -1632,6 +1650,7 @@ final class AppModel: ObservableObject {
             let state = await runAgentTask(
                 .routeAdapters,
                 spaceID: spaceID,
+                pipeline: .readingStructure,
                 targetSourceID: sourceID,
                 targetSnapshotID: snapshotID,
                 generation: generation
@@ -1657,19 +1676,58 @@ final class AppModel: ObservableObject {
         guard await runAgentTask(
             .scoutSpace,
             spaceID: spaceID,
+            pipeline: .readingStructure,
             generation: generation
         ) == .completed else { return }
+        await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
+    }
+
+    private func executeAgentPipelineAfterScout(
+        spaceID: String,
+        generation: UUID
+    ) async {
         guard await runAgentTask(
             .materializeGraph,
             spaceID: spaceID,
+            pipeline: .readingStructure,
             generation: generation
         ) == .completed else { return }
+        await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
+    }
+
+    private func executeAgentPipelineAfterMaterialize(
+        spaceID: String,
+        generation: UUID
+    ) async {
         _ = await runAgentTask(
             .projectRoute,
             spaceID: spaceID,
+            pipeline: .readingStructure,
             goal: "systematic",
             generation: generation
         )
+    }
+
+    private func continueAgentPipeline(
+        after request: AgentRunRequest,
+        spaceID: String,
+        generation: UUID
+    ) async {
+        guard request.pipeline == .readingStructure else { return }
+        switch request.task {
+        case .routeAdapters:
+            await executeAgentPipeline(
+                spaceID: spaceID,
+                generation: generation,
+                routingAfterSourceID: request.targetSourceID
+            )
+        case .scoutSpace:
+            await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
+        case .materializeGraph:
+            await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
+        case .projectRoute, .answerWithEvidence:
+            return
+        }
     }
 
     private func scheduleDownstreamAgentPipeline(for spaceID: String) {
@@ -1686,6 +1744,7 @@ final class AppModel: ObservableObject {
     private func runAgentTask(
         _ kind: AgentTaskKind,
         spaceID: String,
+        pipeline: AgentPipelineKind? = nil,
         goal: String? = nil,
         question: String? = nil,
         targetSourceID: String? = nil,
@@ -1701,6 +1760,7 @@ final class AppModel: ObservableObject {
             let request = AgentRunRequest(
                 spaceID: spaceID,
                 task: kind,
+                pipeline: pipeline,
                 goal: goal,
                 question: question,
                 targetSourceID: targetSourceID,
@@ -1736,6 +1796,14 @@ final class AppModel: ObservableObject {
         spaceID: String,
         generation: UUID
     ) async {
+        activeAgentRunID = handle.runID
+        activeAgentRunSpaceID = spaceID
+        defer {
+            if activeAgentRunID == handle.runID {
+                activeAgentRunID = nil
+                activeAgentRunSpaceID = nil
+            }
+        }
         do {
             for try await _ in handle.events {
                 if selectedSpaceID == spaceID, workspaceGeneration == generation {
@@ -1772,6 +1840,17 @@ final class AppModel: ObservableObject {
             ReaderActivityItem(phase: phase, message: message, state: state)
         )
         if selectedSpaceID == spaceID { loadAgentActivity(spaceID: spaceID) }
+    }
+
+    private func schedulePendingSearchIndexRebuilds() throws {
+        guard let database else { return }
+        let plans = try database.adapterPlansRequiringSearchIndex()
+        for plan in plans {
+            guard let spaceID = try database.spaceIDs(containing: plan.sourceID).first else {
+                continue
+            }
+            startIndexing(plan: plan, spaceID: spaceID)
+        }
     }
 
     private func startIndexingAdapterPlan(

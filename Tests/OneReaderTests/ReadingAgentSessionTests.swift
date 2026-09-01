@@ -245,6 +245,56 @@ final class ReadingAgentSessionTests: XCTestCase {
         XCTAssertNotNil(try fixture.database.agentOutput(runID: replacement.runID))
     }
 
+    func testIDScopedExplicitCancellationCannotCancelReplacementRun() async throws {
+        let fixture = try await makeSessionFixture(providerKind: .ollama)
+        defer { fixture.remove() }
+        let session = try ReadingAgentSession(
+            spaceID: fixture.imported.space.id,
+            database: fixture.database,
+            toolHost: fixture.toolHost,
+            validator: fixture.validator,
+            secretStore: fixture.secrets,
+            driverFactory: FakeDriverFactory(counter: DriverInvocationCounter())
+        )
+        let old = try await session.start(AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            goal: "slow",
+            expectedSnapshotIDs: [fixture.imported.snapshot.id]
+        ))
+        let oldStream = old.events
+        let oldCollector = Task {
+            var events: [AgentEvent] = []
+            for try await event in oldStream { events.append(event) }
+            return events
+        }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let replacement = try await session.start(AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            goal: "slow",
+            expectedSnapshotIDs: [fixture.imported.snapshot.id]
+        ))
+        // This models AppModel's delayed explicit-cancel task: by the time it
+        // reaches the Session actor, a replacement Run is already active.
+        await session.cancel(runID: old.runID)
+        let replacementEvents = try await collect(replacement.events)
+        _ = try? await oldCollector.value
+
+        let runs = try fixture.database.fetchAgentRuns()
+        XCTAssertEqual(
+            runs.first(where: { $0.id == old.runID })?.state,
+            .cancelled
+        )
+        XCTAssertEqual(replacementEvents.last?.kind, .completed)
+        XCTAssertEqual(
+            runs.first(where: { $0.id == replacement.runID })?.state,
+            .completed
+        )
+        XCTAssertNotNil(try fixture.database.agentOutput(runID: replacement.runID))
+    }
+
     func testConcurrentStartsInstallOnlyLatestPersistedRun() async throws {
         let fixture = try await makeSessionFixture(providerKind: .ollama)
         defer { fixture.remove() }
@@ -480,6 +530,75 @@ final class ReadingAgentSessionTests: XCTestCase {
         XCTAssertEqual(runs.first(where: { $0.id == waiting.runID })?.state, .cancelled)
         XCTAssertEqual(runs.first(where: { $0.id == waiting.runID })?.errorCategory, "resumed")
         XCTAssertEqual(runs.first(where: { $0.id == child.runID })?.state, .completed)
+    }
+
+    func testInterruptedRunCanBeAudiblyAbandoned() async throws {
+        let fixture = try await makeSessionFixture(providerKind: .ollama)
+        defer { fixture.remove() }
+        let manifest = try fixture.database.currentSnapshotManifest(
+            spaceID: fixture.imported.space.id
+        )
+        let request = AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .answerWithEvidence,
+            question: "What is grounded?",
+            expectedSnapshotIDs: Set(manifest.values),
+            snapshotManifest: manifest
+        )
+        let profile = try XCTUnwrap(
+            fixture.database.providerProfile(forSpaceID: fixture.imported.space.id)
+        )
+        let run = AgentRun(
+            id: UUID().uuidString.lowercased(),
+            spaceID: request.spaceID,
+            task: request.task,
+            generation: 1,
+            state: .queued,
+            providerProfileID: profile.id,
+            providerDestinationIdentity: try ProviderPolicy.destinationIdentity(profile),
+            providerRevisionIdentity: try ProviderPolicy.revisionIdentity(profile),
+            createdAt: .now,
+            startedAt: nil,
+            finishedAt: nil,
+            errorCategory: nil
+        )
+        try fixture.database.beginAgentRun(run, request: request)
+        XCTAssertNotNil(try fixture.database.transitionAgentRunIfActive(
+            runID: run.id,
+            generation: run.generation,
+            allowedStates: [.queued],
+            finalState: .interrupted,
+            errorCategory: "app-restart",
+            kind: .interrupted,
+            phase: "recovery",
+            message: "Test interruption"
+        ))
+        let session = try ReadingAgentSession(
+            spaceID: fixture.imported.space.id,
+            database: fixture.database,
+            toolHost: fixture.toolHost,
+            validator: fixture.validator,
+            secretStore: fixture.secrets,
+            driverFactory: FakeDriverFactory(counter: DriverInvocationCounter())
+        )
+
+        try await session.abandon(runID: run.id)
+
+        let abandoned = try XCTUnwrap(
+            fixture.database.fetchAgentRuns().first(where: { $0.id == run.id })
+        )
+        XCTAssertEqual(abandoned.state, .cancelled)
+        XCTAssertEqual(abandoned.errorCategory, "user-abandoned")
+        XCTAssertEqual(
+            try fixture.database.fetchAgentEvents(runID: run.id).last?.kind,
+            .cancelled
+        )
+        do {
+            _ = try await session.resume(runID: run.id)
+            XCTFail("An abandoned Run must not be resumable")
+        } catch {
+            XCTAssertEqual(error as? ReadingAgentError, .interrupted)
+        }
     }
 
     func testProviderBindingCannotReuseDisclosureAfterConcurrentEndpointChange() async throws {

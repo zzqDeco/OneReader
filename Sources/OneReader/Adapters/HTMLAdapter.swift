@@ -310,7 +310,7 @@ struct HTMLAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
             mediaType: "text/html",
             content: sanitized.documentHTML,
             contentURL: nil,
-            baseURL: context.managedURL.deletingLastPathComponent(),
+            baseURL: resourceRoot(for: context),
             limitations: descriptor.limitations
         )
     }
@@ -370,14 +370,18 @@ struct HTMLAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
     }
 
     private func sanitized(_ context: AdapterContext) throws -> SanitizedHTML {
-        let root = TextAdapterCore.isDirectory(context.contentRootURL)
-            ? context.contentRootURL
-            : context.managedURL.deletingLastPathComponent()
+        let root = resourceRoot(for: context)
         return try HTMLSanitizer.sanitize(
             TextAdapterCore.loadText(context.managedURL),
             baseURL: context.source.originURL,
             managedDocumentURL: context.managedURL,
             managedResourceRoot: root
         )
+    }
+
+    private func resourceRoot(for context: AdapterContext) -> URL {
+        TextAdapterCore.isDirectory(context.contentRootURL)
+            ? context.contentRootURL
+            : context.managedURL.deletingLastPathComponent()
     }
 }

@@ -14,7 +14,9 @@ interrupted with an audit event, and `resume` creates one compare-and-swap
 linked new run; a parent cannot be resumed twice. Remote
 disclosure waits may resume after acknowledgment. Low-confidence adapter
 candidates instead use dedicated local confirm/dismiss methods, including after
-restart; a newer run cancels all older active or waiting choices. Source
+restart. An interrupted Run can be audibly abandoned into a terminal
+`user-abandoned` state. A newer run cancels all older active, waiting, or
+interrupted choices. Source
 revision orchestration atomically acquires a unique, reference-counted shared
 lease for every attached Space, cancels in-memory tasks, advances the immutable
 Snapshot and durable generation, synchronizes actor clocks, and only then
@@ -34,7 +36,9 @@ event write.
 Consumer-stream termination performs a Run-ID comparison and invalidates the
 clock only if that Run's generation is still current. It does not clear a newer
 pending start token, preventing a delayed workspace transition from cancelling
-a replacement Run.
+a replacement Run. Explicit UI cancellation uses the same ID-scoped operation,
+so a delayed cancellation request for Run A is harmless after Run B becomes
+active.
 
 Every terminal path records a redacted category and leaves deterministic
 reading available. Cancellation, generation, and manifest invalidation are

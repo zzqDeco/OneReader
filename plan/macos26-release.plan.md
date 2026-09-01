@@ -42,7 +42,7 @@ version mismatch, dry run, and duplicate-release refusal without LLM secrets.
 
 ## Acceptance Evidence
 
-The latest full suite passes all 173 tests; the authoritative release gate owns production compilation,
+The latest full suite passes all 185 tests; the authoritative release gate owns production compilation,
 Sandbox app packaging, codesign verification, exact entitlement inspection,
 release-reference fixtures, and positive/negative entitlement fixtures. A
 local dry run produces a verified DMG and ZIP, SHA-256 sidecars, and manifest

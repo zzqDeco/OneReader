@@ -10,4 +10,8 @@ fetched. Only explicit HTTP(S) destinations receive link attributes. The
 renderer carries source UTF-16 attributes on emitted leaf text. The surrounding
 `NSTextView` coordinator maps ranges in both directions, derives source quote
 context and fingerprints, distinguishes repeated heading/emphasis/list text,
-and fails closed when synthetic rendering has no source mapping.
+and fails closed when synthetic rendering has no source mapping. Each mapping
+starts from the AST leaf's source range; UTF-8 byte columns are converted to
+UTF-16 offsets before escapes and HTML entities are aligned within that bounded
+range. Hidden link destinations and omitted raw HTML cannot capture an equal
+visible string elsewhere in the document.

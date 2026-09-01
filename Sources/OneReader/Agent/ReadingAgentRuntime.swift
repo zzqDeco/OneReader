@@ -593,6 +593,32 @@ actor ReadingAgentSession {
         ) != nil else { throw ReadingAgentError.runNotCurrent }
     }
 
+    func abandon(runID: String) throws {
+        guard let run = try database.fetchAgentRuns(spaceID: spaceID)
+            .first(where: { $0.id == runID && $0.state == .interrupted }) else {
+            throw ReadingAgentError.interrupted
+        }
+        guard try database.transitionAgentRunIfActive(
+            runID: runID,
+            generation: run.generation,
+            allowedStates: [.interrupted],
+            finalState: .cancelled,
+            errorCategory: "user-abandoned",
+            outputDisposition: "userAbandoned",
+            kind: .cancelled,
+            phase: "recovery",
+            message: "用户放弃了已中断的 Reading Agent Run。"
+        ) != nil else { throw ReadingAgentError.runNotCurrent }
+    }
+
+    func cancel(runID: String) async {
+        await cancelIfActive(
+            runID: runID,
+            errorCategory: "cancelled",
+            message: "Reading Agent Run 已取消。"
+        )
+    }
+
     func cancel() async {
         // Cancel also invalidates a Run that is being prepared but has not yet
         // installed its task into the session actor.
@@ -678,6 +704,7 @@ actor ReadingAgentSession {
         let request = AgentRunRequest(
             spaceID: requested.spaceID,
             task: requested.task,
+            pipeline: requested.pipeline,
             goal: requested.goal,
             question: requested.question,
             targetSourceID: requested.targetSourceID,
@@ -768,7 +795,11 @@ actor ReadingAgentSession {
         }
     }
 
-    private func cancelIfActive(runID: String) async {
+    private func cancelIfActive(
+        runID: String,
+        errorCategory: String = "consumer-terminated",
+        message: String = "Reading Agent Run 的阅读界面已离开，当前 Run 已取消。"
+    ) async {
         guard activeRunID == runID,
               let generation = activeGeneration else { return }
         let task = activeTask
@@ -778,11 +809,11 @@ actor ReadingAgentSession {
             generation: generation,
             allowedStates: [.queued, .running, .waitingForUser],
             finalState: .cancelled,
-            errorCategory: "consumer-terminated",
+            errorCategory: errorCategory,
             outputDisposition: "cancelled",
             kind: .cancelled,
             phase: "session",
-            message: "Reading Agent Run 的阅读界面已离开，当前 Run 已取消。"
+            message: message
         )
         task?.cancel()
         _ = await clock.invalidate(ifCurrent: generation)
@@ -891,6 +922,10 @@ actor ReadingAgentSession {
             }
         } else if request.targetSourceID != nil || request.targetSnapshotID != nil {
             throw ReadingAgentError.validationRejected("adapter-route-target-unexpected")
+        }
+        if request.pipeline == .readingStructure,
+           request.task == .answerWithEvidence {
+            throw ReadingAgentError.validationRejected("pipeline-task-invalid")
         }
     }
 }

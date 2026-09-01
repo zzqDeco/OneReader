@@ -380,7 +380,7 @@ extension LibraryDatabase {
                     SELECT id
                     FROM agent_runs
                     WHERE space_id = ? AND generation < ?
-                      AND state IN ('queued', 'running', 'waitingForUser')
+                      AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                       AND (? IS NULL OR id != ?)
                     ORDER BY created_at, id
                     """,
@@ -397,7 +397,7 @@ extension LibraryDatabase {
                     sql: """
                         UPDATE agent_runs
                         SET state = 'cancelled', finished_at = ?, error_category = 'superseded'
-                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                         """,
                     arguments: [Date.now, oldRunID]
                 )
@@ -1302,7 +1302,7 @@ extension LibraryDatabase {
                 sql: """
                     SELECT DISTINCT space_id
                     FROM agent_runs
-                    WHERE state IN ('queued', 'running', 'waitingForUser')
+                    WHERE state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                     ORDER BY space_id
                     """
             )
@@ -1318,7 +1318,7 @@ extension LibraryDatabase {
                            provider_revision_identity
                     FROM agent_runs
                     WHERE space_id = ?
-                      AND state IN ('queued', 'running', 'waitingForUser')
+                      AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                     ORDER BY created_at, id
                     """,
                 arguments: [spaceID]
@@ -1338,7 +1338,7 @@ extension LibraryDatabase {
                         UPDATE agent_runs
                         SET state = 'cancelled', finished_at = ?,
                             error_category = 'provider-configuration-changed'
-                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser')
+                        WHERE id = ? AND state IN ('queued', 'running', 'waitingForUser', 'interrupted')
                         """,
                     arguments: [Date.now, runID]
                 )

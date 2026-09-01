@@ -60,11 +60,12 @@ FTS rebuilds, cancellation, Git exact SHA, and Quick Look limits.
   after the injected network session is gone.
 - Locator tests cover exact Snapshot binding, current/relocated/orphaned states,
   and quote-based recomputation of stale Markdown line ranges.
-- `swift build --configuration release`, the 35-file documentation index,
+- `swift build --configuration release`, the 49-file documentation index,
   `git diff --check`, Sandbox app packaging, and strict `codesign` verification
   passed.
 - Integrated coverage now includes plan-bound search publication, recursive PDF
-  page/EPUB spine indexing in directories, and per-child EPUB derived roots.
+  page/EPUB spine indexing in directories, per-child EPUB derived roots, and a
+  shared sanitizer/presentation resource root for nested directory HTML.
   Promotion waits for the final exact-head Sol max review.
 - Real-book interaction, screenshots, VoiceOver, and wide/narrow workspace
   acceptance remain explicitly owned by `feature/native-reader-workspace`.

@@ -60,9 +60,13 @@ Locator are retained and are never rewritten to look current.
 
 Native Markdown drops raw HTML, never loads Markdown image URLs, and exposes a
 readable alt-text placeholder. Leaf text carries deterministic source UTF-16
-attributes through heading, emphasis, list, and code styling. Selections and
-positions map rendered ranges back to exact source ranges (and fail closed when
-no map exists), so repeated text never falls back to a first/unique-match guess.
+attributes through heading, emphasis, list, and code styling. Mapping begins
+from each `swift-markdown` AST leaf `SourceRange`; UTF-8 byte columns are
+converted to source UTF-16 offsets, and escape/entity expansions retain the
+whole source token as their anchor. Link destinations and omitted raw HTML are
+therefore never candidates for visible text. Selections and positions map
+rendered ranges back to exact source ranges (and fail closed when no map exists),
+so repeated text never falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB
@@ -71,6 +75,9 @@ response/data/finish/failure callback occurs after stop returns. Source
 JavaScript, automatic navigation, and
 cross-Snapshot loads remain disabled. The system reader theme follows the live
 macOS color scheme.
+Nested HTML uses the same Snapshot resource root for sanitizer rewriting and
+scheme resolution, so `chapters/page.html` can load a rewritten
+`chapters/img/a.png` without duplicating the chapter path.
 
 ## Search, annotations, and progress
 
@@ -81,7 +88,9 @@ Indexed hits derive a query-specific quote/range Locator while preserving PDF
 page identity. Only the active AdapterPlan's completed projection is visible;
 ordinary evidence reads are never indexed implicitly. Publication compares the
 Snapshot/plan pair transactionally, and interrupted staging is discarded on
-restart.
+restart. When schema v9 replaces the legacy v8 FTS table, bootstrap enumerates
+every active searchable AdapterPlan without requiring the user to open its
+Space and schedules a deterministic projection rebuild.
 
 Bookmarks bind the current presentation Locator. Highlights require a real
 selection and a presentation that supports structured anchors. Notes can bind
@@ -105,8 +114,11 @@ explicit action that migrates only still-valid progress.
 Agent adapter routing runs per explicit current Source/Snapshot target before
 scouting and graph materialization. Low-confidence proposals stay in Activity
 for confirmation. Confirming, dismissing, or resuming continues from the next
-Source checkpoint before downstream tasks; another wait stops the pipeline
-again. Leaving a Space cancels only the Run that owns the terminated event
+persisted pipeline checkpoint; standalone questions and completed route
+projections stop instead of starting the structure pipeline. Another wait stops
+the pipeline again. Interrupted work can be explicitly abandoned, while stale
+Provider or Source bindings terminate it automatically. Leaving a Space cancels
+only the Run that owns the terminated event
 stream, so a delayed A-to-B transition cannot cancel a newer Run after returning
 to A.
 Activity rows preserve redacted Source, Snapshot, Adapter, Locator digest, and

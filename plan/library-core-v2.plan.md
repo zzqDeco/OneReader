@@ -63,7 +63,7 @@ and evidence/revision validation.
   `progress-v1.json → Legacy/progress-v1-20260828-094102.json`; the SQLite row
   retained kind `legacy-progress-v1`, both paths, and the unbound detail. New
   compatibility progress writes to `progress-v2.json`.
-- `swift build --configuration release`, the documentation index (30 Markdown
+- `swift build --configuration release`, the documentation index (49 Markdown
   files), `scripts/package-app.sh`, strict codesign verification, and
   `git diff --check` pass on the candidate tree. The packaged Info.plist reports
   `0.2.0` / macOS `26.1`; entitlements are App Sandbox, network client, and

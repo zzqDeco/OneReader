@@ -96,7 +96,9 @@ HTTP(S) links leave the app only after a real link activation.
 EPUB and local/web HTML resource references are rewritten to root-relative
 `onereader-content` URLs only after the referenced regular file is verified
 inside that snapshot root. This preserves common EPUB `text/` to `images/`
-sibling layouts without widening the scheme boundary.
+sibling layouts without widening the scheme boundary. Sanitization and
+presentation share that exact root even when an HTML file is nested inside a
+managed directory, preventing duplicated relative path components.
 
 Quick Look is deliberately weaker: it exposes no structured read, search,
 highlight, or AI-evidence capability and only supports source-level bookmark

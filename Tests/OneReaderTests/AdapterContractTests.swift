@@ -215,6 +215,61 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertTrue(observation.content.contains("trusted evidence"))
     }
 
+    func testNestedDirectoryHTMLUsesSnapshotRootForRewrittenResources() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-NestedHTML")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let managedRoot = root.appendingPathComponent("Managed", isDirectory: true)
+        let chapterRoot = managedRoot.appendingPathComponent("chapters", isDirectory: true)
+        let imageRoot = chapterRoot.appendingPathComponent("img", isDirectory: true)
+        try FileManager.default.createDirectory(at: imageRoot, withIntermediateDirectories: true)
+        let pageURL = chapterRoot.appendingPathComponent("page.html")
+        let imageURL = imageRoot.appendingPathComponent("a.png")
+        try Data("<html><body><img src=\"img/a.png\">nested</body></html>".utf8)
+            .write(to: pageURL)
+        let imageBytes = Data([0x89, 0x50, 0x4e, 0x47])
+        try imageBytes.write(to: imageURL)
+        let source = Source(
+            id: "nested-html-source",
+            displayName: "Managed",
+            originKind: .localDirectory,
+            originURL: managedRoot,
+            managedState: .ready,
+            latestSnapshotID: "nested-html-snapshot"
+        )
+        let snapshot = SourceSnapshot(
+            id: "nested-html-snapshot",
+            sourceID: source.id,
+            revision: "nested-html-revision",
+            revisionKind: .directoryTreeDigest,
+            digest: "nested-html-digest",
+            observedAt: .now,
+            origin: managedRoot,
+            managedRelativePath: nil,
+            byteCount: Int64(imageBytes.count)
+        )
+        let context = AdapterContext(
+            source: source,
+            snapshot: snapshot,
+            managedURL: pageURL,
+            contentRootURL: managedRoot,
+            derivedRootURL: root.appendingPathComponent("Derived")
+        )
+
+        let presentation = try await HTMLAdapter().presentation(in: context, at: nil)
+        XCTAssertEqual(presentation.baseURL?.standardizedFileURL, managedRoot.standardizedFileURL)
+        XCTAssertTrue(try XCTUnwrap(presentation.content).contains(
+            "onereader-content:/chapters/img/a.png"
+        ))
+        let loader = ReadOnlyContentResourceLoader(rootURL: try XCTUnwrap(presentation.baseURL))
+        let resource = try loader.resolve(
+            requestURL: URL(
+                string: "onereader-content://nested-html-snapshot/chapters/img/a.png"
+            )!
+        )
+        XCTAssertEqual(resource.fileURL.standardizedFileURL, imageURL.standardizedFileURL)
+        XCTAssertEqual(try Data(contentsOf: resource.fileURL), imageBytes)
+    }
+
     @MainActor
     func testPDFImplementsStablePageLocatorAndPDFKitPresentation() async throws {
         let root = try makeTemporaryRoot(prefix: "OneReader-PDFAdapter")
