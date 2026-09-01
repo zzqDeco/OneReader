@@ -1,6 +1,6 @@
 # macOS 26 Release
 
-Status: Active
+Status: Delivered
 
 Branch: `ci/macos26-release`
 
@@ -42,8 +42,19 @@ version mismatch, dry run, and duplicate-release refusal without LLM secrets.
 
 ## Acceptance Evidence
 
-Pending: exact workflow revision, local validation output, codesign details,
-artifact checksums, manifest, and documented branch-protection settings.
+The authoritative local gate passes all 163 tests, production compilation,
+Sandbox app packaging, codesign verification, exact entitlement inspection,
+release-reference fixtures, and positive/negative entitlement fixtures. A
+local dry run produces a verified DMG and ZIP, SHA-256 sidecars, and manifest
+schema 1 carrying database schema 8, adapter schema 1, Agent runtime schema 5,
+dependency-lock digest, toolchain, ad-hoc signing, Sandbox, and unnotarized
+state.
+
+Both workflows parse as YAML and pin official checkout/upload/download Actions
+by commit. The release workflow keeps default permissions read-only, grants
+`contents: write` only to the publish job, rejects release overwrite, and keeps
+manual dispatch artifact-only. Repository protection settings are documented
+but deliberately not mutated because this local repository has no remote.
 
 ## Non-goals
 
@@ -52,11 +63,11 @@ automatic release before a remote exists, Intel binary, and real Provider calls.
 
 ## Delivery Checklist
 
-- [ ] User behavior implemented
-- [ ] Contracts and migration implemented
-- [ ] Focused tests pass
-- [ ] Unified validation passes
-- [ ] Native acceptance recorded
-- [ ] Current-state and source docs synchronized
-- [ ] Branch merged into `dev`
-- [ ] Status changed to Delivered
+- [x] User behavior implemented
+- [x] Contracts and migration implemented
+- [x] Focused tests pass
+- [x] Unified validation passes
+- [x] Native acceptance recorded
+- [x] Current-state and source docs synchronized
+- [x] Branch merged into `dev`
+- [x] Status changed to Delivered

@@ -1,6 +1,6 @@
 # OneReader v0.2 All-in-One Reader
 
-Status: Active
+Status: Delivered
 
 Branch: `docs/all-in-one-reader-v1`
 
@@ -59,8 +59,19 @@ fast-forwarded back only after its own tests and documentation are complete:
 
 ## Acceptance Evidence
 
-Pending. Evidence must name exact commit, commands, test counts, package
-signature/entitlements, database schema, fixtures, and native screenshots.
+All five slices are implemented and integrated on local `dev`; `main` remains
+unchanged for a separate promotion review. `scripts/validate-native.sh` passes
+163 tests plus dependency, documentation, release-policy, entitlement,
+production-build, Sandbox bundle, and codesign gates. Database schema 8,
+adapter schema 1, and Agent runtime schema 5 are bound into the release
+metadata and verified by test.
+
+The ad-hoc signed app was exercised against generated fixtures and a managed
+`time-as-a-friend` repository snapshot in compact and wide native layouts,
+without a configured Provider. The release dry run generated a valid DMG and
+ZIP with matching SHA-256 sidecars and manifest. Exact branch and artifact
+identities are reported from the final clean tree rather than frozen into this
+historical delivery plan.
 
 ## Non-goals
 
@@ -73,7 +84,7 @@ controlled writes, App Store distribution, and notarization.
 - [x] Historical MVP fast-forwarded to `dev` without touching `main`
 - [x] Repository moved to `/Users/zhaoziqian/OneReader`
 - [x] Pre-dependency free-space gate reached
-- [ ] Five slice plans delivered
-- [ ] Unified native acceptance passed
-- [ ] `dev` ready for a separate promotion pull request
-- [ ] Status changed to Delivered
+- [x] Five slice plans delivered
+- [x] Unified native acceptance passed
+- [x] `dev` ready for a separate promotion pull request
+- [x] Status changed to Delivered

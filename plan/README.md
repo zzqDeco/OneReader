@@ -17,12 +17,12 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
-| [All-in-One Reader v1](all-in-one-reader-v1.plan.md) | Umbrella delivery plan for OneReader v0.2.0 | Active |
+| [All-in-One Reader v1](all-in-one-reader-v1.plan.md) | Umbrella delivery plan for OneReader v0.2.0 | Delivered |
 | [Library core v2](library-core-v2.plan.md) | Managed sources, snapshots, GRDB, migration, and empty Library | Delivered |
 | [Source adapters v2](source-adapters-v2.plan.md) | Capability protocols, deterministic adapters, search, and presentations | Delivered |
-| [Reading Agent runtime](reading-agent-runtime.plan.md) | Single-agent loop, provider boundary, validation, audit, and recovery | Active |
-| [Native reader workspace](native-reader-workspace.plan.md) | Library-first native reading, annotations, history, routes, and accessibility | Active |
-| [macOS 26 release](macos26-release.plan.md) | Unified validation, Sandbox packaging, CI, and release artifacts | Active |
+| [Reading Agent runtime](reading-agent-runtime.plan.md) | Single-agent loop, provider boundary, validation, audit, and recovery | Delivered |
+| [Native reader workspace](native-reader-workspace.plan.md) | Library-first native reading, annotations, history, routes, and accessibility | Delivered |
+| [macOS 26 release](macos26-release.plan.md) | Unified validation, Sandbox packaging, CI, and release artifacts | Delivered |
 | [Native reading-space MVP](native-reading-space-mvp.plan.md) | Historical GitHub/PDF vertical slice replaced by v0.2 | Superseded |
 
 ## Maintenance rules
