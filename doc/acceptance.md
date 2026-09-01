@@ -34,6 +34,9 @@ Snapshot manifests, low-confidence waiting, Provider disclosure, budgets,
 four-read concurrency, ordered reinjection, cancellation, late output,
 interruption/resume, Artifact spill, four-stage projection, endpoint isolation,
 stream limits, redaction, and transactional structured-output validation.
+Routing tests require one explicit Source/Snapshot target, resume from the next
+Source checkpoint after confirmation/dismissal, and prove that a terminated UI
+stream cannot cancel a replacement Run.
 
 Persistence and workspace tests cover atomic import, digest deduplication,
 legacy backup, FTS rebuild and Chinese substring fallback, annotation and
@@ -41,6 +44,10 @@ progress round trips, Quick Look capability gating, preferences, index-job
 deduplication, durable position restore, Source refresh relocation, security-
 scoped bookmark lifecycle, pending frozen-plan adoption, Space generation
 isolation, and crash-safe Agent state.
+Schema-v9 tests prove ordinary evidence Observations remain outside search,
+late superseded-plan publication loses the active-plan CAS, directory indexes
+expand every PDF page and EPUB spine item, repeated Markdown text maps to exact
+source ranges, and WebKit emits no callback after stop returns.
 
 ## Native acceptance record
 
@@ -75,7 +82,7 @@ checkout and `origin/main` tip, while lightweight and behind-tip tags fail.
 Entitlement fixtures prove Sandbox, network client, and user-selected read-only
 access are required, and user-selected read-write access fails. A local dry run
 produced a valid DMG and ZIP whose SHA-256 sidecars and manifest verified; the
-manifest records database schema 8, adapter schema 1, Agent runtime schema 5,
+manifest records database schema 9, adapter schema 1, Agent runtime schema 5,
 ad-hoc signing, Sandbox, and unnotarized state.
 
 The workflow contract makes manual dispatch artifact-only and refuses to

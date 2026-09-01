@@ -49,6 +49,11 @@ generation is synchronized back into each session
 before that lease is removed. Cancelling a queued concurrency waiter removes it
 without leaking or duplicating a permit.
 
+`routeAdapters` additionally requires one explicit target Source ID and
+Snapshot ID from that manifest. The target survives request reconstruction,
+resume persistence, prompt projection, and final validation; an adapter result
+for another current Source in the same Space is still rejected.
+
 Application startup atomically marks incomplete runs interrupted and appends a
 matching Activity event; it never replays Provider or fetch calls. Only an
 explicit resume creates a new run linked to the interrupted run. A database
@@ -77,6 +82,8 @@ installed. A newer start or session cancellation
 invalidates that token, and any already-persisted stale Run is cancelled without
 touching the replacement task. This prevents actor reentrancy from letting an
 older cancel/start continuation cancel or install over a newer generation.
+Event-stream termination uses a Run-ID comparison and generation-conditional
+clock invalidation and does not clear a replacement start token.
 Ordinary Activity appends transactionally require an active queued/running Run
 and the exact next sequence. Recorder shutdown replays any not-yet-published
 persisted events before closing the stream. A cancellation or supersession that
@@ -105,9 +112,11 @@ probe share one cumulative raw-response budget rather than resetting it per
 request. Anthropic 0.5.5 cumulative text prefixes are compared as exact UTF-8
 bytes and normalized into deltas before SwiftAgent aggregation; canonically
 equivalent but byte-distinct prefixes fail closed. The streaming probe succeeds
-only when its final content is exactly `ok`. The cancelled probe receives no persistence
-authority. The test captures the
-Provider revision before network work and commits capability/success fields only
+only when its final content is exactly `ok`. An unsaved Provider draft can be
+tested with its explicit in-memory secret before a Keychain reference exists.
+Draft probes receive no persistence authority, and replacing the secret always
+makes the result non-persistable. Saved-profile tests capture the Provider
+revision before network work and commit capability/success fields only
 with a same-transaction revision CAS. A result from endpoint/model A becomes
 `stale-provider-revision` if the same profile ID changed to B and cannot mutate B
 or cancel B's Runs. HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`

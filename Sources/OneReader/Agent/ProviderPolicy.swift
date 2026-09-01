@@ -112,6 +112,47 @@ enum ProviderPolicy {
     }
 
     static func validateProfile(_ profile: ProviderProfile) throws {
+        try validateProfileShape(profile)
+        if profile.kind.requiresSecret {
+            guard let reference = profile.keychainReference,
+                  !reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ReadingAgentError.secretMissing
+            }
+        }
+    }
+
+    static func validateProbe(_ profile: ProviderProfile, secret: String?) throws {
+        try validateProfileShape(profile)
+        if profile.kind.requiresSecret {
+            guard secret?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw ReadingAgentError.secretMissing
+            }
+        }
+    }
+
+    static func probeRevisionIdentity(
+        _ profile: ProviderProfile,
+        secret: String?
+    ) throws -> String {
+        try validateProbe(profile, secret: secret)
+        let endpoint = try effectiveEndpoint(for: profile)?.absoluteString ?? "on-device"
+        let capabilities = profile.capabilities.map(\.rawValue).sorted().joined(separator: ",")
+        let credentialIdentity = secret.map { "secret:\(digest($0))" }
+            ?? "reference:\(profile.keychainReference ?? "")"
+        let payload = [
+            profile.id,
+            profile.kind.rawValue,
+            endpoint,
+            profile.modelID.trimmingCharacters(in: .whitespacesAndNewlines),
+            credentialIdentity,
+            profile.contextWindow.map(String.init) ?? "",
+            String(profile.timeoutSeconds),
+            capabilities,
+        ].joined(separator: "|")
+        return digest(payload)
+    }
+
+    private static func validateProfileShape(_ profile: ProviderProfile) throws {
         guard !profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReadingAgentError.providerUnavailable("missing-display-name")
         }
@@ -126,12 +167,6 @@ enum ProviderPolicy {
             throw ReadingAgentError.providerUnavailable("invalid-context-window")
         }
         _ = try effectiveEndpoint(for: profile)
-        if profile.kind.requiresSecret {
-            guard let reference = profile.keychainReference,
-                  !reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw ReadingAgentError.secretMissing
-            }
-        }
     }
 
     static func requiresRemoteDisclosure(_ profile: ProviderProfile) throws -> Bool {

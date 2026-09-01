@@ -18,3 +18,8 @@ and swap against the current profile. If endpoint, model, secret reference, or
 another run-relevant field changes during the test, the old result returns as
 `stale-provider-revision` and cannot write capabilities/status or invalidate a
 Run created for the replacement configuration.
+
+Unsaved remote drafts validate against the explicit in-memory secret rather
+than requiring a Keychain reference. Their credential-derived probe identity is
+never persisted. A supplied replacement secret forces `persistResult=false`,
+so a draft test cannot update the saved profile's capability state.

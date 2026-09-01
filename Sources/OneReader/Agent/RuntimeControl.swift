@@ -16,6 +16,13 @@ actor AgentGenerationClock {
         generation += 1
     }
 
+    @discardableResult
+    func invalidate(ifCurrent candidate: Int) -> Bool {
+        guard generation == candidate else { return false }
+        generation += 1
+        return true
+    }
+
     func synchronize(to durableGeneration: Int) {
         generation = max(generation, durableGeneration)
     }

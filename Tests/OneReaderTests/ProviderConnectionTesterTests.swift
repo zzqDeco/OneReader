@@ -315,6 +315,59 @@ final class ProviderConnectionTesterTests: XCTestCase {
         XCTAssertTrue(try fixture.database.fetchProviderProfiles().isEmpty)
     }
 
+    func testUnsavedRemoteDraftUsesExplicitSecretWithoutKeychainReference() async throws {
+        let fixture = try ProviderTestFixture()
+        defer { fixture.remove() }
+        let draft = ProviderProfile(
+            displayName: "Unsaved Responses draft",
+            kind: .openAIResponses,
+            endpoint: URL(string: "https://models.example.test/v1"),
+            modelID: "draft-model",
+            keychainReference: nil,
+            timeoutSeconds: 1
+        )
+        let tester = ProviderConnectionTester(
+            database: fixture.database,
+            factory: StubProviderLanguageModelFactory(
+                model: ProbeLanguageModel(behavior: .success)
+            )
+        )
+
+        let result = await tester.test(
+            profile: draft,
+            secret: "unsaved-secret",
+            persistResult: false
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.category, "ok")
+        XCTAssertTrue(try fixture.database.fetchProviderProfiles().isEmpty)
+    }
+
+    func testUnsavedReplacementSecretCanNeverUpdateSavedProviderRevision() throws {
+        let saved = ProviderProfile(
+            id: "provider",
+            displayName: "Saved Responses",
+            kind: .openAIResponses,
+            endpoint: URL(string: "https://models.example.test/v1"),
+            modelID: "model",
+            keychainReference: "keychain:old"
+        )
+        var draft = saved
+        draft.updatedAt = .now
+
+        XCTAssertFalse(ProviderConnectionTester.shouldPersistResult(
+            draft: draft,
+            saved: saved,
+            hasUnsavedSecret: true
+        ))
+        XCTAssertTrue(ProviderConnectionTester.shouldPersistResult(
+            draft: draft,
+            saved: saved,
+            hasUnsavedSecret: false
+        ))
+    }
+
     func testAnthropicCapabilityProbeNormalizesCumulativePrefixes() async throws {
         let fixture = try ProviderTestFixture()
         defer { fixture.remove() }

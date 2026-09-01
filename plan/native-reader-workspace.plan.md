@@ -1,6 +1,6 @@
 # Native Reader Workspace
 
-Status: Delivered
+Status: Active
 
 Branch: `feature/native-reader-workspace`
 
@@ -49,15 +49,16 @@ latency, commands, accessibility labels, and presentation capability gating.
 
 ## Acceptance Evidence
 
-`scripts/validate-native.sh` passes the dependency lock, documentation index,
-release-policy fixtures, entitlement fixtures, all 163 tests, production build,
+The latest `swift test` passes all 173 tests. The unified gate additionally owns
+the dependency lock, documentation index, release-policy fixtures, entitlement fixtures, production build,
 Sandbox app assembly, codesign verification, and exact entitlement inspection.
 Focused coverage includes durable position restoration, indexed query-specific
 jumps including PDF pages, Space generation isolation, Agent target routing,
 immutable Source refresh and anchor relocation, pending frozen plans, atomic
 observation index recovery, Quick Look capability gating, unsaved Provider
 probes, outbound Fragment audit metadata, bounded WebKit resource streaming,
-and the schema-v8 local Source authorization lifecycle.
+the schema-v8 local Source authorization lifecycle, schema-v9 plan-bound search
+projection, exact Markdown source/render mapping, and serialized WebKit stop.
 
 The ad-hoc signed app was exercised with the managed `time-as-a-friend`
 repository in 1440 x 900 and 900 x 650 layouts. It exposed the native Library,
@@ -79,4 +80,4 @@ collaboration, OCR, and arbitrary embedded web browsing.
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [x] Status changed to Delivered
+- [ ] Integrated Sol max review accepted and status changed to Delivered

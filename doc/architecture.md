@@ -103,15 +103,24 @@ trashed container back. Shared bytes remain until the final active Source
 reference is removed; the user-selected original is never touched.
 
 The database schema records sources, snapshots, Space membership, adapter
-plans, observations/FTS, graphs/plans, annotations, progress/history, Provider
+plans, raw observations, plan-bound search projections, graphs/plans,
+annotations, progress/history, Provider
 profiles, Agent runs/events/artifacts, and migration facts. Provider secrets
 are represented only by Keychain references.
 
 Schema v8 stores security-scoped bookmark data separately from Source identity
 for local file/directory refresh across Sandbox launches. The bookmark is never
 exposed to an adapter or Agent, is renewed when stale, and is deleted when the
-Source is removed. Legacy local Sources without a bookmark require an explicit
-native reauthorization of the original path.
+Source is removed. If import cannot create the bookmark, the managed Snapshot
+still becomes readable and Activity exposes the refresh-authorization warning;
+stale renewal failure requires explicit native reauthorization.
+
+Schema v9 separates evidence Observations from the user-visible search
+projection. One active AdapterPlan is selected per Snapshot. Index staging and
+publication are keyed by both Snapshot and plan ID, and final publication uses
+an active-plan compare-and-swap. A late index from a superseded plan cannot
+replace current search results, while ordinary Agent/tool reads remain durable
+evidence without becoming global FTS content.
 
 `progress-v1.json` is not decoded into new identities. After the first database
 migration succeeds, it is atomically moved to `Legacy/` and recorded in
@@ -171,7 +180,7 @@ resource boundaries are enforced before an adapter sees the snapshot. See
 The first launch is an empty Library. Drag/drop, Open, Open With, and URL paste
 all enter one import coordinator; format selection is never a product-level
 choice. A Source can enter a new Space or join the active Space. Deterministic
-indexing is deduplicated per Source/Snapshot generation, so opening a newly
+indexing is deduplicated per Source/Snapshot/AdapterPlan generation, so opening a newly
 imported Source cannot race a second index job and leave Processing stuck.
 
 Native PDFKit, selectable Markdown/text/code, controlled WebKit, and Quick Look

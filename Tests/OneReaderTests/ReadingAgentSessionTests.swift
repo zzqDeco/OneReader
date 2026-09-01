@@ -5,6 +5,50 @@ import XCTest
 @testable import OneReader
 
 final class ReadingAgentSessionTests: XCTestCase {
+    func testRouteAdapterRunRequiresCurrentExplicitSourceAndSnapshotTarget() async throws {
+        let fixture = try await makeSessionFixture(providerKind: .ollama)
+        defer { fixture.remove() }
+        let session = try ReadingAgentSession(
+            spaceID: fixture.imported.space.id,
+            database: fixture.database,
+            toolHost: fixture.toolHost,
+            validator: fixture.validator,
+            secretStore: fixture.secrets,
+            driverFactory: FakeDriverFactory(counter: DriverInvocationCounter())
+        )
+
+        do {
+            _ = try await session.start(AgentRunRequest(
+                spaceID: fixture.imported.space.id,
+                task: .routeAdapters,
+                expectedSnapshotIDs: [fixture.imported.snapshot.id]
+            ))
+            XCTFail("A route run without a target must be rejected before persistence")
+        } catch {
+            XCTAssertEqual(
+                error as? ReadingAgentError,
+                .validationRejected("adapter-route-target-required")
+            )
+        }
+
+        do {
+            _ = try await session.start(AgentRunRequest(
+                spaceID: fixture.imported.space.id,
+                task: .routeAdapters,
+                targetSourceID: "wrong-source",
+                targetSnapshotID: fixture.imported.snapshot.id,
+                expectedSnapshotIDs: [fixture.imported.snapshot.id]
+            ))
+            XCTFail("A route run must target the current manifest pair")
+        } catch {
+            XCTAssertEqual(
+                error as? ReadingAgentError,
+                .validationRejected("adapter-route-target-not-current")
+            )
+        }
+        XCTAssertTrue(try fixture.database.fetchAgentRuns().isEmpty)
+    }
+
     func testFakeModelRunStreamsOrderedEventsAndPersistsAcceptedOutput() async throws {
         let fixture = try await makeSessionFixture(providerKind: .ollama)
         defer { fixture.remove() }
@@ -146,6 +190,53 @@ final class ReadingAgentSessionTests: XCTestCase {
         XCTAssertEqual(slowEvents.last?.id, persistedSlowTerminal?.id)
         XCTAssertEqual(slowEvents.last?.sequence, persistedSlowTerminal?.sequence)
         XCTAssertEqual(slowEvents.last?.kind, persistedSlowTerminal?.kind)
+        XCTAssertEqual(replacementEvents.last?.kind, .completed)
+        XCTAssertEqual(
+            runs.first(where: { $0.id == replacement.runID })?.state,
+            .completed
+        )
+        XCTAssertNotNil(try fixture.database.agentOutput(runID: replacement.runID))
+    }
+
+    func testConsumerTerminationCancelsOnlyItsRunAndCannotCancelReplacement() async throws {
+        let fixture = try await makeSessionFixture(providerKind: .ollama)
+        defer { fixture.remove() }
+        let session = try ReadingAgentSession(
+            spaceID: fixture.imported.space.id,
+            database: fixture.database,
+            toolHost: fixture.toolHost,
+            validator: fixture.validator,
+            secretStore: fixture.secrets,
+            driverFactory: FakeDriverFactory(counter: DriverInvocationCounter())
+        )
+        let abandoned = try await session.start(AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            goal: "slow",
+            expectedSnapshotIDs: [fixture.imported.snapshot.id]
+        ))
+        let abandonedStream = abandoned.events
+        let consumer = Task {
+            for try await _ in abandonedStream {}
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        consumer.cancel()
+
+        let replacement = try await session.start(AgentRunRequest(
+            spaceID: fixture.imported.space.id,
+            task: .scoutSpace,
+            goal: "replacement-after-return",
+            expectedSnapshotIDs: [fixture.imported.snapshot.id]
+        ))
+        let replacementEvents = try await collect(replacement.events)
+        _ = try? await consumer.value
+        try await Task.sleep(for: .milliseconds(180))
+
+        let runs = try fixture.database.fetchAgentRuns()
+        XCTAssertEqual(
+            runs.first(where: { $0.id == abandoned.runID })?.state,
+            .cancelled
+        )
         XCTAssertEqual(replacementEvents.last?.kind, .completed)
         XCTAssertEqual(
             runs.first(where: { $0.id == replacement.runID })?.state,
@@ -1669,6 +1760,8 @@ final class ReadingAgentSessionTests: XCTestCase {
         let handle = try await session.start(AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         ))
         let events = try await collect(handle.events)
@@ -1724,6 +1817,8 @@ final class ReadingAgentSessionTests: XCTestCase {
         let waiting = try await candidateSession.start(AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         ))
         _ = try await collect(waiting.events)
@@ -1776,6 +1871,8 @@ final class ReadingAgentSessionTests: XCTestCase {
         let handle = try await session.start(AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         ))
         _ = try await collect(handle.events)
@@ -1826,6 +1923,8 @@ final class ReadingAgentSessionTests: XCTestCase {
         let handle = try await session.start(AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         ))
         let eventStream = handle.events
@@ -1875,6 +1974,8 @@ final class ReadingAgentSessionTests: XCTestCase {
         let handle = try await original.start(AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         ))
         _ = try await collect(handle.events)

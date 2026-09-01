@@ -7,5 +7,7 @@ thematic breaks, and tables.
 
 Raw HTML is omitted. Images become alt-text placeholders and no image URL is
 fetched. Only explicit HTTP(S) destinations receive link attributes. The
-surrounding `NSTextView` coordinator derives quote context, fingerprint, and
-source ranges for stable highlight Locators.
+renderer carries source UTF-16 attributes on emitted leaf text. The surrounding
+`NSTextView` coordinator maps ranges in both directions, derives source quote
+context and fingerprints, distinguishes repeated heading/emphasis/list text,
+and fails closed when synthetic rendering has no source mapping.

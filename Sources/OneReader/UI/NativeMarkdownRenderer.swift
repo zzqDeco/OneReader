@@ -8,8 +8,17 @@ struct NativeMarkdownRenderer: MarkupVisitor {
 
     let fontSize: CGFloat
     let lineSpacing: CGFloat
+    private var sourceValue: NSString = ""
+    private var sourceSearchLocation = 0
+
+    init(fontSize: CGFloat, lineSpacing: CGFloat) {
+        self.fontSize = fontSize
+        self.lineSpacing = lineSpacing
+    }
 
     mutating func render(_ source: String) -> NSAttributedString {
+        sourceValue = source as NSString
+        sourceSearchLocation = 0
         let document = Document(parsing: source)
         let result = visit(document)
         trimTrailingNewlines(result)
@@ -25,7 +34,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitText(_ text: Markdown.Text) -> NSMutableAttributedString {
-        attributed(text.string)
+        mappedAttributed(text.string)
     }
 
     mutating func visitHeading(_ heading: Heading) -> NSMutableAttributedString {
@@ -88,8 +97,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) -> NSMutableAttributedString {
-        NSMutableAttributedString(
-            string: inlineCode.code,
+        mappedAttributed(
+            inlineCode.code,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
                     ofSize: max(11, fontSize - 1),
@@ -101,8 +110,9 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) -> NSMutableAttributedString {
-        let result = NSMutableAttributedString(
-            string: codeBlock.code.trimmingCharacters(in: .newlines) + "\n",
+        let code = codeBlock.code.trimmingCharacters(in: .newlines)
+        let result = mappedAttributed(
+            code,
             attributes: [
                 .font: NSFont.monospacedSystemFont(
                     ofSize: max(11, fontSize - 2),
@@ -119,6 +129,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
                 ),
             ]
         )
+        result.append(attributed("\n"))
         return result
     }
 
@@ -179,14 +190,17 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     mutating func visitImage(_ image: Image) -> NSMutableAttributedString {
         let alt = renderChildren(of: image)
         trimTrailingNewlines(alt)
-        let label = alt.string.isEmpty ? "图片" : alt.string
-        return NSMutableAttributedString(
-            string: "［\(label)］",
-            attributes: [
+        let result = attributed("［")
+        result.append(alt.string.isEmpty ? attributed("图片") : alt)
+        result.append(attributed("］"))
+        result.addAttributes(
+            [
                 .font: NSFont.systemFont(ofSize: max(11, fontSize - 1)),
                 .foregroundColor: NSColor.secondaryLabelColor,
-            ]
+            ],
+            range: result.fullRange
         )
+        return result
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) -> NSMutableAttributedString {
@@ -284,6 +298,36 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         )
     }
 
+    private mutating func mappedAttributed(
+        _ string: String,
+        attributes: [NSAttributedString.Key: Any]? = nil
+    ) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(
+            string: string,
+            attributes: attributes ?? [
+                .font: NSFont.systemFont(ofSize: fontSize),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        )
+        guard !string.isEmpty, sourceSearchLocation <= sourceValue.length else { return result }
+        let search = NSRange(
+            location: sourceSearchLocation,
+            length: sourceValue.length - sourceSearchLocation
+        )
+        let sourceRange = sourceValue.range(of: string, options: [], range: search)
+        guard sourceRange.location != NSNotFound,
+              sourceRange.length == result.length else { return result }
+        result.addAttributes(
+            [
+                .oneReaderSourceUTF16Start: sourceRange.location,
+                .oneReaderSourceUTF16End: NSMaxRange(sourceRange),
+            ],
+            range: result.fullRange
+        )
+        sourceSearchLocation = NSMaxRange(sourceRange)
+        return result
+    }
+
     private func paragraphStyle(
         paragraphSpacingBefore: CGFloat = 0,
         paragraphSpacing: CGFloat = 0,
@@ -330,6 +374,80 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             value.deleteCharacters(in: range)
         }
     }
+}
+
+enum MarkdownSourceMap {
+    static func renderedRange(
+        forSourceRange sourceRange: NSRange,
+        in rendered: NSAttributedString
+    ) -> NSRange? {
+        guard sourceRange.location != NSNotFound, sourceRange.length >= 0 else { return nil }
+        var renderedStart: Int?
+        var renderedEnd: Int?
+        rendered.enumerateAttribute(
+            .oneReaderSourceUTF16Start,
+            in: rendered.fullRange
+        ) { value, range, _ in
+            guard let sourceStart = value as? Int,
+                  let sourceEnd = rendered.attribute(
+                      .oneReaderSourceUTF16End,
+                      at: range.location,
+                      effectiveRange: nil
+                  ) as? Int,
+                  sourceStart < NSMaxRange(sourceRange),
+                  sourceEnd > sourceRange.location else { return }
+            let mappedLength = sourceEnd - sourceStart
+            guard mappedLength == range.length else { return }
+            let lower = max(sourceRange.location, sourceStart)
+            let upper = min(NSMaxRange(sourceRange), sourceEnd)
+            let candidateStart = range.location + lower - sourceStart
+            let candidateEnd = range.location + upper - sourceStart
+            renderedStart = min(renderedStart ?? candidateStart, candidateStart)
+            renderedEnd = max(renderedEnd ?? candidateEnd, candidateEnd)
+        }
+        guard let renderedStart, let renderedEnd, renderedEnd >= renderedStart else { return nil }
+        return NSRange(location: renderedStart, length: renderedEnd - renderedStart)
+    }
+
+    static func sourceRange(
+        forRenderedRange renderedRange: NSRange,
+        in rendered: NSAttributedString
+    ) -> NSRange? {
+        guard renderedRange.location != NSNotFound,
+              renderedRange.length > 0,
+              NSMaxRange(renderedRange) <= rendered.length else { return nil }
+        var sourceStart: Int?
+        var sourceEnd: Int?
+        rendered.enumerateAttribute(
+            .oneReaderSourceUTF16Start,
+            in: rendered.fullRange
+        ) { value, effectiveRange, _ in
+            guard let mappedStart = value as? Int,
+                  let mappedEnd = rendered.attribute(
+                      .oneReaderSourceUTF16End,
+                      at: effectiveRange.location,
+                      effectiveRange: nil
+                  ) as? Int,
+                  mappedEnd - mappedStart == effectiveRange.length else { return }
+            let intersection = NSIntersectionRange(renderedRange, effectiveRange)
+            guard intersection.length > 0 else { return }
+            let candidateStart = mappedStart + intersection.location - effectiveRange.location
+            let candidateEnd = candidateStart + intersection.length
+            sourceStart = min(sourceStart ?? candidateStart, candidateStart)
+            sourceEnd = max(sourceEnd ?? candidateEnd, candidateEnd)
+        }
+        guard let sourceStart, let sourceEnd, sourceEnd >= sourceStart else { return nil }
+        return NSRange(location: sourceStart, length: sourceEnd - sourceStart)
+    }
+}
+
+extension NSAttributedString.Key {
+    static let oneReaderSourceUTF16Start = NSAttributedString.Key(
+        "com.onereader.markdown.source-utf16-start"
+    )
+    static let oneReaderSourceUTF16End = NSAttributedString.Key(
+        "com.onereader.markdown.source-utf16-end"
+    )
 }
 
 private extension NSAttributedString {

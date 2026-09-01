@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import PDFKit
 import XCTest
+import ZIPFoundation
 @testable import OneReader
 
 final class AdapterContractTests: XCTestCase {
@@ -324,6 +325,49 @@ final class AdapterContractTests: XCTestCase {
         }
     }
 
+    func testDirectoryIndexExpandsEveryPDFPageAndEPUBSpineItem() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-DirectoryRichDocuments")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("Input", isDirectory: true)
+        let references = input.appendingPathComponent("references", isDirectory: true)
+        let books = input.appendingPathComponent("books", isDirectory: true)
+        try FileManager.default.createDirectory(at: references, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: books, withIntermediateDirectories: true)
+        try createPDF(
+            at: references.appendingPathComponent("manual.pdf"),
+            pageCount: 2
+        )
+        try createTwoChapterEPUB(at: books.appendingPathComponent("guide.epub"))
+
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: input)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepareAndIndex(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id
+        )
+
+        XCTAssertEqual(plan.primaryAdapterID, DirectoryAdapter.id)
+        XCTAssertTrue(plan.auxiliaryAdapterIDs.contains(PDFAdapter.id))
+        XCTAssertTrue(plan.auxiliaryAdapterIDs.contains(EPUBAdapter.id))
+        XCTAssertEqual(
+            try database.searchDocumentCount(planID: plan.id, adapterID: PDFAdapter.id),
+            2
+        )
+        XCTAssertEqual(
+            try database.searchDocumentCount(planID: plan.id, adapterID: EPUBAdapter.id),
+            2
+        )
+        let hit = try XCTUnwrap(
+            database.searchObservations(query: "second spine").first
+        )
+        XCTAssertEqual(hit.adapterID, EPUBAdapter.id)
+        XCTAssertEqual(hit.locator.payload["path"], "books/guide.epub")
+        XCTAssertEqual(hit.locator.payload["spineIndex"], "1")
+        XCTAssertEqual(hit.locator.payload["href"], "OEBPS/text/second.xhtml")
+    }
+
     func testIndexedPDFHitPreservesPageAndAddsExactQuoteAnchor() async throws {
         let root = try makeTemporaryRoot(prefix: "OneReader-PDFIndex")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -340,7 +384,37 @@ final class AdapterContractTests: XCTestCase {
             structuralPath: "page/4"
         )
         let body = "Page five begins here. Indexed PDF evidence is jumpable."
-        try database.saveObservation(
+        let plan = AdapterPlan(
+            id: "pdf-search-plan",
+            schemaVersion: AdapterPlan.currentSchemaVersion,
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id,
+            primaryAdapterID: PDFAdapter.id,
+            auxiliaryAdapterIDs: [],
+            capabilityRoutes: [
+                .list: PDFAdapter.id,
+                .read: PDFAdapter.id,
+                .search: PDFAdapter.id,
+                .render: PDFAdapter.id,
+            ],
+            evidence: [ProbeEvidence(
+                id: "pdf-search-fixture",
+                adapterID: PDFAdapter.id,
+                rule: "test-fixture",
+                detail: "Bound PDF search projection",
+                confidence: 1
+            )],
+            confidence: 1,
+            reason: "Search anchor fixture",
+            isUserOverride: false,
+            createdAt: .now
+        )
+        try database.saveAdapterPlan(plan)
+        let generationID = try database.beginObservationIndex(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        )
+        try database.stageObservation(
             Observation(
                 id: "pdf-observation",
                 sourceID: imported.source.id,
@@ -354,7 +428,13 @@ final class AdapterContractTests: XCTestCase {
                 truncated: false,
                 observedAt: .now
             ),
-            title: "Page 5"
+            title: "Page 5",
+            generationID: generationID
+        )
+        try database.completeObservationIndex(
+            snapshotID: plan.snapshotID,
+            planID: plan.id,
+            generationID: generationID
         )
 
         let hit = try XCTUnwrap(database.searchObservations(query: "PDF evidence").first)
@@ -592,6 +672,85 @@ private func makeTemporaryRoot(prefix: String) throws -> URL {
     )
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     return root
+}
+
+private func createPDF(at url: URL, pageCount: Int) throws {
+    let document = PDFDocument()
+    for index in 0..<pageCount {
+        let image = NSImage(size: NSSize(width: 320, height: 480))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 320, height: 480)).fill()
+        ("PDF page \(index + 1)" as NSString).draw(
+            at: NSPoint(x: 32, y: 400),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 20),
+                .foregroundColor: NSColor.black,
+            ]
+        )
+        image.unlockFocus()
+        guard let page = PDFPage(image: image) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        document.insert(page, at: index)
+    }
+    guard document.write(to: url) else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+}
+
+private func createTwoChapterEPUB(at url: URL) throws {
+    let container = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles>
+            <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+          </rootfiles>
+        </container>
+        """
+    let package = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="id">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:title>Directory EPUB</dc:title>
+          </metadata>
+          <manifest>
+            <item id="first" href="text/first.xhtml" media-type="application/xhtml+xml"/>
+            <item id="second" href="text/second.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine><itemref idref="first"/><itemref idref="second"/></spine>
+        </package>
+        """
+    let entries: [(String, Data, CompressionMethod)] = [
+        ("mimetype", Data("application/epub+zip".utf8), .none),
+        ("META-INF/container.xml", Data(container.utf8), .deflate),
+        ("OEBPS/content.opf", Data(package.utf8), .deflate),
+        (
+            "OEBPS/text/first.xhtml",
+            Data("<html><head><title>First</title></head><body>first spine evidence</body></html>".utf8),
+            .deflate
+        ),
+        (
+            "OEBPS/text/second.xhtml",
+            Data("<html><head><title>Second</title></head><body>second spine evidence</body></html>".utf8),
+            .deflate
+        ),
+    ]
+    let archive = try Archive(url: url, accessMode: .create)
+    for (path, data, compression) in entries {
+        try archive.addEntry(
+            with: path,
+            type: .file,
+            uncompressedSize: Int64(data.count),
+            compressionMethod: compression,
+            provider: { position, size in
+                let lower = Int(position)
+                let upper = min(lower + size, data.count)
+                guard lower < upper else { return Data() }
+                return data.subdata(in: lower..<upper)
+            }
+        )
+    }
 }
 
 private let unlimitedStoragePolicy = LibraryStoragePolicy(

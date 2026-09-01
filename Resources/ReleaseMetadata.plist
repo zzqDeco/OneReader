@@ -5,7 +5,7 @@
     <key>ManifestSchemaVersion</key>
     <integer>1</integer>
     <key>DatabaseSchemaVersion</key>
-    <integer>8</integer>
+    <integer>9</integer>
     <key>AdapterSchemaVersion</key>
     <integer>1</integer>
     <key>AgentRuntimeSchemaVersion</key>

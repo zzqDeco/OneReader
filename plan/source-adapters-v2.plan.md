@@ -1,6 +1,6 @@
 # Source Adapters v2
 
-Status: Delivered
+Status: Active
 
 Branch: `feature/source-adapters-v2`
 
@@ -63,8 +63,9 @@ FTS rebuilds, cancellation, Git exact SHA, and Quick Look limits.
 - `swift build --configuration release`, the 35-file documentation index,
   `git diff --check`, Sandbox app packaging, and strict `codesign` verification
   passed.
-- Kimi Reviewer (`qwen3.8-max`, highest reasoning, 1M context) returned `PASS`
-  with no Blocking, High, or Medium findings after the final delta review.
+- Integrated coverage now includes plan-bound search publication, recursive PDF
+  page/EPUB spine indexing in directories, and per-child EPUB derived roots.
+  Promotion waits for the final exact-head Sol max review.
 - Real-book interaction, screenshots, VoiceOver, and wide/narrow workspace
   acceptance remain explicitly owned by `feature/native-reader-workspace`.
 
@@ -82,4 +83,4 @@ JavaScript execution, and cross-origin resource loading.
 - [x] Native presentation packaging evidence recorded; workspace interaction deferred
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev` (local fast-forward; no remote configured)
-- [x] Status changed to Delivered
+- [ ] Integrated Sol max review accepted and status changed to Delivered

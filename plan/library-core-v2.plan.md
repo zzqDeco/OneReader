@@ -1,6 +1,6 @@
 # Library Core v2
 
-Status: Delivered
+Status: Active
 
 Branch: `feature/library-core-v2`
 
@@ -71,8 +71,8 @@ and evidence/revision validation.
 - Native launch on macOS 27 showed an empty Library without a demo/network
   request. The accessibility tree exposed the sidebar, search field, empty-state
   import guidance, route inspector, toolbar controls, and labels.
-- Kimi Reviewer (`qwen3.8-max`, maximum thinking, 1M context) returned `PASS`
-  with no Blocking or High findings after the first correction round.
+- Integrated final review is owned by a Sol max sub-agent on the exact release
+  candidate; prior slice-level reviewer claims are not promotion evidence.
 
 ## Non-goals
 
@@ -88,4 +88,4 @@ cloud storage, account identity, and destructive cleanup of user documents.
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [x] Status changed to Delivered
+- [ ] Integrated Sol max review accepted and status changed to Delivered

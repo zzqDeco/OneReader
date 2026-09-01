@@ -1666,6 +1666,16 @@ extension LibraryDatabase {
                     plan.createdAt,
                 ]
             )
+            try db.execute(
+                sql: """
+                    INSERT INTO active_adapter_plans (snapshot_id, plan_id, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        plan_id = excluded.plan_id,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [plan.snapshotID, plan.id, Date.now]
+            )
 
         case .readingGraph(let graph, let expectedSnapshots):
             guard expectedSnapshots == manifest,

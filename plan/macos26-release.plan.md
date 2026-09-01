@@ -1,6 +1,6 @@
 # macOS 26 Release
 
-Status: Delivered
+Status: Active
 
 Branch: `ci/macos26-release`
 
@@ -42,11 +42,11 @@ version mismatch, dry run, and duplicate-release refusal without LLM secrets.
 
 ## Acceptance Evidence
 
-The authoritative local gate passes all 163 tests, production compilation,
+The latest full suite passes all 173 tests; the authoritative release gate owns production compilation,
 Sandbox app packaging, codesign verification, exact entitlement inspection,
 release-reference fixtures, and positive/negative entitlement fixtures. A
 local dry run produces a verified DMG and ZIP, SHA-256 sidecars, and manifest
-schema 1 carrying database schema 8, adapter schema 1, Agent runtime schema 5,
+schema 1 carrying database schema 9, adapter schema 1, Agent runtime schema 5,
 dependency-lock digest, toolchain, ad-hoc signing, Sandbox, and unnotarized
 state.
 
@@ -70,4 +70,4 @@ automatic release before a remote exists, Intel binary, and real Provider calls.
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [x] Status changed to Delivered
+- [ ] Final Sol max review and regenerated exact-head artifacts accepted; status changed to Delivered

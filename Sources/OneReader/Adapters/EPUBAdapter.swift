@@ -226,10 +226,11 @@ struct EPUBAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
         try Task.checkCancellation()
         let parent = context.derivedRootURL
             .appendingPathComponent("epub", isDirectory: true)
-        let finalRoot = parent.appendingPathComponent(
+        let snapshotRoot = parent.appendingPathComponent(
             context.snapshot.id,
             isDirectory: true
         )
+        let finalRoot = try preparedRoot(snapshotRoot: snapshotRoot, context: context)
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: finalRoot.path) {
             return try buildPrepared(root: finalRoot, context: context)
@@ -250,6 +251,10 @@ struct EPUBAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
                 if fileManager.fileExists(atPath: finalRoot.path) {
                     try fileManager.removeItem(at: stagingRoot)
                 } else {
+                    try fileManager.createDirectory(
+                        at: finalRoot.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     try fileManager.moveItem(at: stagingRoot, to: finalRoot)
                 }
             } catch {
@@ -264,6 +269,27 @@ struct EPUBAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
             try? fileManager.removeItem(at: stagingRoot)
             throw error
         }
+    }
+
+    private func preparedRoot(
+        snapshotRoot: URL,
+        context: AdapterContext
+    ) throws -> URL {
+        let contentRoot = context.contentRootURL.standardizedFileURL
+        let managed = context.managedURL.standardizedFileURL
+        guard contentRoot != managed else { return snapshotRoot }
+        let rootComponents = contentRoot.pathComponents
+        let managedComponents = managed.pathComponents
+        guard managedComponents.starts(with: rootComponents) else {
+            throw AdapterError.resourceOutsideSource(managed.path)
+        }
+        let relativePath = managedComponents.dropFirst(rootComponents.count)
+            .joined(separator: "/")
+        guard !relativePath.isEmpty else { return snapshotRoot }
+        return snapshotRoot.appendingPathComponent(
+            AdapterUtilities.sha256(relativePath),
+            isDirectory: true
+        )
     }
 
     private func extractValidatedArchive(_ archiveURL: URL, to root: URL) throws {

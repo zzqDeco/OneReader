@@ -92,6 +92,44 @@ final class ReadOnlyContentResourceTests: XCTestCase {
         XCTAssertEqual(chunks, 1)
     }
 
+    func testSchemeLifecycleSerializesStopAgainstResponseChunkAndFinishCallbacks() {
+        for phase in ["response", "chunk", "finish"] {
+            let lifecycle = ReadOnlySchemeTaskLifecycle()
+            let entered = DispatchSemaphore(value: 0)
+            let release = DispatchSemaphore(value: 0)
+            let callbackReturned = DispatchSemaphore(value: 0)
+            let stopReturned = DispatchSemaphore(value: 0)
+
+            DispatchQueue.global().async {
+                let callback = {
+                    entered.signal()
+                    _ = release.wait(timeout: .now() + 2)
+                }
+                if phase == "finish" {
+                    _ = lifecycle.finishIfActive(callback)
+                } else {
+                    _ = lifecycle.performIfActive(callback)
+                }
+                callbackReturned.signal()
+            }
+            XCTAssertEqual(entered.wait(timeout: .now() + 2), .success, phase)
+            DispatchQueue.global().async {
+                lifecycle.stop()
+                stopReturned.signal()
+            }
+            XCTAssertEqual(stopReturned.wait(timeout: .now() + 0.05), .timedOut, phase)
+            release.signal()
+            XCTAssertEqual(callbackReturned.wait(timeout: .now() + 2), .success, phase)
+            XCTAssertEqual(stopReturned.wait(timeout: .now() + 2), .success, phase)
+            XCTAssertFalse(lifecycle.performIfActive {
+                XCTFail("\(phase) callback ran after stop returned")
+            })
+            XCTAssertFalse(lifecycle.finishIfActive {
+                XCTFail("\(phase) terminal callback ran after stop returned")
+            })
+        }
+    }
+
     private func makeFixture() throws -> ResourceFixture {
         let parent = FileManager.default.temporaryDirectory.appendingPathComponent(
             "OneReaderResourceTests-\(UUID().uuidString)",

@@ -1,6 +1,6 @@
 # Reading Agent Runtime
 
-Status: Delivered
+Status: Active
 
 Branch: `feature/reading-agent-runtime`
 
@@ -47,7 +47,7 @@ resistance, endpoint checks, redaction, timeouts, and stream failure.
 
 ## Acceptance Evidence
 
-Current branch evidence includes deterministic fake transcripts, 147 passing
+Current integrated evidence includes deterministic fake transcripts, 173 passing
 tests, ordered persisted events, rejected forged patches/quotes/Locators,
 immutable endpoint/revision-bound disclosure, real SDK-session transport
 isolation, redirect/lease/raw-response fail-closure, source-refresh and
@@ -64,8 +64,10 @@ caller-cancelled startup cleanup, and redaction assertions. The
 durable Run state also wins stream-completion semantics when an obsolete,
 non-cooperative dependency returns a later local failure. Direct persistence
 coverage proves that ordinary events cannot follow a terminal event. The
-latest focused/full tests and unified release validation pass. The final Sol
-Max review returned `PASS` with no High, Medium, or Low findings.
+latest focused/full tests pass. Adapter routing is bound to one explicit
+Source/Snapshot target, UI recovery resumes the remaining Source checkpoint,
+and consumer-stream termination is generation-conditional. Final exact-head
+Sol max review remains the delivery gate.
 
 ## Non-goals
 
@@ -81,4 +83,4 @@ Skills, dispatch, hidden chain-of-thought display, and unattended network replay
 - [x] Native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Branch merged into `dev`
-- [x] Status changed to Delivered
+- [ ] Final Sol max review accepted and status changed to Delivered

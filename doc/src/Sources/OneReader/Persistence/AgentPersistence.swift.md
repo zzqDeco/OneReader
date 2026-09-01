@@ -38,3 +38,6 @@ generation and run state, rechecks the exact Snapshot manifest, applies the
 host-owned domain mutation, saves output, transitions state, and appends the
 final event inside one write transaction. There is no separate production
 helper that can commit a validated domain result outside that CAS.
+An accepted AdapterPlan is inserted and selected in `active_adapter_plans`
+inside that same finalization transaction; search visibility can therefore bind
+to the exact committed plan without a second write window.

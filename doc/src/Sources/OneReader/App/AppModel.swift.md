@@ -6,7 +6,7 @@ Owns main-actor application orchestration:
 - generic local, drag/drop, Open With, URL, and GitHub import coordination;
 - selected deterministic AdapterPlan, content tree, Observation, and native
   presentation;
-- per-Source/Snapshot atomic indexing jobs with generation-based late-result
+- per-Source/Snapshot/AdapterPlan atomic indexing jobs with generation-based late-result
   discard;
 - Space/Source/Library search, Locator jumps, annotations, progress, and
   history;
@@ -30,7 +30,10 @@ both the captured Space ID and workspace generation before any result can be
 published. Opening a Space restores its most recent persisted position.
 
 The product Agent pipeline routes every current Snapshot before scouting. A
-low-confidence plan waits for confirmation. Completed graph/route revisions are
+low-confidence plan waits for confirmation; confirm/dismiss/resume continues at
+the next Source checkpoint, while another waiting state pauses again. Space
+transitions rely on Run-ID-bound stream termination rather than an unscoped
+delayed session cancel. Completed graph/route revisions are
 loaded as pending while the reader remains on a frozen plan; adoption and valid
 progress migration require an explicit user action. Source refresh stages and
 probes new bytes under the existing Source identity, resolves annotation and

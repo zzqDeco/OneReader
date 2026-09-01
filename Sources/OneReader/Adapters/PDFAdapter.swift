@@ -62,33 +62,31 @@ struct PDFAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdapt
         limit: Int
     ) async throws -> [ContentNode] {
         let document = try loadDocument(context)
-        var entries: [(title: String, pageIndex: Int, depth: Int)] = []
+        var outlinedTitles: [Int: (title: String, depth: Int)] = [:]
         if let root = document.outlineRoot {
+            var entries: [(title: String, pageIndex: Int, depth: Int)] = []
             collectOutline(root, document: document, depth: 0, entries: &entries)
-        }
-        if entries.isEmpty {
-            let groupSize = document.pageCount > 120 ? 20 : 12
-            entries = stride(from: 0, to: max(document.pageCount, 1), by: groupSize).map {
-                let end = min($0 + groupSize, document.pageCount)
-                return ("第 \($0 + 1)–\(max($0 + 1, end)) 页", $0, 0)
+            for entry in entries where outlinedTitles[entry.pageIndex] == nil {
+                outlinedTitles[entry.pageIndex] = (entry.title, entry.depth)
             }
         }
-        var seenPages = Set<Int>()
-        return entries.filter { seenPages.insert($0.pageIndex).inserted }
+        return (0..<document.pageCount)
             .prefix(max(1, limit))
             .enumerated()
-            .map { order, entry in
+            .map { order, pageIndex in
+                let outline = outlinedTitles[pageIndex]
+                let title = outline?.title ?? "第 \(pageIndex + 1) 页"
                 let locator = pageLocator(
                     context,
-                    pageIndex: entry.pageIndex,
-                    title: entry.title
+                    pageIndex: pageIndex,
+                    title: title
                 )
                 return ContentNode(
                     id: locator.stableID,
-                    title: entry.title,
+                    title: title,
                     kind: .page,
                     locator: locator,
-                    depth: entry.depth,
+                    depth: outline?.depth ?? 0,
                     order: order,
                     mediaType: "application/pdf",
                     isReadable: true

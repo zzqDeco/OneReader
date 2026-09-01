@@ -19,8 +19,10 @@ becomes current only in the later refresh transaction.
 Local import creates a read-only security-scoped bookmark while the user-picked
 URL is authorized. Refresh resolves it with security scope, renews stale data,
 and balances every successful access with `stopAccessingSecurityScopedResource`.
-Missing legacy authorization is surfaced to the AppModel for native re-selection
-of the exact original path.
+Bookmark creation failure does not discard a valid managed import; it returns an
+Activity warning that refresh may need reauthorization. Missing legacy
+authorization or stale-bookmark renewal failure is surfaced to the AppModel for
+native re-selection of the exact original path.
 
 The actor serializes imports and managed-source removal. It rejects symlinks
 during directory ingestion, includes package descendants in tree identity, and
@@ -39,8 +41,9 @@ stages and verifies a fresh copy. The complete content container, including
 referenced resources, is replaced as one same-volume unit, preserving the
 immutable path used by existing snapshots.
 
-Removal also reclaims rebuildable EPUB extraction directories keyed by the
-Source's Snapshot IDs. Startup reconciles the EPUB derived namespace against
+Removal also reclaims rebuildable EPUB extraction directories keyed first by
+the Source's Snapshot ID and, for directory children, by a relative-path digest.
+Startup reconciles the EPUB derived namespace against
 active database Snapshots, reclaiming any late extraction that raced with
 Source removal. Durable original and managed-source Trash semantics stay
 separate from this cache cleanup.

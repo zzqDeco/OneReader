@@ -24,9 +24,9 @@ a Provider.
 Drag/drop, Command-O, Finder Open With, and URL paste share `AppModel` import
 coordination. The import first appears as Processing, then commits a managed
 Snapshot and installs a deterministic AdapterPlan. Index work is keyed by
-Source ID, Snapshot ID, and a generation token. A second request for the same
-Snapshot attaches to the existing job; a new Snapshot cancels the obsolete
-generation and discards its late result.
+Source ID, Snapshot ID, AdapterPlan ID, and a generation token. A second request
+for the same plan attaches to the existing job; a new Snapshot or plan cancels
+the obsolete generation and discards its late result.
 
 When a directory or repository opens without a saved Locator, the reader
 prefers a root README, then common index/summary/TOC names, before falling back
@@ -59,13 +59,16 @@ Locator are retained and are never rewritten to look current.
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
 
 Native Markdown drops raw HTML, never loads Markdown image URLs, and exposes a
-readable alt-text placeholder. Selecting rendered text produces a Locator with
-an exact quote, surrounding quote context, fingerprint, and source line/UTF-16
-range when the rendered selection maps unambiguously to source Markdown.
+readable alt-text placeholder. Leaf text carries deterministic source UTF-16
+attributes through heading, emphasis, list, and code styling. Selections and
+positions map rendered ranges back to exact source ranges (and fail closed when
+no map exists), so repeated text never falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB
-chunks with cancellation. Source JavaScript, automatic navigation, and
+chunks with cancellation. Scheme callbacks and stop are serialized so no
+response/data/finish/failure callback occurs after stop returns. Source
+JavaScript, automatic navigation, and
 cross-Snapshot loads remain disabled. The system reader theme follows the live
 macOS color scheme.
 
@@ -75,8 +78,10 @@ Search can target the current Source, current Space, or complete Library.
 Results include title, source, Snapshot-bound Locator, and jump context. The
 FTS fast path has a bounded exact-substring fallback for unsegmented scripts.
 Indexed hits derive a query-specific quote/range Locator while preserving PDF
-page identity. Observation rows become visible only after the whole Snapshot
-index transaction completes; interrupted staging is discarded on restart.
+page identity. Only the active AdapterPlan's completed projection is visible;
+ordinary evidence reads are never indexed implicitly. Publication compares the
+Snapshot/plan pair transactionally, and interrupted staging is discarded on
+restart.
 
 Bookmarks bind the current presentation Locator. Highlights require a real
 selection and a presentation that supports structured anchors. Notes can bind
@@ -97,8 +102,13 @@ completion plus reading history. Agent-generated graph/route revisions remain
 pending while the reader is on a frozen plan; adopting a pending route is an
 explicit action that migrates only still-valid progress.
 
-Agent adapter routing runs per current Snapshot before scouting and graph
-materialization. Low-confidence proposals stay in Activity for confirmation.
+Agent adapter routing runs per explicit current Source/Snapshot target before
+scouting and graph materialization. Low-confidence proposals stay in Activity
+for confirmation. Confirming, dismissing, or resuming continues from the next
+Source checkpoint before downstream tasks; another wait stops the pipeline
+again. Leaving a Space cancels only the Run that owns the terminated event
+stream, so a delayed A-to-B transition cannot cancel a newer Run after returning
+to A.
 Activity rows preserve redacted Source, Snapshot, Adapter, Locator digest, and
 outbound byte-range metadata so the disclosure describes what was actually
 sent without storing body text, paths, or notes.

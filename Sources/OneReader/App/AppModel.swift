@@ -25,6 +25,12 @@ enum ReaderSearchScope: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum AgentRunAttentionKind: Equatable, Sendable {
+    case disclosure
+    case adapterCandidate
+    case interrupted
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -81,6 +87,7 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
     private let presentationRegistry = PresentationRegistry.standard
     private let secretStore: any ProviderSecretStore
+    private let agentDriverFactory: any ReadingAgentDriverFactory
     private var database: LibraryDatabase?
     private var managedLibrary: ManagedLibrary?
     private var registry: AdapterRegistry?
@@ -99,6 +106,7 @@ final class AppModel: ObservableObject {
     private var agentTask: Task<Void, Never>?
     private var indexTasks: [String: Task<Void, Never>] = [:]
     private var indexSnapshotIDs: [String: String] = [:]
+    private var indexPlanIDs: [String: String] = [:]
     private var indexGenerations: [String: UUID] = [:]
     private var pendingIndexImportIDs: [String: Set<String>] = [:]
 
@@ -106,11 +114,13 @@ final class AppModel: ObservableObject {
         libraryRootURL: URL? = nil,
         defaults: UserDefaults = .standard,
         secretStore: any ProviderSecretStore = KeychainProviderSecretStore(),
+        agentDriverFactory: any ReadingAgentDriverFactory = DefaultReadingAgentDriverFactory(),
         automaticBootstrap: Bool = true
     ) {
         self.libraryRootURL = libraryRootURL
         self.defaults = defaults
         self.secretStore = secretStore
+        self.agentDriverFactory = agentDriverFactory
         preferences = Self.loadPreferences(defaults: defaults)
         if automaticBootstrap {
             Task { [weak self] in
@@ -248,6 +258,17 @@ final class AppModel: ObservableObject {
         agentRuns.first { $0.state == .waitingForUser || $0.state == .interrupted }
     }
 
+    var waitingAgentAttentionKind: AgentRunAttentionKind? {
+        guard let run = waitingAgentRun else { return nil }
+        if run.errorCategory == "disclosure-required" { return .disclosure }
+        if let output = try? database?.agentOutput(runID: run.id),
+           output.disposition == "waitingForUser",
+           case .adapterPlan = output.output {
+            return .adapterCandidate
+        }
+        return run.state == .interrupted ? .interrupted : nil
+    }
+
     var activePendingImportCount: Int {
         pendingImports.filter { $0.state.isActive }.count
     }
@@ -287,7 +308,8 @@ final class AppModel: ObservableObject {
                 database: database,
                 toolHost: toolHost,
                 validator: validator,
-                secretStore: secretStore
+                secretStore: secretStore,
+                driverFactory: agentDriverFactory
             )
             self.database = database
             self.managedLibrary = managedLibrary
@@ -1034,28 +1056,58 @@ final class AppModel: ObservableObject {
     func confirmWaitingAgentRun() {
         guard let run = waitingAgentRun,
               let database,
-              let runtime = agentRuntime else { return }
+              let runtime = agentRuntime,
+              let attentionKind = waitingAgentAttentionKind,
+              let request = try? database.request(forRunID: run.id) else { return }
+        let generation = workspaceGeneration
         agentTask?.cancel()
         agentTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let session = try await runtime.session(forSpaceID: run.spaceID)
-                if run.errorCategory == "disclosure-required" {
+                let resumedState: AgentRunState
+                switch attentionKind {
+                case .disclosure:
                     try database.acknowledgeRemoteDisclosure(runID: run.id)
                     let handle = try await session.resume(runID: run.id)
                     await consume(
                         handle: handle,
                         spaceID: run.spaceID,
-                        generation: workspaceGeneration
+                        generation: generation
                     )
-                } else {
+                    resumedState = try database.agentRunState(runID: handle.runID) ?? .failed
+                case .adapterCandidate:
                     _ = try await session.confirmAdapterCandidate(runID: run.id)
                     loadAgentActivity(spaceID: run.spaceID)
                     if selectedSpaceID == run.spaceID, let selectedSourceID {
                         openSource(selectedSourceID)
                     }
+                    resumedState = .completed
+                case .interrupted:
+                    let handle = try await session.resume(runID: run.id)
+                    await consume(
+                        handle: handle,
+                        spaceID: run.spaceID,
+                        generation: generation
+                    )
+                    resumedState = try database.agentRunState(runID: handle.runID) ?? .failed
                 }
-                scheduleDownstreamAgentPipeline(for: run.spaceID)
+                guard selectedSpaceID == run.spaceID,
+                      workspaceGeneration == generation,
+                      resumedState == .completed else { return }
+                startIndexingAdapterPlan(for: request, spaceID: run.spaceID)
+                if request.task == .routeAdapters {
+                    await executeAgentPipeline(
+                        spaceID: run.spaceID,
+                        generation: generation,
+                        routingAfterSourceID: request.targetSourceID
+                    )
+                } else {
+                    await executeDownstreamAgentPipeline(
+                        spaceID: run.spaceID,
+                        generation: generation
+                    )
+                }
             } catch {
                 if selectedSpaceID == run.spaceID {
                     notice = AppNotice(title: "无法继续 Agent Run", message: error.localizedDescription)
@@ -1066,14 +1118,22 @@ final class AppModel: ObservableObject {
 
     func dismissWaitingAgentRun() {
         guard let run = waitingAgentRun,
+              waitingAgentAttentionKind == .adapterCandidate,
+              let database,
+              let request = try? database.request(forRunID: run.id),
               let runtime = agentRuntime else { return }
+        let generation = workspaceGeneration
         Task { [weak self] in
             guard let self else { return }
             do {
                 let session = try await runtime.session(forSpaceID: run.spaceID)
                 try await session.dismissAdapterCandidate(runID: run.id)
                 loadAgentActivity(spaceID: run.spaceID)
-                scheduleDownstreamAgentPipeline(for: run.spaceID)
+                await executeAgentPipeline(
+                    spaceID: run.spaceID,
+                    generation: generation,
+                    routingAfterSourceID: request.targetSourceID
+                )
             } catch {
                 if selectedSpaceID == run.spaceID {
                     notice = AppNotice(title: "无法保留基础方案", message: error.localizedDescription)
@@ -1112,6 +1172,9 @@ final class AppModel: ObservableObject {
         providerTestResult = nil
         Task { [weak self] in
             guard let self else { return }
+            let hasUnsavedSecret = secret?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty == false
             var effectiveSecret = secret
             if effectiveSecret?.isEmpty != false,
                let reference = profile.keychainReference {
@@ -1120,13 +1183,11 @@ final class AppModel: ObservableObject {
             let tester = ProviderConnectionTester(database: database)
             let savedProfile = (try? database.fetchProviderProfiles())?
                 .first(where: { $0.id == profile.id })
-            let shouldPersist = savedProfile.flatMap { saved in
-                guard let savedRevision = try? ProviderPolicy.revisionIdentity(saved),
-                      let draftRevision = try? ProviderPolicy.revisionIdentity(profile) else {
-                    return false
-                }
-                return savedRevision == draftRevision
-            } ?? false
+            let shouldPersist = ProviderConnectionTester.shouldPersistResult(
+                draft: profile,
+                saved: savedProfile,
+                hasUnsavedSecret: hasUnsavedSecret
+            )
             let result = await tester.test(
                 profile: profile,
                 secret: effectiveSecret,
@@ -1195,6 +1256,14 @@ final class AppModel: ObservableObject {
             try reloadLibraryState(preservingSelection: true)
             openSpace(result.space.id, preferredSourceID: result.source.id)
             isImportSheetPresented = false
+            if let authorizationWarning = result.authorizationWarning {
+                appendActivity(
+                    spaceID: result.space.id,
+                    phase: "来源授权",
+                    message: authorizationWarning,
+                    state: .attention
+                )
+            }
             pending.state = .indexing
             replacePending(pending)
             if let coordinator {
@@ -1242,7 +1311,8 @@ final class AppModel: ObservableObject {
             return
         }
         if indexTasks[plan.sourceID] != nil,
-           indexSnapshotIDs[plan.sourceID] == plan.snapshotID {
+           indexSnapshotIDs[plan.sourceID] == plan.snapshotID,
+           indexPlanIDs[plan.sourceID] == plan.id {
             if let pendingID {
                 pendingIndexImportIDs[plan.sourceID, default: []].insert(pendingID)
             }
@@ -1256,13 +1326,17 @@ final class AppModel: ObservableObject {
             pendingIndexImportIDs[plan.sourceID, default: []].insert(pendingID)
         }
         if pendingID == nil,
-           (try? database?.isObservationIndexComplete(snapshotID: plan.snapshotID)) == true {
+           (try? database?.isObservationIndexComplete(
+               snapshotID: plan.snapshotID,
+               planID: plan.id
+           )) == true {
             return
         }
 
         let generation = UUID()
         indexGenerations[plan.sourceID] = generation
         indexSnapshotIDs[plan.sourceID] = plan.snapshotID
+        indexPlanIDs[plan.sourceID] = plan.id
         appendActivity(
             spaceID: spaceID,
             phase: "建索引",
@@ -1294,6 +1368,7 @@ final class AppModel: ObservableObject {
             finishPendingIndexImports(sourceID: plan.sourceID)
             indexTasks[plan.sourceID] = nil
             indexSnapshotIDs[plan.sourceID] = nil
+            indexPlanIDs[plan.sourceID] = nil
             indexGenerations[plan.sourceID] = nil
         }
     }
@@ -1489,8 +1564,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func transitionWorkspace(to nextSpaceID: String?) {
-        let previousSpaceID = selectedSpaceID
+    private func transitionWorkspace(to _: String?) {
         workspaceGeneration = UUID()
         contentGeneration = UUID()
         contentTask?.cancel()
@@ -1502,12 +1576,9 @@ final class AppModel: ObservableObject {
         evidenceAnswer = nil
         searchResults = []
         isSearching = false
-        guard let previousSpaceID,
-              previousSpaceID != nextSpaceID,
-              let runtime = agentRuntime else { return }
-        Task {
-            await runtime.cancelSession(forSpaceID: previousSpaceID)
-        }
+        // Cancelling the consumer terminates its AsyncStream. The Session then
+        // cancels only the run that owns that stream ID, so a late A→B switch
+        // can never cancel a newer run after the user returns to A.
     }
 
     private func updateProgress(_ mutation: (inout ReadingProgress) -> Void) {
@@ -1523,7 +1594,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func executeAgentPipeline(spaceID: String, generation: UUID) async {
+    private func executeAgentPipeline(
+        spaceID: String,
+        generation: UUID,
+        routingAfterSourceID: String? = nil
+    ) async {
         guard selectedSpaceID == spaceID,
               workspaceGeneration == generation,
               let database else { return }
@@ -1537,7 +1612,15 @@ final class AppModel: ObservableObject {
             return
         }
 
-        for sourceID in manifest.keys.sorted() {
+        let orderedSourceIDs = manifest.keys.sorted()
+        let sourceIDsToRoute: ArraySlice<String>
+        if let routingAfterSourceID,
+           let index = orderedSourceIDs.firstIndex(of: routingAfterSourceID) {
+            sourceIDsToRoute = orderedSourceIDs[orderedSourceIDs.index(after: index)...]
+        } else {
+            sourceIDsToRoute = orderedSourceIDs[...]
+        }
+        for sourceID in sourceIDsToRoute {
             guard selectedSpaceID == spaceID,
                   workspaceGeneration == generation,
                   let snapshotID = manifest[sourceID] else { return }
@@ -1628,7 +1711,11 @@ final class AppModel: ObservableObject {
             let session = try await runtime.session(forSpaceID: spaceID)
             let handle = try await session.start(request)
             await consume(handle: handle, spaceID: spaceID, generation: uiGeneration)
-            return try database.agentRunState(runID: handle.runID)
+            let state = try database.agentRunState(runID: handle.runID)
+            if state == .completed {
+                startIndexingAdapterPlan(for: request, spaceID: spaceID)
+            }
+            return state
         } catch is CancellationError {
             return .cancelled
         } catch {
@@ -1687,6 +1774,19 @@ final class AppModel: ObservableObject {
         if selectedSpaceID == spaceID { loadAgentActivity(spaceID: spaceID) }
     }
 
+    private func startIndexingAdapterPlan(
+        for request: AgentRunRequest,
+        spaceID: String
+    ) {
+        guard request.task == .routeAdapters,
+              let sourceID = request.targetSourceID,
+              let snapshotID = request.targetSnapshotID,
+              let plan = try? database?.fetchAdapterPlan(snapshotID: snapshotID),
+              plan.sourceID == sourceID,
+              plan.snapshotID == snapshotID else { return }
+        startIndexing(plan: plan, spaceID: spaceID)
+    }
+
     private func appendActivityForSource(
         sourceID: String,
         phase: String,
@@ -1709,6 +1809,7 @@ final class AppModel: ObservableObject {
         indexTasks[sourceID]?.cancel()
         indexTasks[sourceID] = nil
         indexSnapshotIDs[sourceID] = nil
+        indexPlanIDs[sourceID] = nil
         indexGenerations[sourceID] = UUID()
         finishPendingIndexImports(sourceID: sourceID)
         if selectedSourceID == sourceID {

@@ -25,6 +25,10 @@ The v1 registry contains:
 Directory and GitHub repository sources are compositions. Their tree is owned
 by the directory adapter while readable child files retain their own Markdown,
 HTML, PDF, EPUB, code, text, or Quick Look locator and presentation.
+Index expansion reads every PDF page and every EPUB spine item rather than only
+the container file. Directory-child EPUB extraction is namespaced below the
+Snapshot by a digest of its relative path, so multiple books cannot share or
+overwrite one derived root.
 
 ## Import and snapshots
 
@@ -106,14 +110,16 @@ Swift `String`.
 ## Search and observations
 
 Reads produce snapshot-bound `Observation` values with digest, truncation,
-media type, and optional managed-content reference. The coordinator persists
-observations and an FTS5 projection transactionally. FTS results retain source,
-snapshot, adapter, locator, title, and jump context; rebuilding the index uses
-the durable observations as truth.
+media type, and optional managed-content reference. Raw Observations are
+durable evidence and do not automatically become searchable. The coordinator
+builds a separate FTS5 projection under an explicit AdapterPlan: it stages the
+complete plan output, verifies that the same plan is still active for the
+Snapshot, then publishes atomically. FTS results retain source, snapshot,
+adapter, locator, title, and jump context.
 
 FTS5 `unicode61` remains the fast path. When its tokenization produces no hit,
-the database performs a bounded exact-substring query over durable Observation
-rows. This keeps Chinese and other unsegmented scripts searchable without
+the database performs a bounded exact-substring query over the active completed
+search projection. This keeps Chinese and other unsegmented scripts searchable without
 falling through to an expensive scan of every managed file in a directory.
 
 Removed sources are filtered from FTS queries and rejected by the coordinator

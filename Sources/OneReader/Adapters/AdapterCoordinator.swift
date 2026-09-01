@@ -101,6 +101,7 @@ actor AdapterCoordinator {
             let indexed = try database.searchObservations(
                 query: query,
                 snapshotID: plan.snapshotID,
+                planID: plan.id,
                 limit: limit
             )
             if !indexed.isEmpty { return indexed }
@@ -180,7 +181,7 @@ actor AdapterCoordinator {
             planID: plan.id
         )
         do {
-            let nodes = try await list(plan: plan, limit: 2_000)
+            let nodes = try await indexableNodes(plan: plan, limit: 10_000)
             for node in nodes where node.isReadable {
                 try Task.checkCancellation()
                 do {
@@ -203,11 +204,13 @@ actor AdapterCoordinator {
             try Task.checkCancellation()
             try database.completeObservationIndex(
                 snapshotID: plan.snapshotID,
+                planID: plan.id,
                 generationID: generationID
             )
         } catch is CancellationError {
             try? database.failObservationIndex(
                 snapshotID: plan.snapshotID,
+                planID: plan.id,
                 generationID: generationID,
                 category: "cancelled"
             )
@@ -215,11 +218,78 @@ actor AdapterCoordinator {
         } catch {
             try? database.failObservationIndex(
                 snapshotID: plan.snapshotID,
+                planID: plan.id,
                 generationID: generationID,
                 category: "index-failed"
             )
             throw error
         }
+    }
+
+    private func indexableNodes(
+        plan: AdapterPlan,
+        limit: Int
+    ) async throws -> [ContentNode] {
+        let rootNodes = try await list(plan: plan, limit: limit)
+        guard plan.primaryAdapterID == DirectoryAdapter.id else { return rootNodes }
+        let base = try context(sourceID: plan.sourceID, snapshotID: plan.snapshotID)
+        var expanded: [ContentNode] = []
+        expanded.reserveCapacity(rootNodes.count)
+        for rootNode in rootNodes where expanded.count < limit {
+            try Task.checkCancellation()
+            guard rootNode.isReadable else { continue }
+            let adapterID = rootNode.locator.adapterID
+            guard adapterID == PDFAdapter.id || adapterID == EPUBAdapter.id,
+                  let path = rootNode.locator.payload["path"] else {
+                expanded.append(rootNode)
+                continue
+            }
+            let childContext = try adaptedContext(
+                base,
+                for: rootNode.locator,
+                adapterID: adapterID
+            )
+            let remaining = max(1, limit - expanded.count)
+            let childNodes = try await registry.list(
+                adapterID: adapterID,
+                in: childContext,
+                under: nil,
+                limit: remaining
+            )
+            expanded.append(contentsOf: childNodes.map { child in
+                let locator = Self.rebinding(child.locator, toDirectoryPath: path)
+                return ContentNode(
+                    id: locator.stableID,
+                    title: "\(rootNode.title) · \(child.title)",
+                    kind: child.kind,
+                    locator: locator,
+                    depth: rootNode.depth + child.depth + 1,
+                    order: expanded.count + child.order,
+                    mediaType: child.mediaType,
+                    isReadable: child.isReadable
+                )
+            })
+        }
+        return Array(expanded.prefix(limit))
+    }
+
+    private static func rebinding(
+        _ locator: Locator,
+        toDirectoryPath path: String
+    ) -> Locator {
+        var payload = locator.payload
+        payload["path"] = path
+        let childPath = locator.structuralPath ?? locator.conciseDescription
+        return Locator(
+            sourceID: locator.sourceID,
+            snapshotID: locator.snapshotID,
+            adapterID: locator.adapterID,
+            schemaVersion: locator.schemaVersion,
+            payload: payload,
+            structuralPath: "\(path)::\(childPath)",
+            textQuote: locator.textQuote,
+            fingerprint: locator.fingerprint
+        )
     }
 
     private func context(sourceID: String, snapshotID: String) throws -> AdapterContext {

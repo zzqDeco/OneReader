@@ -579,6 +579,8 @@ final class AgentPersistenceAndToolTests: XCTestCase {
         let request = AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: base.sourceID,
+            targetSnapshotID: base.snapshotID,
             expectedSnapshotIDs: Set(manifest.values),
             snapshotManifest: manifest
         )

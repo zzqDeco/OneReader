@@ -621,7 +621,9 @@ actor ReadingAgentSession {
         // A non-cooperative Provider that returns concurrently is then ordered
         // against the audit transaction by SQLite, with exactly one winner.
         task?.cancel()
-        await clock.invalidate()
+        if let generation {
+            _ = await clock.invalidate(ifCurrent: generation)
+        }
         await cancellationInterlock?.afterClockInvalidation()
         if let event {
             try? await recorder?.publishPersisted(event)
@@ -678,9 +680,18 @@ actor ReadingAgentSession {
             task: requested.task,
             goal: requested.goal,
             question: requested.question,
+            targetSourceID: requested.targetSourceID,
+            targetSnapshotID: requested.targetSnapshotID,
             expectedSnapshotIDs: Set(manifest.values),
             snapshotManifest: manifest
         )
+        if request.task == .routeAdapters {
+            guard let targetSourceID = request.targetSourceID,
+                  let targetSnapshotID = request.targetSnapshotID,
+                  manifest[targetSourceID] == targetSnapshotID else {
+                throw ReadingAgentError.validationRejected("adapter-route-target-not-current")
+            }
+        }
         await supersedeActiveRun()
         try Task.checkCancellation()
         try requirePendingStart(startID)
@@ -758,8 +769,27 @@ actor ReadingAgentSession {
     }
 
     private func cancelIfActive(runID: String) async {
-        guard activeRunID == runID else { return }
-        await cancel()
+        guard activeRunID == runID,
+              let generation = activeGeneration else { return }
+        let task = activeTask
+        let recorder = activeRecorder
+        let event = try? database.transitionAgentRunIfActive(
+            runID: runID,
+            generation: generation,
+            allowedStates: [.queued, .running, .waitingForUser],
+            finalState: .cancelled,
+            errorCategory: "consumer-terminated",
+            outputDisposition: "cancelled",
+            kind: .cancelled,
+            phase: "session",
+            message: "Reading Agent Run 的阅读界面已离开，当前 Run 已取消。"
+        )
+        task?.cancel()
+        _ = await clock.invalidate(ifCurrent: generation)
+        if let event {
+            try? await recorder?.publishPersisted(event)
+            await recorder?.finish()
+        }
     }
 
     private func makePostRunEvent(
@@ -853,6 +883,14 @@ actor ReadingAgentSession {
         guard (request.goal?.count ?? 0) <= 16_384,
               (request.question?.count ?? 0) <= 16_384 else {
             throw ReadingAgentError.validationRejected("request-too-large")
+        }
+        if request.task == .routeAdapters {
+            guard request.targetSourceID?.isEmpty == false,
+                  request.targetSnapshotID?.isEmpty == false else {
+                throw ReadingAgentError.validationRejected("adapter-route-target-required")
+            }
+        } else if request.targetSourceID != nil || request.targetSnapshotID != nil {
+            throw ReadingAgentError.validationRejected("adapter-route-target-unexpected")
         }
     }
 }

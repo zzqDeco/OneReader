@@ -8,13 +8,14 @@ cleanup, graph/plan invalidation, progress reset, active-Run cancellation, and
 durable Agent-generation advancement in one transaction.
 
 Adapter plans and Observations are encoded with stable JSON settings. Schema v7
-stages a complete Snapshot observation index under one run, then atomically
-replaces visible Observation and FTS5 rows and records completion. Startup drops
-interrupted staging so a partial index can never be mistaken for ready data.
-The index can be rebuilt solely from durable Observation rows.
+introduced atomic index staging. Schema v9 separates raw evidence Observations
+from `search_documents`, records one active AdapterPlan per Snapshot, keys index
+runs by Snapshot plus plan ID, and publishes only after an active-plan
+compare-and-swap. Startup drops interrupted staging so a partial or superseded
+plan can never be mistaken for current searchable data.
 Search joins active Source state so a removed Source cannot remain visible
 through stale FTS rows. When FTS `unicode61` produces no match, a bounded
-Observation-row substring query supplies exact Chinese/unsegmented-script
+active-search-projection substring query supplies exact Chinese/unsegmented-script
 results without scanning a managed repository tree. Every returned hit derives
 a query-specific quote/range Locator and preserves format identity such as a PDF
 page.

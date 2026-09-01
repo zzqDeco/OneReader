@@ -1,6 +1,6 @@
 # OneReader v0.2 All-in-One Reader
 
-Status: Delivered
+Status: Active
 
 Branch: `docs/all-in-one-reader-v1`
 
@@ -59,10 +59,11 @@ fast-forwarded back only after its own tests and documentation are complete:
 
 ## Acceptance Evidence
 
-All five slices are implemented and integrated on local `dev`; `main` remains
-unchanged for a separate promotion review. `scripts/validate-native.sh` passes
-163 tests plus dependency, documentation, release-policy, entitlement,
-production-build, Sandbox bundle, and codesign gates. Database schema 8,
+All five slices are implemented and integrated locally; `main` remains
+unchanged for a separate promotion review. The latest `swift test` passes 173
+tests, including the integrated Sol-review corrections. The unified native
+gate additionally owns dependency, documentation, release-policy, entitlement,
+production-build, Sandbox bundle, and codesign checks. Database schema 9,
 adapter schema 1, and Agent runtime schema 5 are bound into the release
 metadata and verified by test.
 
@@ -87,4 +88,4 @@ controlled writes, App Store distribution, and notarization.
 - [x] Five slice plans delivered
 - [x] Unified native acceptance passed
 - [x] `dev` ready for a separate promotion pull request
-- [x] Status changed to Delivered
+- [ ] Final Sol max review accepted and status changed to Delivered

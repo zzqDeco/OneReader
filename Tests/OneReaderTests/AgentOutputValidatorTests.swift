@@ -123,6 +123,8 @@ final class AgentOutputValidatorTests: XCTestCase {
         let request = AgentRunRequest(
             spaceID: fixture.imported.space.id,
             task: .routeAdapters,
+            targetSourceID: fixture.imported.source.id,
+            targetSnapshotID: fixture.imported.snapshot.id,
             expectedSnapshotIDs: [fixture.imported.snapshot.id]
         )
         let quickLookID = QuickLookAdapter.id
@@ -202,6 +204,8 @@ final class AgentOutputValidatorTests: XCTestCase {
                 request: AgentRunRequest(
                     spaceID: fixture.imported.space.id,
                     task: .routeAdapters,
+                    targetSourceID: fixture.imported.source.id,
+                    targetSnapshotID: fixture.imported.snapshot.id,
                     expectedSnapshotIDs: [fixture.imported.snapshot.id]
                 )
             )

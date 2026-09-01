@@ -48,4 +48,66 @@ final class NativeMarkdownRendererTests: XCTestCase {
             rendered.attribute(.link, at: unsafeRange.location, effectiveRange: nil)
         )
     }
+
+    func testSourceMapDistinguishesRepeatedHeadingEmphasisAndListText() throws {
+        let source = """
+            # same
+
+            same **same**
+
+            - same
+            """
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+        let sourceValue = source as NSString
+        var sourceRanges: [NSRange] = []
+        var cursor = 0
+        while cursor < sourceValue.length {
+            let match = sourceValue.range(
+                of: "same",
+                options: [],
+                range: NSRange(location: cursor, length: sourceValue.length - cursor)
+            )
+            guard match.location != NSNotFound else { break }
+            sourceRanges.append(match)
+            cursor = NSMaxRange(match)
+        }
+        XCTAssertEqual(sourceRanges.count, 4)
+
+        let renderedRanges = try sourceRanges.map { sourceRange in
+            try XCTUnwrap(
+                MarkdownSourceMap.renderedRange(
+                    forSourceRange: sourceRange,
+                    in: rendered
+                )
+            )
+        }
+        XCTAssertEqual(renderedRanges.map { (rendered.string as NSString).substring(with: $0) }, [
+            "same", "same", "same", "same",
+        ])
+        XCTAssertEqual(renderedRanges.map(\.location), renderedRanges.map(\.location).sorted())
+        XCTAssertEqual(Set(renderedRanges.map(\.location)).count, 4)
+
+        for (sourceRange, renderedRange) in zip(sourceRanges, renderedRanges) {
+            XCTAssertEqual(
+                MarkdownSourceMap.sourceRange(
+                    forRenderedRange: renderedRange,
+                    in: rendered
+                ),
+                sourceRange
+            )
+        }
+
+        let emphasizedSourceRange = NSRange(
+            location: sourceRanges[2].location - 2,
+            length: sourceRanges[2].length + 4
+        )
+        XCTAssertEqual(
+            MarkdownSourceMap.renderedRange(
+                forSourceRange: emphasizedSourceRange,
+                in: rendered
+            ),
+            renderedRanges[2]
+        )
+    }
 }

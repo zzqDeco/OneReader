@@ -493,6 +493,115 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertNil(model.notice)
     }
 
+    func testDismissingFirstRouteCandidateResumesAtNextSourceBeforeDownstreamTasks() async throws {
+        let root = temporaryRoot("RouteCheckpoint")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inputs = root.appendingPathComponent("Inputs", isDirectory: true)
+        let libraryRoot = root.appendingPathComponent("Library", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let firstURL = inputs.appendingPathComponent("first.md")
+        let secondURL = inputs.appendingPathComponent("second.md")
+        try Data("# First\n\nfirst evidence".utf8).write(to: firstURL)
+        try Data("# Second\n\nsecond evidence".utf8).write(to: secondURL)
+
+        let database = try LibraryDatabase(rootURL: libraryRoot)
+        let library = try ManagedLibrary(
+            database: database,
+            storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max,
+                minimumFreeCapacity: 0,
+                capacityProvider: { _ in .max }
+            )
+        )
+        let first = try await library.importLocalSource(at: firstURL)
+        let second = try await library.importLocalSource(
+            at: secondURL,
+            intoSpaceID: first.space.id
+        )
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        _ = try await coordinator.prepare(
+            sourceID: first.source.id,
+            snapshotID: first.snapshot.id
+        )
+        _ = try await coordinator.prepare(
+            sourceID: second.source.id,
+            snapshotID: second.snapshot.id
+        )
+        let orderedSourceIDs = [first.source.id, second.source.id].sorted()
+        let pausedSourceID = orderedSourceIDs[0]
+        let remainingSourceID = orderedSourceIDs[1]
+        let remainingQuery = remainingSourceID == first.source.id ? "first" : "second"
+        try database.saveProviderProfile(ProviderProfile(
+            id: "app-pipeline-provider",
+            displayName: "App pipeline fake",
+            kind: .appleOnDevice,
+            modelID: "fake-on-device",
+            isDefault: true,
+            capabilities: [.connection, .structuredGeneration, .toolCalling],
+            lastTestedAt: .now,
+            lastTestSucceeded: true
+        ))
+
+        let trace = AppPipelineTrace()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore(),
+            agentDriverFactory: AppPipelineDriverFactory(
+                pausedSourceID: pausedSourceID,
+                trace: trace
+            )
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.openSpace(first.space.id)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activeProvider != nil
+        }
+
+        model.launchAgentPipeline()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.waitingAgentAttentionKind == .adapterCandidate
+        }
+        model.dismissWaitingAgentRun()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.agentRuns.contains {
+                $0.task == .materializeGraph && $0.state == .failed
+            }
+        }
+
+        let records = await trace.records()
+        XCTAssertGreaterThanOrEqual(records.count, 4)
+        XCTAssertEqual(records[0], .init(task: .routeAdapters, targetSourceID: pausedSourceID))
+        XCTAssertEqual(records[1], .init(task: .routeAdapters, targetSourceID: remainingSourceID))
+        XCTAssertEqual(records[2], .init(task: .scoutSpace, targetSourceID: nil))
+        XCTAssertEqual(records[3], .init(task: .materializeGraph, targetSourceID: nil))
+        let remainingSnapshotID = try XCTUnwrap(
+            [first.source.id: first.snapshot.id, second.source.id: second.snapshot.id][remainingSourceID]
+        )
+        try await waitUntil(timeout: .seconds(5)) {
+            guard let plan = try? database.fetchAdapterPlan(snapshotID: remainingSnapshotID) else {
+                return false
+            }
+            return (try? database.isObservationIndexComplete(
+                snapshotID: remainingSnapshotID,
+                planID: plan.id
+            )) == true
+        }
+        let installed = try XCTUnwrap(
+            database.fetchAdapterPlan(snapshotID: remainingSnapshotID)
+        )
+        XCTAssertTrue(installed.id.hasPrefix("agent-adapter-plan:"))
+        XCTAssertEqual(
+            try database.searchObservations(
+                query: remainingQuery,
+                snapshotID: remainingSnapshotID,
+                planID: installed.id
+            ).count,
+            1
+        )
+    }
+
     func testInvalidLibraryRootFailsClosedAndPreservesUnrelatedFile() async throws {
         let root = temporaryRoot("Invalid")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -570,5 +679,106 @@ final class AppModelLibraryTests: XCTestCase {
             sourceOrder: 0,
             preferredPresentation: .markdown
         )
+    }
+}
+
+private actor AppPipelineTrace {
+    struct Record: Equatable, Sendable {
+        let task: AgentTaskKind
+        let targetSourceID: String?
+    }
+
+    private var values: [Record] = []
+
+    func append(_ record: Record) {
+        values.append(record)
+    }
+
+    func records() -> [Record] { values }
+}
+
+private struct AppPipelineDriverFactory: ReadingAgentDriverFactory {
+    let pausedSourceID: String
+    let trace: AppPipelineTrace
+
+    func makeDriver(context: AgentDriverContext) -> any ReadingAgentModelDriver {
+        AppPipelineDriver(
+            context: context,
+            pausedSourceID: pausedSourceID,
+            trace: trace
+        )
+    }
+}
+
+private struct AppPipelineDriver: ReadingAgentModelDriver {
+    let context: AgentDriverContext
+    let pausedSourceID: String
+    let trace: AppPipelineTrace
+
+    func generate(
+        _ request: AgentModelRequest,
+        runtime: ReadingToolRuntime,
+        previousTranscript: Data?
+    ) async throws -> AgentModelResult {
+        _ = try await context.budget.consumeModelRound()
+        await trace.append(.init(
+            task: request.request.task,
+            targetSourceID: request.request.targetSourceID
+        ))
+        switch request.request.task {
+        case .routeAdapters:
+            guard let sourceID = request.request.targetSourceID,
+                  let snapshotID = request.request.targetSnapshotID,
+                  let base = try context.database.fetchAdapterPlan(snapshotID: snapshotID) else {
+                throw ReadingAgentError.validationRejected("pipeline-test-plan-missing")
+            }
+            let proposed: AdapterPlan
+            if sourceID == pausedSourceID {
+                let fallback = QuickLookAdapter.id
+                let auxiliary = Array(
+                    Set(base.auxiliaryAdapterIDs + [base.primaryAdapterID])
+                        .subtracting([fallback])
+                ).sorted()
+                proposed = AdapterPlan(
+                    id: "pipeline-low-candidate",
+                    schemaVersion: base.schemaVersion,
+                    sourceID: sourceID,
+                    snapshotID: snapshotID,
+                    primaryAdapterID: fallback,
+                    auxiliaryAdapterIDs: auxiliary,
+                    capabilityRoutes: base.capabilityRoutes,
+                    evidence: base.evidence,
+                    confidence: 0.99,
+                    reason: "Pause the first source for explicit confirmation",
+                    isUserOverride: false,
+                    createdAt: .now
+                )
+            } else {
+                proposed = AdapterPlan(
+                    id: "pipeline-high-\(sourceID)",
+                    schemaVersion: base.schemaVersion,
+                    sourceID: sourceID,
+                    snapshotID: snapshotID,
+                    primaryAdapterID: base.primaryAdapterID,
+                    auxiliaryAdapterIDs: base.auxiliaryAdapterIDs,
+                    capabilityRoutes: base.capabilityRoutes,
+                    evidence: base.evidence,
+                    confidence: base.confidence,
+                    reason: "Adopt the grounded deterministic composition",
+                    isUserOverride: false,
+                    createdAt: .now
+                )
+            }
+            return AgentModelResult(output: .adapterPlan(proposed), usage: nil)
+        case .scoutSpace:
+            return AgentModelResult(
+                output: .scoutingSummary("Both routed sources remain readable."),
+                usage: nil
+            )
+        case .materializeGraph:
+            throw ReadingAgentError.providerUnavailable("pipeline-test-stop")
+        case .projectRoute, .answerWithEvidence:
+            throw ReadingAgentError.providerUnavailable("pipeline-test-unexpected-task")
+        }
     }
 }

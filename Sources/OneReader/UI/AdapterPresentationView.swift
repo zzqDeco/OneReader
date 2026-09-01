@@ -296,7 +296,16 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
 
         let value = textView.string as NSString
         let targetRange: NSRange
-        if let quote = locator.textQuote,
+        if kind == .markdown,
+           let start = locator.payload["startUTF16"].flatMap(Int.init),
+           let end = locator.payload["endUTF16"].flatMap(Int.init),
+           let storage = textView.textStorage,
+           let mapped = MarkdownSourceMap.renderedRange(
+               forSourceRange: NSRange(location: start, length: max(0, end - start)),
+               in: storage
+           ) {
+            targetRange = mapped
+        } else if let quote = locator.textQuote,
            let quoteRange = Self.range(of: quote, in: value) {
             targetRange = quoteRange
         } else if let startValue = locator.payload[
@@ -305,10 +314,12 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                   let start = Int(startValue),
                   start >= 0,
                   start <= value.length {
-            let end = min(
-                max(start, Int(locator.payload["endUTF16"] ?? "") ?? start),
-                value.length
-            )
+            let end = kind == .markdown
+                ? start
+                : min(
+                    max(start, Int(locator.payload["endUTF16"] ?? "") ?? start),
+                    value.length
+                )
             targetRange = NSRange(location: start, length: end - start)
         } else {
             targetRange = NSRange(location: 0, length: 0)
@@ -408,47 +419,69 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             }
             let selected = value.substring(with: range)
             var payload = parent.locator.payload
-            for key in ["startUTF16", "endUTF16", "startLine", "endLine"] {
+            for key in [
+                "startUTF16", "endUTF16", "startLine", "endLine",
+                "renderedStartUTF16",
+            ] {
                 payload[key] = nil
             }
             let sourceValue = parent.content as NSString
             let sourceRange: NSRange
             if parent.kind == .markdown {
-                sourceRange = uniqueRange(of: selected, in: sourceValue)
+                guard let storage = textView.textStorage,
+                      let mapped = MarkdownSourceMap.sourceRange(
+                          forRenderedRange: range,
+                          in: storage
+                      ) else {
+                    parent.onSelectionChange(nil)
+                    return
+                }
+                sourceRange = mapped
+                payload["renderedStartUTF16"] = String(range.location)
             } else {
                 sourceRange = range
             }
+            let locatorQuote: TextQuote
+            let locatorFingerprint: String
             if sourceRange.location != NSNotFound,
                NSMaxRange(sourceRange) <= sourceValue.length {
                 let sourcePrefix = sourceValue.substring(to: sourceRange.location)
+                let sourceExact = sourceValue.substring(with: sourceRange)
                 let startLine = sourcePrefix.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-                let lineCount = selected.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+                let lineCount = sourceExact.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
                 payload["startUTF16"] = String(sourceRange.location)
                 payload["endUTF16"] = String(NSMaxRange(sourceRange))
                 payload["startLine"] = String(startLine)
                 payload["endLine"] = String(startLine + lineCount)
+                let sourcePrefixRange = NSRange(
+                    location: max(0, sourceRange.location - 48),
+                    length: min(48, sourceRange.location)
+                )
+                let sourceRemaining = sourceValue.length - NSMaxRange(sourceRange)
+                let sourceSuffixRange = NSRange(
+                    location: NSMaxRange(sourceRange),
+                    length: min(48, sourceRemaining)
+                )
+                let prefix = quoteContext(in: sourceValue, range: sourcePrefixRange)
+                let suffix = quoteContext(in: sourceValue, range: sourceSuffixRange)
+                locatorQuote = TextQuote(
+                    prefix: prefix.isEmpty ? nil : prefix,
+                    exact: sourceExact,
+                    suffix: suffix.isEmpty ? nil : suffix
+                )
+                locatorFingerprint = AdapterUtilities.sha256(sourceExact)
+            } else {
+                parent.onSelectionChange(nil)
+                return
             }
-            let quotePrefix = quoteContext(
-                in: value,
-                range: NSRange(location: max(0, range.location - 48), length: min(48, range.location))
-            )
-            let remaining = value.length - NSMaxRange(range)
-            let quoteSuffix = quoteContext(
-                in: value,
-                range: NSRange(location: NSMaxRange(range), length: min(48, remaining))
-            )
             let locator = Locator(
                 sourceID: parent.locator.sourceID,
                 snapshotID: parent.locator.snapshotID,
                 adapterID: parent.locator.adapterID,
                 payload: payload,
                 structuralPath: parent.locator.structuralPath,
-                textQuote: TextQuote(
-                    prefix: quotePrefix.isEmpty ? nil : quotePrefix,
-                    exact: selected,
-                    suffix: quoteSuffix.isEmpty ? nil : quoteSuffix
-                ),
-                fingerprint: AdapterUtilities.sha256(selected)
+                textQuote: locatorQuote,
+                fingerprint: locatorFingerprint
             )
             parent.onSelectionChange(ReaderSelection(text: selected, locator: locator))
         }
@@ -479,14 +512,56 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 range: NSRange(location: suffixStart, length: suffixLength)
             )
             var payload = parent.locator.payload
+            let locatorQuote: TextQuote
+            let locatorFingerprint: String
             if parent.kind == .markdown {
+                guard let storage = textView.textStorage,
+                      let sourceRange = MarkdownSourceMap.sourceRange(
+                          forRenderedRange: exactRange,
+                          in: storage
+                      ) else { return }
+                let source = parent.content as NSString
+                guard NSMaxRange(sourceRange) <= source.length else { return }
+                let sourceExact = source.substring(with: sourceRange)
+                let sourcePrefixLength = min(48, sourceRange.location)
+                let sourceSuffixStart = NSMaxRange(sourceRange)
+                let sourceSuffixLength = min(48, source.length - sourceSuffixStart)
+                let sourcePrefix = quoteContext(
+                    in: source,
+                    range: NSRange(
+                        location: sourceRange.location - sourcePrefixLength,
+                        length: sourcePrefixLength
+                    )
+                )
+                let sourceSuffix = quoteContext(
+                    in: source,
+                    range: NSRange(location: sourceSuffixStart, length: sourceSuffixLength)
+                )
                 payload["renderedStartUTF16"] = String(exactRange.location)
+                payload["startUTF16"] = String(sourceRange.location)
+                payload["endUTF16"] = String(NSMaxRange(sourceRange))
+                let textBefore = source.substring(to: sourceRange.location)
+                payload["startLine"] = String(
+                    textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+                )
+                locatorQuote = TextQuote(
+                    prefix: sourcePrefix.isEmpty ? nil : sourcePrefix,
+                    exact: sourceExact,
+                    suffix: sourceSuffix.isEmpty ? nil : sourceSuffix
+                )
+                locatorFingerprint = AdapterUtilities.sha256(sourceExact)
             } else {
                 payload["startUTF16"] = String(exactRange.location)
                 payload["endUTF16"] = String(NSMaxRange(exactRange))
                 let textBefore = value.substring(to: exactRange.location)
                 let startLine = textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
                 payload["startLine"] = String(startLine)
+                locatorQuote = TextQuote(
+                    prefix: prefix.isEmpty ? nil : prefix,
+                    exact: exact,
+                    suffix: suffix.isEmpty ? nil : suffix
+                )
+                locatorFingerprint = AdapterUtilities.sha256(exact)
             }
             let locator = Locator(
                 sourceID: parent.locator.sourceID,
@@ -494,12 +569,8 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 adapterID: parent.locator.adapterID,
                 payload: payload,
                 structuralPath: parent.locator.structuralPath,
-                textQuote: TextQuote(
-                    prefix: prefix.isEmpty ? nil : prefix,
-                    exact: exact,
-                    suffix: suffix.isEmpty ? nil : suffix
-                ),
-                fingerprint: AdapterUtilities.sha256(exact)
+                textQuote: locatorQuote,
+                fingerprint: locatorFingerprint
             )
             let signature = AdapterUtilities.sha256(
                 "\(locator.payload)|\(exact)|\(prefix)|\(suffix)"
@@ -507,24 +578,6 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             guard signature != lastPositionSignature else { return }
             lastPositionSignature = signature
             parent.onPositionChange(locator)
-        }
-
-        private func uniqueRange(of selected: String, in value: NSString) -> NSRange {
-            guard !selected.isEmpty else { return NSRange(location: NSNotFound, length: 0) }
-            var search = NSRange(location: 0, length: value.length)
-            var onlyMatch: NSRange?
-            while search.length > 0 {
-                let match = value.range(of: selected, options: [], range: search)
-                guard match.location != NSNotFound else { break }
-                if onlyMatch != nil {
-                    return NSRange(location: NSNotFound, length: 0)
-                }
-                onlyMatch = match
-                let next = NSMaxRange(match)
-                guard next < value.length else { break }
-                search = NSRange(location: next, length: value.length - next)
-            }
-            return onlyMatch ?? NSRange(location: NSNotFound, length: 0)
         }
 
         private func quoteContext(in value: NSString, range: NSRange) -> String {
@@ -1154,16 +1207,63 @@ struct ReadOnlyContentResourceLoader: Sendable {
     }
 }
 
+final class ReadOnlySchemeTaskLifecycle: @unchecked Sendable {
+    private enum State { case active, stopped, terminal }
+
+    private let condition = NSCondition()
+    private var state = State.active
+    private var activeCallbacks = 0
+
+    var isStopped: Bool {
+        condition.withLock { state != .active }
+    }
+
+    @discardableResult
+    func performIfActive(_ callback: () -> Void) -> Bool {
+        condition.lock()
+        guard state == .active else {
+            condition.unlock()
+            return false
+        }
+        activeCallbacks += 1
+        condition.unlock()
+        callback()
+        condition.lock()
+        activeCallbacks -= 1
+        if activeCallbacks == 0 { condition.broadcast() }
+        condition.unlock()
+        return true
+    }
+
+    @discardableResult
+    func finishIfActive(_ callback: () -> Void) -> Bool {
+        condition.lock()
+        guard state == .active else {
+            condition.unlock()
+            return false
+        }
+        state = .terminal
+        activeCallbacks += 1
+        condition.unlock()
+        callback()
+        condition.lock()
+        activeCallbacks -= 1
+        if activeCallbacks == 0 { condition.broadcast() }
+        condition.unlock()
+        return true
+    }
+
+    func stop() {
+        condition.lock()
+        if state == .active { state = .stopped }
+        while activeCallbacks > 0 { condition.wait() }
+        condition.unlock()
+    }
+}
+
 private final class ReadOnlyContentSchemeHandler: NSObject, WKURLSchemeHandler,
     @unchecked Sendable
 {
-    private final class CancellationToken: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = false
-
-        func cancel() { lock.withLock { value = true } }
-        var isCancelled: Bool { lock.withLock { value } }
-    }
 
     private final class SchemeTaskBox: @unchecked Sendable {
         let task: WKURLSchemeTask
@@ -1172,13 +1272,13 @@ private final class ReadOnlyContentSchemeHandler: NSObject, WKURLSchemeHandler,
 
     private final class TokenStore: @unchecked Sendable {
         private let lock = NSLock()
-        private var tokens: [ObjectIdentifier: CancellationToken] = [:]
+        private var tokens: [ObjectIdentifier: ReadOnlySchemeTaskLifecycle] = [:]
 
-        func insert(_ token: CancellationToken, for key: ObjectIdentifier) {
+        func insert(_ token: ReadOnlySchemeTaskLifecycle, for key: ObjectIdentifier) {
             lock.withLock { tokens[key] = token }
         }
 
-        func remove(for key: ObjectIdentifier) -> CancellationToken? {
+        func remove(for key: ObjectIdentifier) -> ReadOnlySchemeTaskLifecycle? {
             lock.withLock { tokens.removeValue(forKey: key) }
         }
     }
@@ -1201,48 +1301,47 @@ private final class ReadOnlyContentSchemeHandler: NSObject, WKURLSchemeHandler,
             return
         }
         let key = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let token = CancellationToken()
-        tokenStore.insert(token, for: key)
+        let lifecycle = ReadOnlySchemeTaskLifecycle()
+        tokenStore.insert(lifecycle, for: key)
         let taskBox = SchemeTaskBox(urlSchemeTask)
         queue.async { [loader, tokenStore] in
             defer { _ = tokenStore.remove(for: key) }
             do {
                 let resource = try loader.resolve(requestURL: requestURL)
-                guard !token.isCancelled else { return }
                 let response = URLResponse(
                     url: requestURL,
                     mimeType: resource.mediaType,
                     expectedContentLength: Int(resource.byteCount),
                     textEncodingName: resource.mediaType.hasPrefix("text/") ? "utf-8" : nil
                 )
-                taskBox.task.didReceive(response)
+                guard lifecycle.performIfActive({ taskBox.task.didReceive(response) }) else {
+                    return
+                }
                 try loader.stream(
                     resource,
-                    isCancelled: { token.isCancelled },
+                    isCancelled: { lifecycle.isStopped },
                     receive: { data in
-                        guard !token.isCancelled else {
+                        guard lifecycle.performIfActive({ taskBox.task.didReceive(data) }) else {
                             throw ReadOnlyContentResourceError.cancelled
                         }
-                        taskBox.task.didReceive(data)
                     }
                 )
-                guard !token.isCancelled else { return }
-                taskBox.task.didFinish()
+                _ = lifecycle.finishIfActive { taskBox.task.didFinish() }
             } catch ReadOnlyContentResourceError.cancelled {
                 return
             } catch let error as ReadOnlyContentResourceError {
-                guard !token.isCancelled else { return }
-                Self.fail(taskBox.task, code: Self.statusCode(for: error))
+                _ = lifecycle.finishIfActive {
+                    Self.fail(taskBox.task, code: Self.statusCode(for: error))
+                }
             } catch {
-                guard !token.isCancelled else { return }
-                Self.fail(taskBox.task, code: 500)
+                _ = lifecycle.finishIfActive { Self.fail(taskBox.task, code: 500) }
             }
         }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let key = ObjectIdentifier(urlSchemeTask as AnyObject)
-        tokenStore.remove(for: key)?.cancel()
+        tokenStore.remove(for: key)?.stop()
     }
 
     nonisolated private static func statusCode(

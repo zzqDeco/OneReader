@@ -146,6 +146,20 @@ struct ProviderConnectionTester: Sendable {
         self.limits = limits
     }
 
+    static func shouldPersistResult(
+        draft: ProviderProfile,
+        saved: ProviderProfile?,
+        hasUnsavedSecret: Bool
+    ) -> Bool {
+        guard !hasUnsavedSecret,
+              let saved,
+              let savedRevision = try? ProviderPolicy.revisionIdentity(saved),
+              let draftRevision = try? ProviderPolicy.revisionIdentity(draft) else {
+            return false
+        }
+        return savedRevision == draftRevision
+    }
+
     func test(
         profile: ProviderProfile,
         secret: String?,
@@ -156,11 +170,13 @@ struct ProviderConnectionTester: Sendable {
         var capabilities = Set<ProviderCapability>()
         var category = "ok"
         var succeeded = false
-        let providerRevisionIdentity = (try? ProviderPolicy.revisionIdentity(profile))
+        let providerRevisionIdentity = (try? (persistResult
+            ? ProviderPolicy.revisionIdentity(profile)
+            : ProviderPolicy.probeRevisionIdentity(profile, secret: secret)))
             ?? "invalid-provider-revision"
         var transportLease: ProviderEndpointTransportLease?
         do {
-            try ProviderPolicy.validateProfile(profile)
+            try ProviderPolicy.validateProbe(profile, secret: secret)
             let deadline = started.advanced(by: .seconds(profile.timeoutSeconds))
             let instance = try factory.makeModel(
                 profile: profile,

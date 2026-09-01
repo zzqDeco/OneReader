@@ -8,6 +8,7 @@ struct ManagedImportResult: Sendable {
     let snapshot: SourceSnapshot
     let managedURL: URL
     let reusedContent: Bool
+    let authorizationWarning: String?
 }
 
 struct ManagedRefreshCandidate: Sendable {
@@ -69,11 +70,19 @@ actor ManagedLibrary {
             }
         }
 
-        let accessBookmark = try? sourceURL.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        let accessBookmark: Data?
+        let authorizationWarning: String?
+        do {
+            accessBookmark = try sourceURL.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            authorizationWarning = nil
+        } catch {
+            accessBookmark = nil
+            authorizationWarning = "未能保存持久读取授权；刷新此本地来源时可能需要重新选择原文件。"
+        }
         let inspection = try await Task.detached(priority: .userInitiated) {
             try LocalSourceInspector.inspect(sourceURL)
         }.value
@@ -88,7 +97,8 @@ actor ManagedLibrary {
             revision: inspection.primaryRevision,
             intoSpaceID: spaceID,
             allowLargeImport: allowLargeImport,
-            accessBookmark: accessBookmark
+            accessBookmark: accessBookmark,
+            authorizationWarning: authorizationWarning
         )
     }
 
@@ -143,12 +153,12 @@ actor ManagedLibrary {
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 )
-                if isStale,
-                   let renewed = try? authorizedURL.bookmarkData(
-                       options: [.withSecurityScope],
-                       includingResourceValuesForKeys: nil,
-                       relativeTo: nil
-                   ) {
+                if isStale {
+                    let renewed = try authorizedURL.bookmarkData(
+                        options: [.withSecurityScope],
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    )
                     try database.saveSourceAccessBookmark(renewed, sourceID: sourceID)
                 }
             } catch {
@@ -323,7 +333,8 @@ actor ManagedLibrary {
         revision: String,
         intoSpaceID spaceID: String?,
         allowLargeImport: Bool,
-        accessBookmark: Data? = nil
+        accessBookmark: Data? = nil,
+        authorizationWarning: String? = nil
     ) throws -> ManagedImportResult {
         guard !revision.isEmpty, revisionKind != .unresolved else {
             throw LibraryStorageError.unsupportedSource("来源缺少不可变 revision")
@@ -433,7 +444,8 @@ actor ManagedLibrary {
             source: source,
             snapshot: snapshot,
             managedURL: stored.url,
-            reusedContent: stored.reusedContent
+            reusedContent: stored.reusedContent,
+            authorizationWarning: authorizationWarning
         )
     }
 

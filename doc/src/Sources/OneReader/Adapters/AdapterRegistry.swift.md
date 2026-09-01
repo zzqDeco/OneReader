@@ -13,7 +13,8 @@ The registry checks both the declared capability and the corresponding Swift
 protocol conformance before dispatch. Read/search limits are bounded at the
 registry edge. `AdapterCoordinator.swift` reconstructs contexts from managed
 database records, persists plans and Observations, composes directory child
-adapters, and owns FTS indexing.
+adapters, expands every PDF page and EPUB spine item during indexing, and owns
+the active-plan-bound FTS projection.
 
 Locators are accepted only for their exact Source, Snapshot, adapter, and schema.
 Cross-revision work must call Resolve and receives an explicit current,

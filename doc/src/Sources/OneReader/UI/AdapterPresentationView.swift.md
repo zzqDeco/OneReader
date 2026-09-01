@@ -9,6 +9,8 @@ automatic and cross-scheme navigation is cancelled. A user-activated HTTP(S)
 link is the only path to the default browser. Resource loads reject path and
 symlink escape, apply an explicit MIME allowlist and 32 MiB per-resource cap,
 stream in 256 KiB chunks, and stop without another callback after cancellation.
+The scheme lifecycle serializes response, data, terminal callback, and stop;
+stop waits for an in-progress callback and no callback starts after it returns.
 The system theme follows the current macOS color scheme.
 
 Locator changes do not merely reopen the containing document. Native text and

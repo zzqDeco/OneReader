@@ -168,25 +168,26 @@ struct ReaderInspectorView: View {
 
     private var activityView: some View {
         VStack(spacing: 0) {
-            if let waiting = model.waitingAgentRun {
+            if model.waitingAgentRun != nil {
                 VStack(alignment: .leading, spacing: 9) {
                     Label(
-                        waiting.errorCategory == "disclosure-required"
-                            ? "需要确认数据外发"
-                            : "需要确认适配器候选",
+                        attentionTitle,
                         systemImage: "exclamationmark.shield"
                     )
                     .font(.headline)
-                    Text(waiting.errorCategory == "disclosure-required"
-                         ? "远程 Provider 将读取 Activity 中列出的 Source Fragment；确认后才会继续。"
-                         : "候选置信度未达到自动采用阈值，基础适配器会继续工作。")
+                    Text(attentionDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
-                        Button("保留基础方案") { model.dismissWaitingAgentRun() }
-                            .disabled(waiting.errorCategory == "disclosure-required")
+                        if model.waitingAgentAttentionKind == .adapterCandidate {
+                            Button("保留基础方案") { model.dismissWaitingAgentRun() }
+                        }
                         Spacer()
-                        Button("确认并继续") { model.confirmWaitingAgentRun() }
+                        Button(
+                            model.waitingAgentAttentionKind == .interrupted
+                                ? "恢复 Run"
+                                : "确认并继续"
+                        ) { model.confirmWaitingAgentRun() }
                             .buttonStyle(.borderedProminent)
                     }
                 }
@@ -229,6 +230,28 @@ struct ReaderInspectorView: View {
                 .foregroundStyle(.secondary)
                 .padding(12)
             }
+        }
+    }
+
+    private var attentionTitle: String {
+        switch model.waitingAgentAttentionKind {
+        case .disclosure: "需要确认数据外发"
+        case .adapterCandidate: "需要确认适配器候选"
+        case .interrupted: "Agent Run 已中断"
+        case nil: "Agent Run 需要处理"
+        }
+    }
+
+    private var attentionDescription: String {
+        switch model.waitingAgentAttentionKind {
+        case .disclosure:
+            "远程 Provider 将读取 Activity 中列出的 Source Fragment；确认后才会继续。"
+        case .adapterCandidate:
+            "候选置信度未达到自动采用阈值，基础适配器会继续工作。"
+        case .interrupted:
+            "应用重启或运行中断后不会盲目重放网络操作；请显式恢复。"
+        case nil:
+            "请查看 Activity 后决定是否继续。"
         }
     }
 

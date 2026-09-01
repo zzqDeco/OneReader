@@ -5,7 +5,9 @@ single-turn lifecycle. It creates durable runs, generation plus exact Snapshot
 manifest tokens, event streams, budgets, tool runtimes, Provider drivers,
 validation, and terminal state without giving the model persistence authority.
 Every Run captures immutable Provider destination/revision identities before it
-is inserted.
+is inserted. Adapter routing additionally requires and preserves one explicit
+Source/Snapshot target through persistence, resume, model projection, and final
+validation.
 
 Restart recovery is explicit: database initialization marks incomplete runs
 interrupted with an audit event, and `resume` creates one compare-and-swap
@@ -28,6 +30,11 @@ queued Run and cannot invoke a Provider, reread, or overwrite the replacement
 task. Run creation receives the queued event that persistence inserted in the
 same transaction and publishes that durable event instead of racing a second
 event write.
+
+Consumer-stream termination performs a Run-ID comparison and invalidates the
+clock only if that Run's generation is still current. It does not clear a newer
+pending start token, preventing a delayed workspace transition from cancelling
+a replacement Run.
 
 Every terminal path records a redacted category and leaves deterministic
 reading available. Cancellation, generation, and manifest invalidation are

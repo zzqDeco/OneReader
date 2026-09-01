@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 8
+    static let schemaVersion = 9
     static let adapterSchemaVersion = 1
     static let agentRuntimeSchemaVersion = 5
 
@@ -701,6 +701,16 @@ final class LibraryDatabase: @unchecked Sendable {
                     plan.createdAt,
                 ]
             )
+            try db.execute(
+                sql: """
+                    INSERT INTO active_adapter_plans (snapshot_id, plan_id, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        plan_id = excluded.plan_id,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [plan.snapshotID, plan.id, Date.now]
+            )
         }
     }
 
@@ -709,11 +719,10 @@ final class LibraryDatabase: @unchecked Sendable {
             guard let data = try Data.fetchOne(
                 db,
                 sql: """
-                    SELECT payload_json
-                    FROM adapter_plans
-                    WHERE snapshot_id = ?
-                    ORDER BY is_user_override DESC, created_at DESC
-                    LIMIT 1
+                    SELECT adapter_plans.payload_json
+                    FROM active_adapter_plans
+                    JOIN adapter_plans ON adapter_plans.id = active_adapter_plans.plan_id
+                    WHERE active_adapter_plans.snapshot_id = ?
                     """,
                 arguments: [snapshotID]
             ) else { return nil }
@@ -756,24 +765,6 @@ final class LibraryDatabase: @unchecked Sendable {
                     observation.observedAt,
                 ]
             )
-            try db.execute(
-                sql: "DELETE FROM observation_fts WHERE observation_id = ?",
-                arguments: [observation.id]
-            )
-            try db.execute(
-                sql: """
-                    INSERT INTO observation_fts
-                        (observation_id, source_id, snapshot_id, title, body)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                arguments: [
-                    observation.id,
-                    observation.sourceID,
-                    observation.snapshotID,
-                    title ?? "",
-                    observation.content,
-                ]
-            )
         }
     }
 
@@ -784,8 +775,11 @@ final class LibraryDatabase: @unchecked Sendable {
                 db,
                 sql: """
                     SELECT EXISTS(
-                        SELECT 1 FROM adapter_plans
-                        WHERE id = ? AND snapshot_id = ?
+                        SELECT 1
+                        FROM active_adapter_plans
+                        JOIN adapter_plans ON adapter_plans.id = active_adapter_plans.plan_id
+                        WHERE active_adapter_plans.plan_id = ?
+                          AND active_adapter_plans.snapshot_id = ?
                     )
                     """,
                 arguments: [planID, snapshotID]
@@ -794,8 +788,11 @@ final class LibraryDatabase: @unchecked Sendable {
             }
             if let previousGeneration = try String.fetchOne(
                 db,
-                sql: "SELECT generation_id FROM observation_index_runs WHERE snapshot_id = ?",
-                arguments: [snapshotID]
+                sql: """
+                    SELECT generation_id FROM observation_index_runs
+                    WHERE snapshot_id = ? AND plan_id = ?
+                    """,
+                arguments: [snapshotID, planID]
             ) {
                 try db.execute(
                     sql: "DELETE FROM observation_index_staging WHERE generation_id = ?",
@@ -808,8 +805,7 @@ final class LibraryDatabase: @unchecked Sendable {
                         (snapshot_id, plan_id, generation_id, state,
                          observation_count, started_at, completed_at, error_category)
                     VALUES (?, ?, ?, 'running', 0, ?, NULL, NULL)
-                    ON CONFLICT(snapshot_id) DO UPDATE SET
-                        plan_id = excluded.plan_id,
+                    ON CONFLICT(snapshot_id, plan_id) DO UPDATE SET
                         generation_id = excluded.generation_id,
                         state = 'running',
                         observation_count = 0,
@@ -878,65 +874,80 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
-    func completeObservationIndex(snapshotID: String, generationID: String) throws {
+    func completeObservationIndex(
+        snapshotID: String,
+        planID: String,
+        generationID: String
+    ) throws {
         try pool.write { db in
             guard try Bool.fetchOne(
                 db,
                 sql: """
                     SELECT EXISTS(
-                        SELECT 1 FROM observation_index_runs
-                        WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                        SELECT 1
+                        FROM observation_index_runs
+                        JOIN active_adapter_plans
+                          ON active_adapter_plans.snapshot_id = observation_index_runs.snapshot_id
+                         AND active_adapter_plans.plan_id = observation_index_runs.plan_id
+                        WHERE observation_index_runs.snapshot_id = ?
+                          AND observation_index_runs.plan_id = ?
+                          AND observation_index_runs.generation_id = ?
+                          AND observation_index_runs.state = 'running'
                     )
                     """,
-                arguments: [snapshotID, generationID]
+                arguments: [snapshotID, planID, generationID]
             ) ?? false else { throw CancellationError() }
             try db.execute(
-                sql: "DELETE FROM observation_fts WHERE snapshot_id = ?",
-                arguments: [snapshotID]
+                sql: "DELETE FROM search_document_fts WHERE plan_id = ?",
+                arguments: [planID]
             )
             try db.execute(
-                sql: "DELETE FROM observations WHERE snapshot_id = ?",
-                arguments: [snapshotID]
+                sql: "DELETE FROM search_documents WHERE plan_id = ?",
+                arguments: [planID]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO observations
-                        (id, source_id, snapshot_id, adapter_id, locator_json,
+                    INSERT INTO search_documents
+                        (document_key, plan_id, observation_id, source_id,
+                         snapshot_id, adapter_id, locator_json,
                          media_type, title, body, content_reference, digest,
                          truncated, created_at)
-                    SELECT observation_id, source_id, snapshot_id, adapter_id, locator_json,
+                    SELECT ? || ':' || observation_id, ?, observation_id, source_id,
+                           snapshot_id, adapter_id, locator_json,
                            media_type, title, body, content_reference, digest,
                            truncated, created_at
                     FROM observation_index_staging
                     WHERE generation_id = ? AND snapshot_id = ?
                     ORDER BY observation_id
                     """,
-                arguments: [generationID, snapshotID]
+                arguments: [planID, planID, generationID, snapshotID]
             )
             try db.execute(
                 sql: """
-                    INSERT INTO observation_fts
-                        (observation_id, source_id, snapshot_id, title, body)
-                    SELECT id, source_id, snapshot_id, COALESCE(title, ''), COALESCE(body, '')
-                    FROM observations
-                    WHERE snapshot_id = ?
-                    ORDER BY created_at, id
+                    INSERT INTO search_document_fts
+                        (document_key, plan_id, source_id, snapshot_id, title, body)
+                    SELECT document_key, plan_id, source_id, snapshot_id,
+                           COALESCE(title, ''), COALESCE(body, '')
+                    FROM search_documents
+                    WHERE plan_id = ?
+                    ORDER BY created_at, document_key
                     """,
-                arguments: [snapshotID]
+                arguments: [planID]
             )
             let count = try Int.fetchOne(
                 db,
-                sql: "SELECT COUNT(*) FROM observations WHERE snapshot_id = ?",
-                arguments: [snapshotID]
+                sql: "SELECT COUNT(*) FROM search_documents WHERE plan_id = ?",
+                arguments: [planID]
             ) ?? 0
             try db.execute(
                 sql: """
                     UPDATE observation_index_runs
                     SET state = 'completed', observation_count = ?,
                         completed_at = ?, error_category = NULL
-                    WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    WHERE snapshot_id = ? AND plan_id = ?
+                      AND generation_id = ? AND state = 'running'
                     """,
-                arguments: [count, Date.now, snapshotID, generationID]
+                arguments: [count, Date.now, snapshotID, planID, generationID]
             )
             guard db.changesCount == 1 else { throw CancellationError() }
             try db.execute(
@@ -948,6 +959,7 @@ final class LibraryDatabase: @unchecked Sendable {
 
     func failObservationIndex(
         snapshotID: String,
+        planID: String,
         generationID: String,
         category: String
     ) throws {
@@ -956,9 +968,10 @@ final class LibraryDatabase: @unchecked Sendable {
                 sql: """
                     UPDATE observation_index_runs
                     SET state = 'failed', completed_at = ?, error_category = ?
-                    WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'
+                    WHERE snapshot_id = ? AND plan_id = ?
+                      AND generation_id = ? AND state = 'running'
                     """,
-                arguments: [Date.now, category, snapshotID, generationID]
+                arguments: [Date.now, category, snapshotID, planID, generationID]
             )
             try db.execute(
                 sql: "DELETE FROM observation_index_staging WHERE generation_id = ?",
@@ -967,17 +980,23 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
-    func isObservationIndexComplete(snapshotID: String) throws -> Bool {
+    func isObservationIndexComplete(snapshotID: String, planID: String) throws -> Bool {
         try pool.read { db in
             try Bool.fetchOne(
                 db,
                 sql: """
                     SELECT EXISTS(
-                        SELECT 1 FROM observation_index_runs
-                        WHERE snapshot_id = ? AND state = 'completed'
+                        SELECT 1
+                        FROM observation_index_runs
+                        JOIN active_adapter_plans
+                          ON active_adapter_plans.snapshot_id = observation_index_runs.snapshot_id
+                         AND active_adapter_plans.plan_id = observation_index_runs.plan_id
+                        WHERE observation_index_runs.snapshot_id = ?
+                          AND observation_index_runs.plan_id = ?
+                          AND observation_index_runs.state = 'completed'
                     )
                     """,
-                arguments: [snapshotID]
+                arguments: [snapshotID, planID]
             ) ?? false
         }
     }
@@ -999,6 +1018,7 @@ final class LibraryDatabase: @unchecked Sendable {
     func searchObservations(
         query: String,
         snapshotID: String? = nil,
+        planID: String? = nil,
         limit: Int = 20
     ) throws -> [ContentSearchHit] {
         let terms = query.split(whereSeparator: \.isWhitespace).map { term in
@@ -1008,26 +1028,39 @@ final class LibraryDatabase: @unchecked Sendable {
         let matchQuery = terms.joined(separator: " AND ")
         return try pool.read { db in
             var sql = """
-                SELECT observations.locator_json,
-                       observations.source_id,
-                       observations.snapshot_id,
-                       observations.adapter_id,
-                       COALESCE(observations.title, '') AS title,
-                       COALESCE(observations.body, '') AS body,
-                       snippet(observation_fts, 4, '[', ']', ' … ', 24) AS context,
-                       bm25(observation_fts) AS score
-                FROM observation_fts
-                JOIN observations
-                  ON observations.id = observation_fts.observation_id
+                SELECT search_documents.locator_json,
+                       search_documents.source_id,
+                       search_documents.snapshot_id,
+                       search_documents.adapter_id,
+                       COALESCE(search_documents.title, '') AS title,
+                       COALESCE(search_documents.body, '') AS body,
+                       snippet(search_document_fts, 5, '[', ']', ' … ', 24) AS context,
+                       bm25(search_document_fts) AS score
+                FROM search_document_fts
+                JOIN search_documents
+                  ON search_documents.document_key = search_document_fts.document_key
+                 AND search_documents.plan_id = search_document_fts.plan_id
+                JOIN active_adapter_plans
+                  ON active_adapter_plans.snapshot_id = search_documents.snapshot_id
+                 AND active_adapter_plans.plan_id = search_documents.plan_id
+                JOIN observation_index_runs
+                  ON observation_index_runs.snapshot_id = search_documents.snapshot_id
+                 AND observation_index_runs.plan_id = search_documents.plan_id
+                 AND observation_index_runs.state = 'completed'
                 JOIN sources
-                  ON sources.id = observations.source_id
-                WHERE observation_fts MATCH ?
+                  ON sources.id = search_documents.source_id
+                 AND sources.latest_snapshot_id = search_documents.snapshot_id
+                WHERE search_document_fts MATCH ?
                   AND sources.managed_state != 'removed'
                 """
             var arguments: StatementArguments = [matchQuery]
             if let snapshotID {
-                sql += " AND observations.snapshot_id = ?"
+                sql += " AND search_documents.snapshot_id = ?"
                 arguments += [snapshotID]
+            }
+            if let planID {
+                sql += " AND search_documents.plan_id = ?"
+                arguments += [planID]
             }
             sql += " ORDER BY score LIMIT ?"
             arguments += [min(max(1, limit), 20)]
@@ -1071,27 +1104,39 @@ final class LibraryDatabase: @unchecked Sendable {
             // other unsegmented scripts remain searchable without rescanning the
             // complete managed directory tree.
             var fallbackSQL = """
-                SELECT observations.locator_json,
-                       observations.source_id,
-                       observations.snapshot_id,
-                       observations.adapter_id,
-                       COALESCE(observations.title, '') AS title,
-                       COALESCE(observations.body, '') AS body
-                FROM observations
+                SELECT search_documents.locator_json,
+                       search_documents.source_id,
+                       search_documents.snapshot_id,
+                       search_documents.adapter_id,
+                       COALESCE(search_documents.title, '') AS title,
+                       COALESCE(search_documents.body, '') AS body
+                FROM search_documents
+                JOIN active_adapter_plans
+                  ON active_adapter_plans.snapshot_id = search_documents.snapshot_id
+                 AND active_adapter_plans.plan_id = search_documents.plan_id
+                JOIN observation_index_runs
+                  ON observation_index_runs.snapshot_id = search_documents.snapshot_id
+                 AND observation_index_runs.plan_id = search_documents.plan_id
+                 AND observation_index_runs.state = 'completed'
                 JOIN sources
-                  ON sources.id = observations.source_id
+                  ON sources.id = search_documents.source_id
+                 AND sources.latest_snapshot_id = search_documents.snapshot_id
                 WHERE sources.managed_state != 'removed'
                   AND (
-                    instr(lower(COALESCE(observations.title, '')), lower(?)) > 0
-                    OR instr(lower(COALESCE(observations.body, '')), lower(?)) > 0
+                    instr(lower(COALESCE(search_documents.title, '')), lower(?)) > 0
+                    OR instr(lower(COALESCE(search_documents.body, '')), lower(?)) > 0
                   )
                 """
             var fallbackArguments: StatementArguments = [query, query]
             if let snapshotID {
-                fallbackSQL += " AND observations.snapshot_id = ?"
+                fallbackSQL += " AND search_documents.snapshot_id = ?"
                 fallbackArguments += [snapshotID]
             }
-            fallbackSQL += " ORDER BY observations.created_at DESC, observations.id LIMIT ?"
+            if let planID {
+                fallbackSQL += " AND search_documents.plan_id = ?"
+                fallbackArguments += [planID]
+            }
+            fallbackSQL += " ORDER BY search_documents.created_at DESC, search_documents.document_key LIMIT ?"
             fallbackArguments += [min(max(1, limit), 20)]
             let fallbackRows = try Row.fetchAll(
                 db,
@@ -1196,14 +1241,34 @@ final class LibraryDatabase: @unchecked Sendable {
 
     func rebuildObservationIndex() throws {
         try pool.write { db in
-            try db.execute(sql: "DELETE FROM observation_fts")
+            try db.execute(sql: "DELETE FROM search_document_fts")
             try db.execute(sql: """
-                INSERT INTO observation_fts
-                    (observation_id, source_id, snapshot_id, title, body)
-                SELECT id, source_id, snapshot_id, COALESCE(title, ''), COALESCE(body, '')
-                FROM observations
-                ORDER BY created_at, id
+                INSERT INTO search_document_fts
+                    (document_key, plan_id, source_id, snapshot_id, title, body)
+                SELECT document_key, plan_id, source_id, snapshot_id,
+                       COALESCE(title, ''), COALESCE(body, '')
+                FROM search_documents
+                ORDER BY created_at, document_key
                 """)
+        }
+    }
+
+    func searchDocumentCount(
+        planID: String? = nil,
+        adapterID: String? = nil
+    ) throws -> Int {
+        try pool.read { db in
+            var sql = "SELECT COUNT(*) FROM search_documents WHERE 1 = 1"
+            var arguments = StatementArguments()
+            if let planID {
+                sql += " AND plan_id = ?"
+                arguments += [planID]
+            }
+            if let adapterID {
+                sql += " AND adapter_id = ?"
+                arguments += [adapterID]
+            }
+            return try Int.fetchOne(db, sql: sql, arguments: arguments) ?? 0
         }
     }
 
@@ -1642,6 +1707,79 @@ final class LibraryDatabase: @unchecked Sendable {
                 );
 
                 UPDATE library_metadata SET value = '8' WHERE key = 'database_schema';
+                """)
+        }
+
+        migrator.registerMigration("v9-plan-bound-search-projection") { db in
+            try db.execute(sql: """
+                CREATE TABLE active_adapter_plans (
+                    snapshot_id TEXT PRIMARY KEY NOT NULL
+                        REFERENCES snapshots(id) ON DELETE CASCADE,
+                    plan_id TEXT NOT NULL UNIQUE
+                        REFERENCES adapter_plans(id) ON DELETE CASCADE,
+                    updated_at DATETIME NOT NULL
+                );
+
+                INSERT INTO active_adapter_plans (snapshot_id, plan_id, updated_at)
+                SELECT snapshot_id, id, created_at
+                FROM (
+                    SELECT snapshot_id, id, created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY snapshot_id
+                               ORDER BY is_user_override DESC, created_at DESC, id DESC
+                           ) AS rank
+                    FROM adapter_plans
+                )
+                WHERE rank = 1;
+
+                ALTER TABLE observation_index_runs
+                    RENAME TO observation_index_runs_v7;
+                CREATE TABLE observation_index_runs (
+                    snapshot_id TEXT NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+                    plan_id TEXT NOT NULL REFERENCES adapter_plans(id) ON DELETE CASCADE,
+                    generation_id TEXT NOT NULL UNIQUE,
+                    state TEXT NOT NULL,
+                    observation_count INTEGER NOT NULL DEFAULT 0,
+                    started_at DATETIME NOT NULL,
+                    completed_at DATETIME,
+                    error_category TEXT,
+                    PRIMARY KEY (snapshot_id, plan_id)
+                );
+                DROP TABLE observation_index_runs_v7;
+                DELETE FROM observation_index_staging;
+
+                CREATE TABLE search_documents (
+                    document_key TEXT PRIMARY KEY NOT NULL,
+                    plan_id TEXT NOT NULL REFERENCES adapter_plans(id) ON DELETE CASCADE,
+                    observation_id TEXT NOT NULL,
+                    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                    snapshot_id TEXT NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+                    adapter_id TEXT NOT NULL,
+                    locator_json BLOB NOT NULL,
+                    media_type TEXT NOT NULL,
+                    title TEXT,
+                    body TEXT,
+                    content_reference TEXT,
+                    digest TEXT NOT NULL,
+                    truncated INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    UNIQUE (plan_id, observation_id)
+                );
+                CREATE INDEX search_documents_snapshot_plan
+                    ON search_documents(snapshot_id, plan_id, adapter_id);
+                CREATE VIRTUAL TABLE search_document_fts USING fts5(
+                    document_key UNINDEXED,
+                    plan_id UNINDEXED,
+                    source_id UNINDEXED,
+                    snapshot_id UNINDEXED,
+                    title,
+                    body,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                );
+
+                DROP TABLE observation_fts;
+
+                UPDATE library_metadata SET value = '9' WHERE key = 'database_schema';
                 """)
         }
     }

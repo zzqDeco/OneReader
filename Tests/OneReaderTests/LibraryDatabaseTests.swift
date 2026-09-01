@@ -16,7 +16,7 @@ final class LibraryDatabaseTests: XCTestCase {
             [
                 "adapter_schema": "1",
                 "agent_runtime_schema": "5",
-                "database_schema": "8",
+                "database_schema": "9",
             ]
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))
@@ -26,6 +26,12 @@ final class LibraryDatabaseTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.legacyURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.stagingURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.databaseURL.path))
+        XCTAssertFalse(try database.pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'observation_fts')"
+            ) ?? true
+        })
     }
 
     func testLegacyProgressIsBackedUpWithoutBindingToNewObjects() throws {
@@ -197,23 +203,180 @@ final class LibraryDatabaseTests: XCTestCase {
         )
 
         XCTAssertEqual(try database.observationCount(snapshotID: plan.snapshotID), 0)
-        XCTAssertFalse(try database.isObservationIndexComplete(snapshotID: plan.snapshotID))
+        XCTAssertFalse(try database.isObservationIndexComplete(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        ))
         XCTAssertTrue(try database.searchObservations(query: "evidence").isEmpty)
 
         let restarted = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
-        XCTAssertFalse(try restarted.isObservationIndexComplete(snapshotID: plan.snapshotID))
+        XCTAssertFalse(try restarted.isObservationIndexComplete(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        ))
         XCTAssertThrowsError(
             try restarted.completeObservationIndex(
                 snapshotID: plan.snapshotID,
+                planID: plan.id,
                 generationID: interruptedGeneration
             )
         )
         let restartedCoordinator = try AdapterCoordinator.standard(database: restarted)
         try await restartedCoordinator.index(plan: plan)
 
-        XCTAssertTrue(try restarted.isObservationIndexComplete(snapshotID: plan.snapshotID))
-        XCTAssertEqual(try restarted.observationCount(snapshotID: plan.snapshotID), 1)
+        XCTAssertTrue(try restarted.isObservationIndexComplete(
+            snapshotID: plan.snapshotID,
+            planID: plan.id
+        ))
+        XCTAssertEqual(try restarted.observationCount(snapshotID: plan.snapshotID), 0)
+        XCTAssertEqual(try restarted.searchDocumentCount(planID: plan.id), 1)
         XCTAssertEqual(try restarted.searchObservations(query: "evidence").count, 1)
+    }
+
+    func testReadEvidenceObservationNeverLeaksIntoSearchProjection() async throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("evidence.txt")
+        try Data("private tool evidence marker".utf8).write(to: sourceURL)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(
+            database: database,
+            storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max,
+                minimumFreeCapacity: 0,
+                capacityProvider: { _ in .max }
+            )
+        )
+        let imported = try await library.importLocalSource(at: sourceURL)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepare(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id
+        )
+        let nodes = try await coordinator.list(plan: plan)
+        let node = try XCTUnwrap(nodes.first)
+        let observation = try await coordinator.read(
+            plan: plan,
+            locator: node.locator,
+            persistObservation: false
+        )
+
+        try database.saveObservation(observation, title: "Evidence only")
+
+        XCTAssertEqual(try database.observationCount(snapshotID: plan.snapshotID), 1)
+        XCTAssertEqual(try database.searchDocumentCount(planID: plan.id), 0)
+        XCTAssertTrue(try database.searchObservations(query: "private").isEmpty)
+    }
+
+    func testPlanSwitchRejectsLateIndexPublishAndOnlyCurrentPlanIsSearchable() async throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("projection.txt")
+        try Data("old projection evidence".utf8).write(to: sourceURL)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(
+            database: database,
+            storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max,
+                minimumFreeCapacity: 0,
+                capacityProvider: { _ in .max }
+            )
+        )
+        let imported = try await library.importLocalSource(at: sourceURL)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let oldPlan = try await coordinator.prepare(
+            sourceID: imported.source.id,
+            snapshotID: imported.snapshot.id
+        )
+        let nodes = try await coordinator.list(plan: oldPlan)
+        let node = try XCTUnwrap(nodes.first)
+        let oldObservation = try await coordinator.read(
+            plan: oldPlan,
+            locator: node.locator,
+            persistObservation: false
+        )
+        let oldGeneration = try database.beginObservationIndex(
+            snapshotID: oldPlan.snapshotID,
+            planID: oldPlan.id
+        )
+        try database.stageObservation(
+            oldObservation,
+            title: "Old projection",
+            generationID: oldGeneration
+        )
+
+        let currentPlan = AdapterPlan(
+            id: "current-plan-\(UUID().uuidString.lowercased())",
+            schemaVersion: oldPlan.schemaVersion,
+            sourceID: oldPlan.sourceID,
+            snapshotID: oldPlan.snapshotID,
+            primaryAdapterID: oldPlan.primaryAdapterID,
+            auxiliaryAdapterIDs: oldPlan.auxiliaryAdapterIDs,
+            capabilityRoutes: oldPlan.capabilityRoutes,
+            evidence: oldPlan.evidence,
+            confidence: oldPlan.confidence,
+            reason: "Current plan switch fixture",
+            isUserOverride: true,
+            createdAt: .now
+        )
+        try database.saveAdapterPlan(currentPlan)
+
+        XCTAssertThrowsError(
+            try database.completeObservationIndex(
+                snapshotID: oldPlan.snapshotID,
+                planID: oldPlan.id,
+                generationID: oldGeneration
+            )
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertTrue(try database.searchObservations(query: "old").isEmpty)
+        try database.failObservationIndex(
+            snapshotID: oldPlan.snapshotID,
+            planID: oldPlan.id,
+            generationID: oldGeneration,
+            category: "plan-superseded"
+        )
+
+        let currentBody = "current projection evidence"
+        let currentObservation = Observation(
+            id: oldObservation.id,
+            sourceID: oldObservation.sourceID,
+            snapshotID: oldObservation.snapshotID,
+            adapterID: oldObservation.adapterID,
+            locator: oldObservation.locator,
+            mediaType: oldObservation.mediaType,
+            content: currentBody,
+            contentReference: oldObservation.contentReference,
+            contentDigest: AdapterUtilities.sha256(currentBody),
+            truncated: false,
+            observedAt: .now
+        )
+        let currentGeneration = try database.beginObservationIndex(
+            snapshotID: currentPlan.snapshotID,
+            planID: currentPlan.id
+        )
+        try database.stageObservation(
+            currentObservation,
+            title: "Current projection",
+            generationID: currentGeneration
+        )
+        try database.completeObservationIndex(
+            snapshotID: currentPlan.snapshotID,
+            planID: currentPlan.id,
+            generationID: currentGeneration
+        )
+
+        XCTAssertFalse(try database.isObservationIndexComplete(
+            snapshotID: oldPlan.snapshotID,
+            planID: oldPlan.id
+        ))
+        XCTAssertTrue(try database.isObservationIndexComplete(
+            snapshotID: currentPlan.snapshotID,
+            planID: currentPlan.id
+        ))
+        XCTAssertTrue(try database.searchObservations(query: "old").isEmpty)
+        XCTAssertEqual(try database.searchObservations(query: "current").count, 1)
     }
 
     private func prepareVersion5AuditFixture(at root: URL) throws {

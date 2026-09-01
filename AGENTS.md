@@ -108,8 +108,9 @@ Common scopes: `app`, `domain`, `library`, `adapters`, `agent`, `reader`,
 - Async work is cancellable and guarded by Space plus generation before UI or
   persistence publication.
 - Progress migration and decoding fail safely.
-- Observation indexes publish atomically; interrupted staging must not
-  masquerade as a complete index.
+- Evidence Observations do not enter search implicitly. Search projections are
+  bound to the active Snapshot/AdapterPlan pair and publish atomically;
+  interrupted or superseded staging must not masquerade as current.
 - A new graph or route remains pending until the user explicitly adopts it and
   migrates progress.
 - Keyboard labels and accessibility labels cover interactive controls.

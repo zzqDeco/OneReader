@@ -128,7 +128,8 @@ validates schemas, the run's exact manifest, freshly reprobed registry
 capabilities, deterministic evidence, saved Observations, graph versions, and
 frozen-plan unit IDs. Validation produces no side effect. One GRDB transaction
 then compares the session generation and run state, rechecks the manifest,
-commits the domain object and structured output, transitions the run, and
+commits the domain object and structured output, activates any accepted
+AdapterPlan, transitions the run, and
 appends the terminal event. Full transcripts remain durable even when the
 smaller model projection replaces large results with Artifact handles or
 structured summaries. Every model-call audit records an outcome and observed
@@ -153,9 +154,11 @@ run states, outputs, events, and durable session generations transactionally.
 
 `AdapterCoordinator` reconstructs a context only from committed Source and
 Snapshot rows plus a managed relative path. It rejects missing managed bytes,
-persists deterministic AdapterPlans, stores read Observations, and uses those
-observations as the FTS5 source of truth. Directory child locators are resolved
-below the managed root without following symlinks. Web snapshot locators remain
+persists deterministic AdapterPlans, and stores read Observations as evidence.
+Search uses a distinct projection keyed to the active Snapshot/AdapterPlan pair;
+staging can publish only while that pair still matches. Directory indexing
+expands PDF pages and EPUB spine items, and child locators are resolved below
+the managed root without following symlinks. Web snapshot locators remain
 bound to the snapshot root rather than being mistaken for ordinary child files.
 
 Remote fetching is outside every adapter and outside the Agent runtime. A

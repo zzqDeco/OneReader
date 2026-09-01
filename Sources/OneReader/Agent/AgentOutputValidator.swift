@@ -97,11 +97,14 @@ actor AgentOutputValidator {
         guard manifest[plan.sourceID] == plan.snapshotID else {
             throw ReadingAgentError.validationRejected("snapshot-not-current")
         }
-        if request.targetSourceID != nil || request.targetSnapshotID != nil {
-            guard request.targetSourceID == plan.sourceID,
-                  request.targetSnapshotID == plan.snapshotID else {
-                throw ReadingAgentError.validationRejected("adapter-route-target-mismatch")
-            }
+        guard let targetSourceID = request.targetSourceID,
+              let targetSnapshotID = request.targetSnapshotID else {
+            throw ReadingAgentError.validationRejected("adapter-route-target-required")
+        }
+        guard targetSourceID == plan.sourceID,
+              targetSnapshotID == plan.snapshotID,
+              manifest[targetSourceID] == targetSnapshotID else {
+            throw ReadingAgentError.validationRejected("adapter-route-target-mismatch")
         }
         let descriptors = await registry.descriptors()
         let byID = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
