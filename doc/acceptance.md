@@ -69,10 +69,11 @@ Source/Snapshot/AdapterPlan triples:
 - RTF selected `onereader.quicklook` at confidence 0.1 and deliberately
   published no Observation or search document.
 
-The final branch head was rebuilt, signed, installed over that Library, and
-launched again on the same connected iPhone. The exact commit is captured in
-the local handoff and Sol max review dispatch; no source file or Team identifier
-is used as mutable evidence. The four persisted Sources remained in the
+Runtime implementation commit
+`8aaf8f920abaa12b5cbd417b87f2131693c2ac65` was rebuilt, signed, installed over
+that Library, and launched again on the same connected iPhone. The same exact
+commit received the first final Sol max review approval; no source file or Team
+identifier is used as mutable evidence. The four persisted Sources remained in the
 managed Library after replacement installation. Four Reading History rows and
 four durable source-position records carry Markdown heading, sanitized DOM,
 PDF page, and Quick Look Locators respectively, proving each import progressed
@@ -81,6 +82,14 @@ evidence for import, managed snapshots, deterministic routing, indexing
 capability gates, presentation entry, application replacement, relaunch, and
 persistence. Screen-level PDF/text pixels, selection and annotation gestures,
 compact-layout pixels, and physical iPad behavior remain unclaimed.
+
+The Sol max Reviewer returned `APPROVE` with no P0, P1, or P2 finding. It
+independently confirmed that the mobile original-source policy, PDF page-rect
+restore, persistent removal recovery, capability-limited fixture routing, and
+evidence boundaries close the prior findings. The only P3 recommendation was
+to place the implementation SHA directly in this durable record; the paragraph
+above applies that recommendation. A final delivery-metadata-only commit is
+revalidated and reinstalled before handoff without changing runtime sources.
 
 ## Fixture and contract coverage
 

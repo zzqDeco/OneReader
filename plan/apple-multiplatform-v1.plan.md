@@ -1,6 +1,6 @@
 # Apple Multiplatform Reader
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/apple-multiplatform-reader`
 
@@ -114,5 +114,5 @@ or Agent runtime.
 - [x] Focused tests and unified validation pass at exact head
 - [x] Connected physical-device acceptance and unavailable device classes are recorded
 - [x] Current-state and source docs are synchronized
-- [ ] Sol max review conclusion is accepted
-- [ ] Branch is merged into `dev`
+- [x] Sol max review conclusion is accepted
+- [x] Branch is merged into `dev`
