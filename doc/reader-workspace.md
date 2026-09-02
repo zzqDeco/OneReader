@@ -138,7 +138,7 @@ All presentation surfaces emit one normalized position stream:
 | --- | --- |
 | PDF | exact Snapshot, page index, normalized page fraction; selection rectangles remain annotation anchors |
 | Markdown, text, code | source UTF-16/range, line, quote/fingerprint, normalized text fraction |
-| HTML and web snapshot | DOM path, quote/fingerprint, normalized scroll fraction |
+| HTML and web snapshot | visible-element DOM path, nearest outline-heading DOM path, quote/fingerprint, normalized scroll fraction |
 | EPUB | spine `href` plus the controlled-Web DOM/quote/fraction position |
 | directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
 | Quick Look fallback | Source/Snapshot document-level last-open position only |
@@ -153,11 +153,18 @@ the host asks the active bridge for its current sample. Text and PDF bridges
 answer synchronously. Controlled WebKit evaluates a host-owned capture function
 against the live document; its result remains bound to the prior Space, Source,
 Snapshot, and presentation generation, so a Source/Space transition cannot make
-the callback write into the new reading context. A failed WebKit evaluation may
-fall back to the last normalized fraction, but that fallback removes stale DOM
-path, quote, and fingerprint evidence so restoration cannot jump to an old
-paragraph ahead of the saved fraction. Reopening a Space restores its most
-recently updated Source.
+the callback write into the new reading context. A Space transition issues that
+capture once before changing context; opening the selected Source does not ask
+the retired surface a second time. WebKit records the visible element as the
+restore anchor and the nearest preceding heading separately for outline
+previous/next state. On the same Snapshot, the normalized fraction preserves the
+exact viewport while DOM/quote evidence remains available for relocation. A
+failed WebKit evaluation may fall back to the last normalized fraction, but
+that fallback removes stale DOM path, outline path, quote, and fingerprint
+evidence so restoration cannot jump to an old paragraph ahead of the saved
+fraction. Native Markdown positions use the current source line ahead of any
+stale heading path when deriving outline state. Reopening a Space restores its
+most recently updated Source.
 The reader footer shows the saved label, and Library cards show the latest
 resume target plus aggregate Source reading fraction even when no Provider or
 Reading Graph exists. Graph-unit completion remains a separate route fact and

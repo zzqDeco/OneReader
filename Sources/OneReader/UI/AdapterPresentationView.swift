@@ -706,9 +706,12 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 payload["startUTF16"] = String(sourceRange.location)
                 payload["endUTF16"] = String(NSMaxRange(sourceRange))
                 let textBefore = source.substring(to: sourceRange.location)
-                payload["startLine"] = String(
-                    textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-                )
+                let startLine = textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+                let endLine = sourceExact.reduce(startLine) {
+                    $1 == "\n" ? $0 + 1 : $0
+                }
+                payload["startLine"] = String(startLine)
+                payload["endLine"] = String(endLine)
                 locatorQuote = TextQuote(
                     prefix: sourcePrefix.isEmpty ? nil : sourcePrefix,
                     exact: sourceExact,
@@ -733,7 +736,8 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 snapshotID: parent.locator.snapshotID,
                 adapterID: parent.locator.adapterID,
                 payload: payload,
-                structuralPath: parent.locator.structuralPath,
+                structuralPath: parent.locator.relativePath
+                    ?? parent.locator.structuralPath,
                 textQuote: locatorQuote,
                 fingerprint: locatorFingerprint
             )
@@ -1060,6 +1064,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
         context.coordinator.loadedDocumentID = renderID
         context.coordinator.pendingAnchorID = anchorID
         context.coordinator.appliedAnchorID = nil
+        context.coordinator.resetCapturedPosition()
         let baseURL = URL(string: "onereader-content://\(document.locator.snapshotID)/")
         view.loadHTMLString(styledHTML, baseURL: baseURL)
     }
@@ -1120,7 +1125,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
         ].joined(separator: ":"))
     }
 
-    private static func anchorScript(for locator: Locator) -> String {
+    static func anchorScript(for locator: Locator) -> String {
         let selector = locator.payload["domPath"].flatMap { $0.isEmpty ? nil : $0 }
             ?? locator.structuralPath.flatMap { $0.hasPrefix("body") ? $0 : nil }
         let quote = locator.textQuote?.exact
@@ -1165,7 +1170,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
               }
               let textNode = matchingTextNode(target || document.body, quote);
               if (!textNode && target) textNode = matchingTextNode(document.body, quote);
-              if (!target && textNode) target = textNode.parentElement;
+              if (textNode) target = textNode.parentElement;
               if (!target) return restoreFraction();
               window.__oneReaderApplyingAnchor = true;
               if (selection) selection.removeAllRanges();
@@ -1178,7 +1183,13 @@ struct ControlledWebPresentation: NSViewRepresentable {
                   selection.addRange(range);
                 }
               }
-              target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+              if (Number.isFinite(fraction)) {
+                const root = document.scrollingElement || document.documentElement;
+                const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
+                window.scrollTo({ top: Math.min(1, Math.max(0, fraction)) * maximum, behavior: 'auto' });
+              } else {
+                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+              }
               requestAnimationFrame(() => { window.__oneReaderApplyingAnchor = false; });
               return true;
             })();
@@ -1255,7 +1266,8 @@ struct ControlledWebPresentation: NSViewRepresentable {
                 const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
                 const fraction = maximum > 0 ? root.scrollTop / maximum : 1;
                 return {
-                  path: pathFor(anchor || element),
+                  path: pathFor(element),
+                  outlinePath: anchor ? pathFor(anchor) : '',
                   quote: firstText(element),
                   fraction
                 };
@@ -1280,6 +1292,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
         var appliedAnchorID: String?
         private weak var observedWebView: WKWebView?
         private var lastPath: String?
+        private var lastOutlinePath: String?
         private var lastQuote: String?
         private var lastFraction: Double?
 
@@ -1310,6 +1323,13 @@ struct ControlledWebPresentation: NSViewRepresentable {
                 name: ReadingPositionCaptureSignal.requested,
                 object: nil
             )
+        }
+
+        func resetCapturedPosition() {
+            lastPath = nil
+            lastOutlinePath = nil
+            lastQuote = nil
+            lastFraction = nil
         }
 
         @objc @MainActor
@@ -1374,16 +1394,22 @@ struct ControlledWebPresentation: NSViewRepresentable {
                 }
                 let path = (body["path"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                let outlinePath = (body["outlinePath"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let fraction = min(max(number.doubleValue, 0), 1)
                 if let path, !path.isEmpty { self?.lastPath = path }
+                if let outlinePath, !outlinePath.isEmpty {
+                    self?.lastOutlinePath = outlinePath
+                }
                 if let quote, !quote.isEmpty { self?.lastQuote = quote }
                 self?.lastFraction = fraction
                 completion(
                     WebReadingPositionCapture.capturedUpdate(
                         for: base,
                         path: path,
+                        outlinePath: outlinePath,
                         quote: quote,
                         fraction: fraction
                     )
@@ -1439,10 +1465,14 @@ struct ControlledWebPresentation: NSViewRepresentable {
             guard let body = message.body as? [String: Any] else { return }
             if message.name == Self.positionHandlerName {
                 let path = body["path"] as? String
+                let outlinePath = body["outlinePath"] as? String
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let fraction = (body["fraction"] as? NSNumber)?.doubleValue
                 if let path, !path.isEmpty { lastPath = path }
+                if let outlinePath, !outlinePath.isEmpty {
+                    lastOutlinePath = outlinePath
+                }
                 if let quote, !quote.isEmpty { lastQuote = quote }
                 if let fraction, fraction.isFinite {
                     lastFraction = min(max(fraction, 0), 1)
@@ -1451,6 +1481,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
                     WebReadingPositionCapture.update(
                         for: parent.document.locator,
                         path: lastPath,
+                        outlinePath: lastOutlinePath,
                         quote: lastQuote,
                         fraction: lastFraction
                     )

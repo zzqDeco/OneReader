@@ -11,7 +11,10 @@ quote-only fallback and validates a recovered selection against its exact quote.
 Every UIKit bridge emits the same rich position update as its AppKit peer:
 text fraction and source line, PDF page fraction, controlled-Web DOM/quote and
 scroll fraction, or Quick Look document granularity. Incoming Web positions try
-DOM/quote relocation before the fraction fallback.
+the exact visible DOM/quote evidence, preserve the nearest outline heading in a
+separate payload field, and use normalized fraction for the same-Snapshot
+viewport. Dynamic Markdown positions carry the current line rather than a stale
+heading path.
 
 Live `UITextView` scrolling uses one 150 ms coalescer per scroll burst and
 flushes immediately when dragging or deceleration ends. It also answers the

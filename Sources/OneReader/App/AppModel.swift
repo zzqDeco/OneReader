@@ -427,7 +427,11 @@ final class AppModel: ObservableObject {
             sourceIDs(in: spaceID).contains(id) ? id : nil
         } ?? mostRecentPositionSourceID ?? sourceIDs(in: spaceID).first
         if let candidate {
-            openSource(candidate, locator: progress.sourcePositions[candidate]?.locator)
+            openSource(
+                candidate,
+                locator: progress.sourcePositions[candidate]?.locator,
+                captureOutgoingPosition: false
+            )
         } else {
             selectedSourceID = nil
             currentPositionLocator = nil
@@ -567,6 +571,18 @@ final class AppModel: ObservableObject {
     }
 
     func openSource(_ sourceID: String, locator: Locator? = nil) {
+        openSource(
+            sourceID,
+            locator: locator,
+            captureOutgoingPosition: true
+        )
+    }
+
+    private func openSource(
+        _ sourceID: String,
+        locator: Locator?,
+        captureOutgoingPosition: Bool
+    ) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(sourceID),
               let source = source(id: sourceID),
@@ -574,7 +590,9 @@ final class AppModel: ObservableObject {
               let database,
               let coordinator else { return }
 
-        flushReadingPosition()
+        if captureOutgoingPosition {
+            flushReadingPosition()
+        }
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
         selectedSourceID = sourceID
         currentPositionLocator = nil
@@ -798,6 +816,7 @@ final class AppModel: ObservableObject {
         let locator = update.locator
         guard locator.sourceID == context.sourceID,
               locator.snapshotID == context.snapshotID,
+              sourceIDs(in: context.spaceID).contains(context.sourceID),
               source(id: context.sourceID)?.latestSnapshotID == context.snapshotID else {
             return
         }

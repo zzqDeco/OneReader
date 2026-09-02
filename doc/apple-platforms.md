@@ -91,10 +91,14 @@ the same host-installed JavaScript capture function on macOS and iOS, and the
 host persists its asynchronous result against the captured prior Space/Source
 context even if navigation has already changed the visible generation. Failed
 evaluation stores only a safe fraction fallback and never pairs it with stale
-DOM evidence. This lifecycle behavior is shared by macOS, iPhone, and iPad
-rather than implemented as platform-specific persistence. Quick Look publishes
-only document granularity because neither platform exposes a stable public API
-for the system preview's internal page or scroll state.
+DOM evidence. The bridge keeps the exact visible-element DOM path separate from
+the nearest preceding outline-heading path, and same-Snapshot restoration uses
+the captured normalized fraction after resolving the evidence. Space changes
+send one capture request before changing context, so a retired Web view cannot
+be rebound to the incoming Space. This lifecycle behavior is shared by macOS,
+iPhone, and iPad rather than implemented as platform-specific persistence.
+Quick Look publishes only document granularity because neither platform exposes
+a stable public API for the system preview's internal page or scroll state.
 
 The host supplies a presentation-generation token to every bridge callback and
 remounts the presentation when it changes. This applies even when the Source ID

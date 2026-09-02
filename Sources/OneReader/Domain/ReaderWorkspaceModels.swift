@@ -189,6 +189,15 @@ enum ReaderContentNavigation {
             guard let path = locator.relativePath else { return true }
             return candidate.relativePath == path
         }
+        if let outlinePath = locator.payload["outlineDOMPath"],
+           !outlinePath.isEmpty,
+           let match = candidates.first(where: {
+               samePath($0.element.locator)
+                   && ($0.element.locator.payload["domPath"] == outlinePath
+                       || $0.element.locator.structuralPath == outlinePath)
+           }) {
+            return match.offset
+        }
         for key in ["pageIndex", "spineIndex", "href", "domPath"] {
             guard let value = locator.payload[key], !value.isEmpty else { continue }
             if let match = candidates.first(where: {
@@ -197,6 +206,16 @@ enum ReaderContentNavigation {
             }) {
                 return match.offset
             }
+        }
+        if let path = locator.relativePath,
+           let line = locator.lineRange?.lowerBound {
+            let preceding = candidates.compactMap { candidate -> (Int, Int)? in
+                guard candidate.element.locator.relativePath == path,
+                      let start = candidate.element.locator.lineRange?.lowerBound,
+                      start <= line else { return nil }
+                return (candidate.offset, start)
+            }.max(by: { $0.1 < $1.1 })
+            if let preceding { return preceding.0 }
         }
         if let structuralPath = locator.structuralPath,
            let match = candidates.first(where: {
@@ -221,14 +240,6 @@ enum ReaderContentNavigation {
         if let path = locator.relativePath {
             let pathMatches = candidates.filter {
                 $0.element.locator.relativePath == path
-            }
-            if let line = locator.lineRange?.lowerBound {
-                let preceding = pathMatches.compactMap { candidate -> (Int, Int)? in
-                    guard let start = candidate.element.locator.lineRange?.lowerBound,
-                          start <= line else { return nil }
-                    return (candidate.offset, start)
-                }.max(by: { $0.1 < $1.1 })
-                if let preceding { return preceding.0 }
             }
             // A file path is a safe fallback only when it identifies one node.
             // Section outlines deliberately contain many nodes with the same path.
@@ -275,6 +286,7 @@ enum WebReadingPositionCapture {
     static func update(
         for base: Locator,
         path: String?,
+        outlinePath: String? = nil,
         quote: String?,
         fraction: Double?
     ) -> ReadingPositionUpdate {
@@ -284,11 +296,17 @@ enum WebReadingPositionCapture {
         let normalizedQuote = quote?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let normalizedOutlinePath = outlinePath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         let normalizedFraction = fraction.flatMap { value in
             value.isFinite ? min(max(value, 0), 1) : nil
         }
         var payload = base.payload
         if let normalizedPath { payload["domPath"] = normalizedPath }
+        if let normalizedOutlinePath {
+            payload["outlineDOMPath"] = normalizedOutlinePath
+        }
         if let normalizedFraction {
             payload["scrollFraction"] = String(format: "%.6f", normalizedFraction)
         }
@@ -324,6 +342,7 @@ enum WebReadingPositionCapture {
         update(
             for: anchorWithoutDOMEvidence(base),
             path: nil,
+            outlinePath: nil,
             quote: nil,
             fraction: fraction
         )
@@ -332,12 +351,14 @@ enum WebReadingPositionCapture {
     static func capturedUpdate(
         for base: Locator,
         path: String?,
+        outlinePath: String? = nil,
         quote: String?,
         fraction: Double?
     ) -> ReadingPositionUpdate {
         update(
             for: anchorWithoutDOMEvidence(base),
             path: path,
+            outlinePath: outlinePath,
             quote: quote,
             fraction: fraction
         )
@@ -346,6 +367,7 @@ enum WebReadingPositionCapture {
     private static func anchorWithoutDOMEvidence(_ base: Locator) -> Locator {
         var payload = base.payload
         payload.removeValue(forKey: "domPath")
+        payload.removeValue(forKey: "outlineDOMPath")
         let structuralPath = base.structuralPath.flatMap { path in
             path.hasPrefix("body") ? base.relativePath : path
         }

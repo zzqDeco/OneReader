@@ -139,7 +139,7 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         XCTAssertFalse(single.next)
     }
 
-    func testNavigationUsesMarkdownHeadingInsteadOfFirstSharedPath() {
+    func testNavigationUsesCurrentMarkdownLineAheadOfStaleHeadingPath() {
         let sections = [
             section(path: "book.md", title: "One", anchor: "one", startLine: 1),
             section(path: "book.md", title: "Two", anchor: "two", startLine: 20),
@@ -150,7 +150,7 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
             snapshotID: "snapshot",
             adapterID: "adapter",
             payload: ["path": "book.md", "startLine": "44"],
-            structuralPath: "three",
+            structuralPath: "one",
             textQuote: TextQuote(prefix: nil, exact: "body", suffix: nil)
         )
 
@@ -202,10 +202,11 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
             adapterID: "adapter",
             payload: [
                 "path": "chapter.html",
-                "domPath": "body > h2:nth-of-type(2)",
+                "domPath": "body > p:nth-of-type(9)",
+                "outlineDOMPath": "body > h2:nth-of-type(2)",
                 "scrollFraction": "0.8",
             ],
-            structuralPath: "body > h2:nth-of-type(2)",
+            structuralPath: "body > p:nth-of-type(9)",
             textQuote: TextQuote(prefix: nil, exact: "visible paragraph", suffix: nil)
         )
 
@@ -228,6 +229,7 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         let update = WebReadingPositionCapture.update(
             for: base,
             path: "body > p:nth-of-type(7)",
+            outlinePath: "body > h2:nth-of-type(3)",
             quote: "current paragraph",
             fraction: 0.73456789
         )
@@ -236,6 +238,10 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         XCTAssertEqual(update.granularity, .dom)
         XCTAssertEqual(update.locator.payload["scrollFraction"], "0.734568")
         XCTAssertEqual(update.locator.payload["domPath"], "body > p:nth-of-type(7)")
+        XCTAssertEqual(
+            update.locator.payload["outlineDOMPath"],
+            "body > h2:nth-of-type(3)"
+        )
         XCTAssertEqual(update.locator.textQuote?.exact, "current paragraph")
         XCTAssertEqual(
             update.locator.fingerprint,
@@ -276,6 +282,7 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
             payload: [
                 "path": "chapter.html",
                 "domPath": "body > p:nth-of-type(1)",
+                "outlineDOMPath": "body > h2:nth-of-type(1)",
             ],
             structuralPath: "body > p:nth-of-type(1)",
             textQuote: TextQuote(prefix: nil, exact: "stale paragraph", suffix: nil),
@@ -290,6 +297,7 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         XCTAssertEqual(update.locator.relativePath, "chapter.html")
         XCTAssertEqual(update.locator.structuralPath, "chapter.html")
         XCTAssertNil(update.locator.payload["domPath"])
+        XCTAssertNil(update.locator.payload["outlineDOMPath"])
         XCTAssertNil(update.locator.textQuote)
         XCTAssertNil(update.locator.fingerprint)
         XCTAssertEqual(update.locator.payload["scrollFraction"], "0.820000")
