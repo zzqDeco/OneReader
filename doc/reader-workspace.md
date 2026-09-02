@@ -8,7 +8,7 @@ public GitHub snapshots. Adding material always starts with a generic Source;
 the deterministic registry chooses the immediately readable presentation and
 the optional Reading Agent may later propose additional structure.
 
-The primary window contains:
+The primary workspace contains:
 
 - All Spaces, Recent, Processing, Favorites, and Space navigation;
 - Outline, Sources, Route, and Search navigation for the open Space;
@@ -21,8 +21,9 @@ a Provider.
 
 ## Import and Processing
 
-Drag/drop, Command-O, Finder Open With, and URL paste share `AppModel` import
-coordination. The import first appears as Processing, then commits a managed
+Drag/drop, Command-O, Finder Open With, SwiftUI `fileImporter`, iOS/iPadOS Open
+In, and URL paste share `AppModel` import coordination. The import first appears
+as Processing, then commits a managed
 Snapshot and installs a deterministic AdapterPlan. Index work is keyed by
 Source ID, Snapshot ID, AdapterPlan ID, and a generation token. A second request
 for the same plan attaches to the existing job; a new Snapshot or plan cancels
@@ -34,8 +35,9 @@ to the first readable child. Incidental license or asset files therefore do not
 replace the book overview as the initial reading surface.
 
 A failed item stays visible with its error and can be dismissed. Source removal
-requires an explicit confirmation. The managed copy moves to Trash only when
-it is no longer shared; the original selected item is never modified. The
+requires an explicit confirmation. An exclusive managed copy moves to macOS
+Trash or a transaction-safe iOS removal staging area; the original selected
+item is never modified. The
 database transaction also detaches the Source, removes its annotations and
 history, invalidates graphs/frozen routes, clears their unit/plan progress, and
 cancels active Agent runs for every affected Space. If that transaction fails,
@@ -52,9 +54,9 @@ Locator are retained and are never rewritten to look current.
 | Content | Surface | Native behavior |
 | --- | --- | --- |
 | PDF | PDFKit | continuous pages, selection, page Locator, zoom |
-| Markdown | `swift-markdown` AST plus `NSTextView` | selectable rich headings, lists, quotes, code, tables, and safe links |
-| Text | `NSTextView` | selectable, themed, bounded line width |
-| Code | monospaced `NSTextView` | selectable with horizontal scrolling |
+| Markdown | `swift-markdown` AST plus `NSTextView`/`UITextView` | selectable rich headings, lists, quotes, code, tables, and safe links |
+| Text | `NSTextView`/`UITextView` | selectable, themed, bounded line width |
+| Code | monospaced `NSTextView`/`UITextView` | selectable with horizontal scrolling |
 | HTML/EPUB/web snapshot | controlled WKWebView | app-served sanitized bytes and explicit external-link handoff |
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
 
@@ -81,7 +83,7 @@ chunks with cancellation. Scheme callbacks and stop are serialized so no
 response/data/finish/failure callback occurs after stop returns. Source
 JavaScript, automatic navigation, and
 cross-Snapshot loads remain disabled. The system reader theme follows the live
-macOS color scheme.
+platform color scheme.
 Nested HTML uses the same Snapshot resource root for sanitizer rewriting and
 scheme resolution, so `chapters/page.html` can load a rewritten
 `chapters/img/a.png` without duplicating the chapter path.
@@ -134,14 +136,19 @@ sent without storing body text, paths, or notes.
 
 ## Responsive and accessible behavior
 
-At wide sizes the Inspector occupies a 338-point trailing column. Below a
-920-point detail width it becomes a dismissible overlay drawer, preserving a
-usable content width at the 900 x 650 minimum. The inner navigation and reader
-use SwiftUI layout rather than a nested AppKit split view; this prevents
-constraint feedback when PDFKit or long selectable text recalculates layout.
+macOS uses a 338-point trailing Inspector at wide sizes and a dismissible drawer
+below a 920-point detail width, preserving the reader at the 900 x 650 minimum.
+Regular-width iPad keeps Library, reading navigation, content, and an optional
+Inspector in the adaptive split workspace. Compact-width iPhone lets the system
+collapse Library navigation, keeps the reader full width, and presents
+Outline/Sources/Route/Search and Inspector in separate medium/large sheets. The
+iPhone footer becomes a horizontally scrollable icon control row rather than
+compressing actions below their usable size.
 
-Commands expose import, Space import, search, previous/next content, bookmark,
-highlight, and the 900 x 650 / 1440 x 900 window presets. Controls and search
-results have explicit accessibility labels, text is selectable, and animation
-honors Reduce Motion. Reader theme, font size, line width, line spacing, and PDF
-scale persist across launches.
+macOS commands expose import, Space import, search, previous/next content,
+bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and
+iPad expose import, reading navigation, search, Inspector, and Settings in the
+toolbar and preserve hardware-keyboard shortcuts where the platform supports
+them. Controls and search results have explicit accessibility labels, text is
+selectable, and animation honors Reduce Motion. Reader theme, font size, line
+width, line spacing, and PDF scale persist across launches.

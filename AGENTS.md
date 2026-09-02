@@ -4,33 +4,37 @@ Guidance for coding agents working in OneReader.
 
 ## Project overview
 
-OneReader is a Library-first, native macOS all-in-one reader.
+OneReader is a Library-first native macOS, iPhone, and iPad all-in-one reader.
 
 - Language: Swift 6
-- UI: SwiftUI
+- UI: shared SwiftUI with narrow AppKit/UIKit presentation bridges
 - PDF rendering: PDFKit
 - Remote sources: Foundation `URLSession`
 - Persistence: GRDB/SQLite with managed immutable content in Application Support
-- Project format: Swift Package with an executable app target
+- Project format: shared Swift Package library plus generated native app targets
 - Tests: Swift Testing/XCTest through `swift test`
 
-Do not introduce a web shell, Electron, Catalyst, or a JavaScript runtime unless
+Do not introduce a web shell, Electron, Catalyst, or a general JavaScript runtime unless
 the product direction explicitly changes.
 
 ## Commands
 
 ```bash
-swift run OneReader
+swift run OneReaderApp
 swift test
 swift build --configuration release
 python3 scripts/check-doc-index.py
+python3 scripts/check-apple-platform-metadata.py
+scripts/check-xcode-project.sh
+scripts/build-ios-simulator.sh
 scripts/package-app.sh
 git diff --check
 ```
 
 ## Architecture
 
-- `Sources/OneReader/App/`: app entry point and application state.
+- `Apps/OneReaderApp/`: thin executable entry shared by SwiftPM and native targets.
+- `Sources/OneReader/App/`: shared scene composition and application state.
 - `Sources/OneReader/Domain/`: source, locator, observation, graph, plan, and
   progress contracts.
 - `Sources/OneReader/Adapters/`: capability-based deterministic adapters and
@@ -43,6 +47,8 @@ git diff --check
   profiles, typed tools, validation, budgets, transcripts, and audit events.
 - `Sources/OneReader/UI/`: Library and reader workspace with PDFKit, native
   text/Markdown/code, controlled WebKit, and Quick Look surfaces.
+- `project.yml`: source of truth for native macOS and universal iOS targets;
+  `OneReader.xcodeproj` is checked-in generated output.
 - `Tests/OneReaderTests/`: adapter contracts, source security, persistence,
   reader state, provider, and fake-model runtime tests.
 - `doc/`: current engineering truth.
@@ -62,6 +68,10 @@ git diff --check
 - Core reading must work without API keys. AI providers stay behind the
   Reading Agent runtime and require explicit privacy disclosure.
 - Local progress remains local and must not require an account.
+- Platform branches stay at native shell/bridge boundaries. Domain models,
+  migrations, adapters, Agent tools, and evidence validation must not fork by OS.
+- iOS/iPadOS remains a universal native target (`TARGETED_DEVICE_FAMILY=1,2`);
+  do not add Catalyst as a substitute for either native platform.
 
 ## Branching
 
@@ -114,6 +124,7 @@ Common scopes: `app`, `domain`, `library`, `adapters`, `agent`, `reader`,
 - A new graph or route remains pending until the user explicitly adopts it and
   migrates progress.
 - Keyboard labels and accessibility labels cover interactive controls.
-- `swift test`, release build, doc index, packaging, and `git diff --check`
-  pass.
-- Native light/dark and narrow/wide window acceptance is recorded.
+- `swift test`, release build, project/icon checks, iOS Simulator build,
+  packaging, and `git diff --check` pass.
+- Native light/dark plus iPhone compact, iPad regular, and macOS narrow/wide
+  acceptance is recorded.

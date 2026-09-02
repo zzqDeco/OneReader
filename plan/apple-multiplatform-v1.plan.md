@@ -67,8 +67,10 @@ one; it contains no text and remains legible at notification and Settings sizes.
 - Add a vector-like 1024 px master icon, deterministic icon-generation script,
   and complete macOS plus universal iOS AppIcon asset catalogs.
 - Extend local and hosted validation with Xcode project drift checks and an
-  unsigned iOS Simulator build while preserving the authoritative SwiftPM test,
-  release build, macOS Sandbox package, codesign, and entitlement gates.
+  unsigned generic iOS Simulator SDK compile gate while preserving the
+  authoritative SwiftPM test, release build, macOS Sandbox package, codesign,
+  and entitlement gates. The compile gate does not create or boot a Simulator
+  device.
 
 ## Test Plan
 
@@ -77,20 +79,24 @@ one; it contains no text and remains legible at notification and Settings sizes.
 - Add tests for platform-neutral URL import routing and security-scope lifetime
   coordination, compact navigation state, capability gating, and shared icon/
   project metadata validation.
-- Build the universal iOS target for an available iPhone Simulator destination
-  with signing disabled and build the macOS target/package in Release mode.
-- Exercise generated PDF, EPUB, HTML, Markdown, directory, and unknown-file
-  fixtures on iPhone and iPad simulators; keep real books and repositories local.
+- Build, sign, install, and launch the universal target on a connected physical
+  device before any compile-only SDK gate. Distinguish device lock, Developer
+  Mode, free-profile, and signing failures from application failures.
+- Keep Simulator device sets empty. Use the generic Simulator SDK destination
+  only as a non-running universal compilation check, and exercise generated
+  PDF, EPUB, HTML, Markdown, directory, and unknown-file fixtures on connected
+  physical iPhone/iPad hardware when available.
 - Verify icon appearance at 16, 32, 60, 76, 128, 256, 512, and 1024 px, in light
   and dark home-screen contexts, without clipped detail or embedded text.
 
 ## Acceptance Evidence
 
 Record exact commits, dependency-lock and Xcode-project digests, test totals,
-Release build results, simulator device/OS, macOS package entitlement output,
-screenshots for compact iPhone and regular iPad layouts, and Sol max reviewer
-conclusion. Historical green evidence is not accepted as proof for the current
-head.
+Release build results, physical device/OS, signing/install/launch/process
+evidence, macOS package entitlement output, available compact iPhone and regular
+iPad layout evidence, and Sol max reviewer conclusion. Missing physical device
+classes must be reported explicitly and cannot be replaced by invented runtime
+evidence. Historical green evidence is not accepted as proof for the current head.
 
 ## Non-goals
 
@@ -106,7 +112,7 @@ or Agent runtime.
 - [ ] Reader presentations and adaptive navigation are functional
 - [ ] App icon assets are generated and integrated for all targets
 - [ ] Focused tests and unified validation pass at exact head
-- [ ] iPhone and iPad simulator acceptance is recorded
+- [ ] Connected physical-device acceptance and unavailable device classes are recorded
 - [ ] Current-state and source docs are synchronized
 - [ ] Sol max review conclusion is accepted
 - [ ] Branch is merged into `dev`

@@ -46,26 +46,29 @@ sub-agent surface. See [Reading Agent runtime](reading-agent-runtime.md).
 
 ## Native composition
 
-- SwiftUI owns window structure, navigation, inspector, selection, loading
-  state, commands, focus, and accessibility.
-- AppKit bridges native open panels, Finder Open With, Quick Look, and window
-  behavior.
+- SwiftUI owns application structure, adaptive navigation, Inspector,
+  selection, loading state, focus, and accessibility.
+- AppKit bridges macOS open panels, Finder Open With, Quick Look, menu commands,
+  and window behavior. UIKit bridges iPhone/iPad document import, native text,
+  Quick Look, and explicit external-app handoff.
 - PDFKit owns PDF layout, zoom, selection, and page navigation.
 - WebKit displays only sanitized, app-served EPUB/HTML content.
 - Foundation `URLSession` owns remote source fetches outside the Agent runtime.
 - GRDB `DatabasePool` owns migrations, WAL concurrency, FTS5 indexes, and
   serialized transactions.
 
-The window uses one outer `NavigationSplitView` for Library navigation. Inside
-an open Space, a SwiftUI reading stack owns Outline/Sources/Route/Search,
-content, and the Inspector. The Inspector is an in-layout trailing column at
-wide sizes and a dismissible overlay drawer at compact sizes. It deliberately
-does not use a second AppKit split view or window-level Inspector, avoiding
-conflicting minimum-width constraints around PDFKit and selectable text.
+Every platform uses one outer `NavigationSplitView` for Library navigation.
+Inside an open Space, a SwiftUI reading stack owns Outline/Sources/Route/Search,
+content, and the Inspector. macOS and regular-width iPad keep an in-layout
+reading navigation column; macOS changes the Inspector to a drawer when its
+detail width is constrained. iPhone presents reading navigation and Inspector
+as independent sheets so content remains primary. Platform shells do not fork
+Library, adapter, Locator, progress, graph, or Agent contracts. See
+[Apple platforms](apple-platforms.md).
 
 ## Managed Library
 
-`~/Library/Application Support/OneReader/` contains:
+The app's sandboxed Application Support `OneReader/` directory contains:
 
 - `Library.sqlite` for durable metadata and indexes;
 - `Sources/` and `Snapshots/` for immutable managed content;
@@ -93,9 +96,12 @@ managed bytes. Directory digests include package descendants and fail if any
 entry cannot be enumerated, so an unreadable subtree cannot alias a complete
 tree.
 
-Removing a Source moves only exclusively owned content-addressed containers to
-the macOS Trash, then marks the Source removed and detaches Space membership in
-one database transaction. That same commit removes Source-bound annotations and
+Removing a Source first stages only exclusively owned content-addressed
+containers in a reversible location, then marks the Source removed and detaches
+Space membership in one database transaction. macOS uses the user Trash;
+iOS/iPadOS use a private temporary rollback directory because those platforms
+have no public Trash API, and delete it after a successful commit. That same
+commit removes Source-bound annotations and
 history, clears the Source position, invalidates graphs/frozen plans and their
 unit/plan progress, and cancels active Agent runs while advancing each affected
 session generation. If metadata commit fails, the host attempts to move the
@@ -108,12 +114,13 @@ annotations, progress/history, Provider
 profiles, Agent runs/events/artifacts, and migration facts. Provider secrets
 are represented only by Keychain references.
 
-Schema v8 stores security-scoped bookmark data separately from Source identity
-for local file/directory refresh across Sandbox launches. The bookmark is never
-exposed to an adapter or Agent, is renewed when stale, and is deleted when the
-Source is removed. If import cannot create the bookmark, the managed Snapshot
-still becomes readable and Activity exposes the refresh-authorization warning;
-stale renewal failure requires explicit native reauthorization.
+Schema v8 stores platform bookmark data separately from Source identity for
+local file/directory refresh across Sandbox launches. macOS creates a read-only
+security-scoped bookmark; iOS/iPadOS create a minimal bookmark and treat access
+as best-effort. The bookmark is never exposed to an adapter or Agent and is
+deleted when the Source is removed. If bookmark creation or resolution fails,
+the managed Snapshot remains readable and refresh asks for explicit native
+reauthorization.
 
 Schema v9 separates evidence Observations from the user-visible search
 projection. One active AdapterPlan is selected per Snapshot. Index staging and
@@ -146,8 +153,8 @@ parallel live JSON progress store.
 
 - Source content is untrusted data and never becomes a system instruction.
 - Deterministic reading requires no token, account, or API key.
-- Local bytes do not leave the Mac unless the user authorizes a remote Provider
-  destination for that Reading Space. Consent binds the canonical endpoint, so
+- Local bytes do not leave the device unless the user authorizes a remote
+  Provider destination for that Reading Space. Consent binds the canonical endpoint, so
   changing a profile destination invalidates the old acknowledgment.
 - Network source fetchers and model Providers are separate clients and
   allowlists. A temporary model-construction hook gives each Provider SDK a
@@ -193,6 +200,7 @@ snapshot-bound Locators. Reader preferences persist independently in
 `UserDefaults`; all Library facts remain in GRDB. See
 [Reader workspace](reader-workspace.md).
 
-The remaining v0.2 delivery slice owns exact-tag DMG/ZIP release artifacts and
-their manifest. OCR, sync, accounts, collaboration, third-party plugins,
-model-controlled file writes, and notarization remain outside v0.2.
+The v0.3 target adds native iPhone/iPad shells, checked generated project
+metadata, and shared icon assets without changing the v0.2 reading contracts.
+OCR, sync, accounts, collaboration, third-party plugins, model-controlled file
+writes, mobile distribution, and notarization remain outside this milestone.

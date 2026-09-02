@@ -8,6 +8,8 @@ architecture document.
 | Source, Snapshot, adapter, and evidence contracts | [Domain models](Sources/OneReader/Domain/Models.swift.md) |
 | Reader annotations, progress, presentation, and preferences | [Reader workspace models](Sources/OneReader/Domain/ReaderWorkspaceModels.swift.md) |
 | Application state | [App model](Sources/OneReader/App/AppModel.swift.md) |
+| Shared executable entry | [OneReader app main](Apps/OneReaderApp/OneReaderAppMain.swift.md) |
+| Generated Apple application targets | [XcodeGen project](project.yml.md) |
 | Native workspace and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
 | Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
 | Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
@@ -18,6 +20,7 @@ architecture document.
 | Secure ZIP/EPUB extraction | [Secure archive extractor](Sources/OneReader/Adapters/SecureArchiveExtractor.swift.md) |
 | Remote web and GitHub snapshots | [Remote source importer](Sources/OneReader/Sources/RemoteSourceImporter.swift.md) |
 | Unified native presentation safety | [Adapter presentation](Sources/OneReader/UI/AdapterPresentationView.swift.md) |
+| UIKit presentation bridges | [iOS adapter presentation](Sources/OneReader/UI/AdapterPresentationView+iOS.swift.md) |
 | Reading Agent session and turn lifecycle | [Reading Agent runtime](Sources/OneReader/Agent/ReadingAgentRuntime.swift.md) |
 | Agent domain records and hard budgets | [Agent models](Sources/OneReader/Agent/AgentModels.swift.md) |
 | SwiftAgent projection and bounded model bridge | [SwiftAgent model driver](Sources/OneReader/Agent/SwiftAgentModelDriver.swift.md) |

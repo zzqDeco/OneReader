@@ -1,4 +1,4 @@
-# v0.2 Acceptance
+# v0.3 Acceptance
 
 ## Automated gates
 
@@ -8,14 +8,50 @@
 | Domain, adapter, runtime, persistence, and app-model tests | `swift test` | Yes |
 | Release compilation | `swift build --configuration release` | Yes |
 | Documentation index | `python3 scripts/check-doc-index.py` | Yes |
+| Apple target and icon metadata | `python3 scripts/check-apple-platform-metadata.py` | Yes |
+| Generated Xcode project drift | `scripts/check-xcode-project.sh` | Yes |
+| Generic iPhone/iPad Simulator SDK compilation (no device boot) | `scripts/build-ios-simulator.sh` | Yes |
 | Sandboxed native app | `scripts/package-app.sh` | Yes |
 | Signature and entitlements | `codesign --verify` plus Sandbox entitlement inspection | Yes |
 | Release policy fixtures | `scripts/test-release-gates.sh` and `scripts/test-entitlement-gate.sh` | Yes |
 | Whitespace | `git diff --check` | Yes |
 
-`scripts/validate-native.sh` runs this same path locally and in hosted CI.
+`scripts/validate-native.sh` runs this same path locally and in hosted CI,
+including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
+
+## iPhone physical-device record
+
+On 2026-09-01 and 2026-09-02, implementation commit `3572f91` was built,
+signed, installed, and launched on a wired iPhone 13 Pro Max running iOS 27.0
+beta (build `24A5424a`). The device was paired, booted, Developer Mode was
+enabled, and Developer Disk Image services were available.
+
+- Every Simulator device instance was deleted before physical-device testing.
+  Installed Simulator runtimes remain available to Xcode, but the generic SDK
+  compilation gate did not create or boot a Simulator device.
+- Xcode produced an arm64 Debug application with Bundle ID
+  `io.github.zzqDeco.OneReader`, version 0.3.0 (3), and an automatically managed
+  development signature. The personal development Team is supplied only on the
+  local command line and is not stored in the project.
+- The first install attempt reached the device and was rejected only because a
+  free development profile already tracked three applications. The removable
+  `PixSigilUITests-Runner` test artifact was uninstalled; PixSigil, EasyNote,
+  and their data were not removed. Xcode recreates that Runner on the next
+  PixSigil UI-test run.
+- OneReader then installed successfully. The first launch request was rejected
+  while the device was locked; after unlock, the same signed application
+  launched successfully and its OneReader process remained present across
+  repeated device-process checks several minutes apart.
+- ScreenCaptureKit could not start the local device-view capture, so no physical
+  screenshot is claimed. This record proves physical build, signing, install,
+  launch, and process survival; it does not substitute a screenshot for visual
+  layout acceptance.
+- No physical iPad was connected. iPadOS evidence for this delivery is limited
+  to the shared universal target, device-family metadata, complete iPad icon
+  slots, and successful generic iPhone/iPad SDK compilation. A regular-width
+  physical iPad walkthrough remains explicitly unrecorded.
 
 ## Fixture and contract coverage
 
@@ -45,7 +81,7 @@ Persistence and workspace tests cover atomic import, digest deduplication,
 legacy backup, FTS rebuild and Chinese substring fallback, annotation and
 progress round trips, Quick Look capability gating, preferences, index-job
 deduplication, durable position restore, Source refresh relocation, security-
-scoped bookmark lifecycle, pending frozen-plan adoption, Space generation
+platform import-purpose selection, scoped bookmark lifecycle, pending frozen-plan adoption, Space generation
 isolation, and crash-safe Agent state.
 Schema-v9 tests prove ordinary evidence Observations remain outside search,
 late superseded-plan publication loses the active-plan CAS, directory indexes
@@ -61,7 +97,7 @@ spaces cannot become partial Locators. AppModel coverage proves a Provider
 mutation immediately removes an invalidated interrupted Run from Inspector state;
 nested HTML fixtures prove sanitizer and presentation use one Snapshot resource root.
 
-## Native acceptance record
+## macOS v0.2 baseline record
 
 On 2026-09-01 the ad-hoc signed Sandbox app was exercised with a managed
 snapshot of `xiaolai/time-as-a-friend` and its included PDFs. Local acceptance

@@ -1,7 +1,10 @@
 # `Sources/OneReader/UI/AdapterPresentationView.swift`
 
-Owns presentation-surface registration and native bridges for PDFKit, selectable
-Markdown/text/code, sanitized WebKit, and Quick Look.
+Owns platform-neutral presentation-surface registration, content loading, and
+the macOS native bridges for PDFKit, selectable Markdown/text/code, sanitized
+WebKit, and Quick Look. The iOS/UIKit representables live in the adjacent
+`AdapterPresentationView+iOS.swift`; both consume the same descriptors,
+sanitizer, resource scheme handler, and Locators.
 
 WebKit is non-persistent and has JavaScript disabled. Managed resources are
 served through a read-only custom scheme rooted at one snapshot directory;
@@ -11,7 +14,7 @@ symlink escape, apply an explicit MIME allowlist and 32 MiB per-resource cap,
 stream in 256 KiB chunks, and stop without another callback after cancellation.
 The scheme lifecycle serializes response, data, terminal callback, and stop;
 stop waits for an in-progress callback and no callback starts after it returns.
-The system theme follows the current macOS color scheme.
+The system theme follows the current platform color scheme.
 
 Locator changes do not merely reopen the containing document. Native text and
 Markdown select/scroll to the quote with prefix/suffix disambiguation, PDFKit

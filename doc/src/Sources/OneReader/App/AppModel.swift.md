@@ -3,7 +3,7 @@
 Owns main-actor application orchestration:
 
 - empty-first-launch Library/Space/Source selection;
-- generic local, drag/drop, Open With, URL, and GitHub import coordination;
+- generic local, drag/drop, Open With/Open In, URL, and GitHub import coordination;
 - selected deterministic AdapterPlan, content tree, Observation, and native
   presentation;
 - per-Source/Snapshot/AdapterPlan atomic indexing jobs with generation-based late-result
@@ -12,7 +12,12 @@ Owns main-actor application orchestration:
   history;
 - Provider profile editing/testing and Reading Agent task orchestration;
 - native notices, large-import confirmation, Source-removal confirmation, and
-  persisted reader preferences.
+persisted reader preferences.
+
+Platform-only entry points remain narrow: macOS creates an `NSOpenPanel`, while
+iOS/iPadOS publishes a typed `PlatformFileImportPurpose` consumed by the root
+`fileImporter`. Both paths rejoin at `importLocalURLs`; reauthorization is
+single-selection and imports can be multi-selection.
 
 The app creates no demo Source and performs no background example-network call.
 Import always commits through `ManagedLibrary`; format-specific presentation

@@ -16,9 +16,10 @@ without creating a Snapshot, and exposes only an immutable candidate for the
 adapter/anchor validation phase. Failed candidates are discarded; the database
 becomes current only in the later refresh transaction.
 
-Local import creates a read-only security-scoped bookmark while the user-picked
-URL is authorized. Refresh resolves it with security scope, renews stale data,
-and balances every successful access with `stopAccessingSecurityScopedResource`.
+Local import creates a read-only security-scoped bookmark on macOS or a minimal
+Foundation bookmark on iOS/iPadOS while the user-picked URL is authorized.
+Refresh resolves the platform bookmark and balances every successful access
+with `stopAccessingSecurityScopedResource`.
 Bookmark creation failure does not discard a valid managed import; it returns an
 Activity warning that refresh may need reauthorization. Missing legacy
 authorization or stale-bookmark renewal failure is surfaced to the AppModel for
@@ -29,9 +30,11 @@ during directory ingestion, includes package descendants in tree identity, and
 uses an injectable capacity policy so large-import confirmation, reserve-space,
 and dedup charging remain deterministic under test.
 
-Removal sends only exclusively owned content-addressed containers to Trash,
-keeps shared bytes, and never deletes the selected original. A failed metadata
-commit attempts to restore already moved containers. The metadata transaction
+Removal sends only exclusively owned content-addressed containers to macOS
+Trash or an iOS private rollback staging directory, keeps shared bytes, and
+never deletes the selected original. iOS discards staged bytes only after the
+metadata commit succeeds. A failed metadata commit attempts to restore already
+moved containers. The metadata transaction
 also clears Source-bound reader state and invalidates affected Agent sessions;
 the returned durable generations synchronize the in-memory runtime before its
 revision barrier is released.
@@ -45,5 +48,5 @@ Removal also reclaims rebuildable EPUB extraction directories keyed first by
 the Source's Snapshot ID and, for directory children, by a relative-path digest.
 Startup reconciles the EPUB derived namespace against
 active database Snapshots, reclaiming any late extraction that raced with
-Source removal. Durable original and managed-source Trash semantics stay
+Source removal. Durable original and managed-source removal semantics stay
 separate from this cache cleanup.

@@ -114,7 +114,7 @@ losing error after the cancellation event.
 
 Profiles support Apple Foundation Models on device, OpenAI Responses-compatible
 HTTPS endpoints, Anthropic Messages-compatible HTTPS endpoints, and loopback
-Ollama. The user supplies the model ID. Remote secrets live only in macOS
+Ollama. The user supplies the model ID. Remote secrets live only in the device
 Keychain; SQLite, events, and logs store a Keychain reference and redacted
 metadata.
 

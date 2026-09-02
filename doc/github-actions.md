@@ -23,17 +23,20 @@ script is the local and Release build gate. It:
    attributes, and line-ending transforms disabled;
 4. runs `swift package resolve`, then verifies the committed dependency versions,
    exact generated mirror revision, and a byte-unchanged `Package.resolved`;
-5. runs whitespace and documentation-index checks;
-6. runs `swift test`;
-7. builds the release configuration;
-8. assembles and verifies an ad-hoc signed, sandboxed `.app` bundle;
-9. repeats the lock checker and tracked-file diff after Release build and again
-   after app packaging;
-10. validates release-ref rejection fixtures and schema metadata;
-11. uploads the bundle as a short-lived build artifact.
+5. verifies Apple platform metadata, all 28 AppIcon slots, and that the checked
+   Xcode project exactly regenerates from `project.yml`;
+6. runs whitespace and documentation-index checks;
+7. runs `swift test` and builds the SwiftPM release configuration;
+8. assembles and verifies an ad-hoc signed, sandboxed macOS `.app` bundle;
+9. builds the unsigned universal iPhone/iPad Simulator target with Xcode 26.6;
+10. repeats the lock digest checks after every build/package phase;
+11. validates release-ref rejection fixtures and schema metadata;
+12. uploads separate macOS Developer Preview and iOS Simulator artifacts.
 
-Concurrency cancels superseded runs for the same pull request or branch.
-Permissions are read-only.
+The runner prepares XcodeGen when it is not preinstalled; the repository's
+minimum supported generator version is encoded in `project.yml`. Concurrency
+cancels superseded runs for the same pull request or branch. Permissions are
+read-only and CI receives no Provider secret.
 
 ## Release
 
