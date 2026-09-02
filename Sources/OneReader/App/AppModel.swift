@@ -54,6 +54,12 @@ enum OriginalSourceOpenPolicy {
     }
 }
 
+private struct PendingReadingPosition {
+    let id: UUID
+    let spaceID: String
+    let update: ReadingPositionUpdate
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -129,6 +135,7 @@ final class AppModel: ObservableObject {
     private var contentTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var positionSaveTask: Task<Void, Never>?
+    private var pendingPositionUpdate: PendingReadingPosition?
     private var importTasks: [UUID: Task<Void, Never>] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var agentTask: Task<Void, Never>?
@@ -236,6 +243,18 @@ final class AppModel: ObservableObject {
         return progressBySpace[selectedSpaceID] ?? .empty
     }
 
+    var currentPositionDescription: String? {
+        guard let sourceID = selectedSourceID else { return nil }
+        if let pendingPositionUpdate,
+           pendingPositionUpdate.spaceID == selectedSpaceID,
+           pendingPositionUpdate.update.locator.sourceID == sourceID {
+            return pendingPositionUpdate.update.displayLabel
+                ?? Self.positionDescription(for: pendingPositionUpdate.update.locator)
+        }
+        guard let position = currentProgress.sourcePositions[sourceID] else { return nil }
+        return position.displayLabel ?? Self.positionDescription(for: position.locator)
+    }
+
     var selectedSpaceSources: [Source] {
         guard let selectedSpaceID else { return [] }
         return sourceIDs(in: selectedSpaceID).compactMap(source(id:))
@@ -312,12 +331,28 @@ final class AppModel: ObservableObject {
     }
 
     func progressFraction(for spaceID: String) -> Double {
-        guard let graph = graphsBySpace[spaceID], !graph.units.isEmpty else { return 0 }
         let progress = progressBySpace[spaceID] ?? .empty
+        let sourceIDs = sourceIDs(in: spaceID)
+        let sourceFractions = sourceIDs.compactMap {
+            progress.sourcePositions[$0]?.progressFraction
+        }
+        if !sourceFractions.isEmpty, !sourceIDs.isEmpty {
+            return sourceFractions.reduce(0, +) / Double(sourceIDs.count)
+        }
+        guard let graph = graphsBySpace[spaceID], !graph.units.isEmpty else { return 0 }
         let completed = graph.units.reduce(into: 0) { result, unit in
             if progress.state(for: unit.id) == .completed { result += 1 }
         }
         return Double(completed) / Double(graph.units.count)
+    }
+
+    func resumeDescription(for spaceID: String) -> String? {
+        guard let position = (progressBySpace[spaceID] ?? .empty).sourcePositions.values
+            .filter({ sourceIDs(in: spaceID).contains($0.sourceID) })
+            .max(by: { $0.updatedAt < $1.updatedAt }),
+              let source = source(id: position.sourceID) else { return nil }
+        let detail = position.displayLabel ?? Self.positionDescription(for: position.locator)
+        return "\(source.displayName) · \(detail)"
     }
 
     func bootstrap() async {
@@ -529,6 +564,7 @@ final class AppModel: ObservableObject {
               let database,
               let coordinator else { return }
 
+        flushReadingPosition()
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
         selectedSourceID = sourceID
         currentPositionLocator = nil
@@ -642,10 +678,21 @@ final class AppModel: ObservableObject {
     }
 
     func updateReadingPosition(_ locator: Locator) {
+        updateReadingPosition(Self.inferredPositionUpdate(for: locator))
+    }
+
+    func updateReadingPosition(_ update: ReadingPositionUpdate) {
+        let locator = update.locator
         guard let spaceID = selectedSpaceID,
               let source = selectedSource,
               source.id == locator.sourceID,
               source.latestSnapshotID == locator.snapshotID else { return }
+        let saveID = UUID()
+        pendingPositionUpdate = PendingReadingPosition(
+            id: saveID,
+            spaceID: spaceID,
+            update: update
+        )
         currentPositionLocator = locator
         positionSaveTask?.cancel()
         let generation = workspaceGeneration
@@ -658,9 +705,23 @@ final class AppModel: ObservableObject {
             guard let self,
                   generation == workspaceGeneration,
                   selectedSpaceID == spaceID,
-                  selectedSourceID == locator.sourceID else { return }
-            persistSourcePosition(locator, spaceID: spaceID)
+                  selectedSourceID == locator.sourceID,
+                  pendingPositionUpdate?.id == saveID else { return }
+            pendingPositionUpdate = nil
+            positionSaveTask = nil
+            persistSourcePosition(update, spaceID: spaceID)
         }
+    }
+
+    func flushReadingPosition() {
+        positionSaveTask?.cancel()
+        positionSaveTask = nil
+        guard let pendingPositionUpdate else { return }
+        self.pendingPositionUpdate = nil
+        persistSourcePosition(
+            pendingPositionUpdate.update,
+            spaceID: pendingPositionUpdate.spaceID
+        )
     }
 
     func selectPreviousNode() {
@@ -1646,7 +1707,19 @@ final class AppModel: ObservableObject {
     private func recordPositionAndHistory(locator: Locator) {
         guard let database, let spaceID = selectedSpaceID else { return }
         currentPositionLocator = locator
-        persistSourcePosition(locator, spaceID: spaceID)
+        let existing = currentProgress.sourcePositions[locator.sourceID]
+        let update: ReadingPositionUpdate
+        if let existing, existing.locator == locator {
+            update = ReadingPositionUpdate(
+                locator: locator,
+                progressFraction: existing.progressFraction,
+                granularity: existing.resolvedGranularity,
+                displayLabel: existing.displayLabel
+            )
+        } else {
+            update = Self.inferredPositionUpdate(for: locator)
+        }
+        persistSourcePosition(update, spaceID: spaceID)
         let entry = ReadingHistoryEntry(
             spaceID: spaceID,
             sourceID: locator.sourceID,
@@ -1661,18 +1734,29 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func persistSourcePosition(_ locator: Locator, spaceID: String) {
-        guard selectedSpaceID == spaceID else { return }
-        updateProgress { progress in
-            progress.sourcePositions[locator.sourceID] = SourcePosition(
-                sourceID: locator.sourceID,
-                locator: locator,
-                updatedAt: .now
-            )
+    private func persistSourcePosition(_ update: ReadingPositionUpdate, spaceID: String) {
+        guard let database else { return }
+        var progress = progressBySpace[spaceID] ?? .empty
+        let locator = update.locator
+        progress.sourcePositions[locator.sourceID] = SourcePosition(
+            sourceID: locator.sourceID,
+            locator: locator,
+            updatedAt: .now,
+            progressFraction: update.progressFraction,
+            granularity: update.granularity,
+            displayLabel: update.displayLabel
+        )
+        progress.lastActiveAt = .now
+        do {
+            try database.saveReadingProgress(progress, spaceID: spaceID)
+            progressBySpace[spaceID] = progress
+        } catch {
+            notice = AppNotice(title: "无法保存阅读位置", message: error.localizedDescription)
         }
     }
 
     private func transitionWorkspace(to _: String?) {
+        flushReadingPosition()
         workspaceGeneration = UUID()
         contentGeneration = UUID()
         contentTask?.cancel()
@@ -2029,7 +2113,10 @@ final class AppModel: ObservableObject {
                 SourcePositionRevisionMigration(
                     spaceID: spaceID,
                     sourceID: candidate.source.id,
-                    resolvedLocator: resolution?.resolved
+                    resolvedLocator: resolution?.resolved,
+                    progressFraction: position.progressFraction,
+                    granularity: position.granularity,
+                    displayLabel: position.displayLabel
                 )
             )
         }
@@ -2207,5 +2294,51 @@ final class AppModel: ObservableObject {
         if let data = try? JSONEncoder().encode(preferences) {
             defaults.set(data, forKey: ReaderPreferences.defaultsKey)
         }
+    }
+
+    private static func inferredPositionUpdate(for locator: Locator) -> ReadingPositionUpdate {
+        if let pageIndex = locator.payload["pageIndex"].flatMap(Int.init) {
+            return ReadingPositionUpdate(
+                locator: locator,
+                granularity: .page,
+                displayLabel: ReadingPositionUpdate.label(
+                    for: locator,
+                    detail: "第 \(pageIndex + 1) 页"
+                )
+            )
+        }
+        if let line = locator.payload["startLine"].flatMap(Int.init) {
+            return ReadingPositionUpdate(
+                locator: locator,
+                granularity: .text,
+                displayLabel: ReadingPositionUpdate.label(
+                    for: locator,
+                    detail: "第 \(line) 行"
+                )
+            )
+        }
+        if locator.payload["domPath"] != nil || locator.payload["scrollFraction"] != nil {
+            let fraction = locator.payload["scrollFraction"].flatMap(Double.init)
+            let detail = fraction.map { "阅读到 \(Int(min(max($0, 0), 1) * 100))%" }
+                ?? "网页位置"
+            return ReadingPositionUpdate(
+                locator: locator,
+                progressFraction: fraction,
+                granularity: .dom,
+                displayLabel: ReadingPositionUpdate.label(for: locator, detail: detail)
+            )
+        }
+        let detail = locator.adapterID == QuickLookAdapter.id
+            ? "已打开（系统预览仅支持来源级位置）"
+            : "已打开"
+        return ReadingPositionUpdate(
+            locator: locator,
+            granularity: .document,
+            displayLabel: ReadingPositionUpdate.label(for: locator, detail: detail)
+        )
+    }
+
+    private static func positionDescription(for locator: Locator) -> String {
+        inferredPositionUpdate(for: locator).displayLabel ?? "已记录"
     }
 }

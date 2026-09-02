@@ -10,4 +10,6 @@ drawer below 920 points. Regular-width iPad uses the shared in-layout workspace.
 Compact iPhone preserves a full-width reader and presents reading navigation
 and Inspector in independent sheets. `fileImporter` owns iOS/iPadOS selection;
 the AppModel routes its result without adding format-specific entry points.
-Animation is disabled when Reduce Motion is active.
+The scene lifecycle flushes the latest debounced reading position whenever it
+leaves the active state, before suspension can discard it. Animation is
+disabled when Reduce Motion is active.

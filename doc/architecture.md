@@ -204,7 +204,12 @@ imported Source cannot race a second index job and leave Processing stuck.
 Native PDFKit, selectable Markdown/text/code, controlled WebKit, and Quick Look
 presentations share the same reading surface. Search results, annotations,
 history, source positions, ReadingUnits, and frozen plan steps retain their
-snapshot-bound Locators. Reader preferences persist independently in
+snapshot-bound Locators. Presentation-specific callbacks normalize into one
+host-owned position update containing Locator, granularity, optional fraction,
+and display label. AppModel debounces scroll writes, flushes pending state at
+Source/Space and scene-lifecycle boundaries, and restores the most recent
+Source without involving the Reading Agent. Quick Look remains explicitly
+document-granular. Reader preferences persist independently in
 `UserDefaults`; all Library facts remain in GRDB. See
 [Reader workspace](reader-workspace.md).
 

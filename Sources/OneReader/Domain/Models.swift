@@ -350,10 +350,56 @@ struct UnitProgress: Codable, Hashable, Sendable {
     var updatedAt: Date
 }
 
+enum ReadingPositionGranularity: String, Codable, Hashable, Sendable {
+    case document
+    case text
+    case page
+    case dom
+}
+
+struct ReadingPositionUpdate: Hashable, Sendable {
+    let locator: Locator
+    let progressFraction: Double?
+    let granularity: ReadingPositionGranularity
+    let displayLabel: String?
+
+    init(
+        locator: Locator,
+        progressFraction: Double? = nil,
+        granularity: ReadingPositionGranularity = .document,
+        displayLabel: String? = nil
+    ) {
+        self.locator = locator
+        if let progressFraction, progressFraction.isFinite {
+            self.progressFraction = min(max(progressFraction, 0), 1)
+        } else {
+            self.progressFraction = nil
+        }
+        self.granularity = granularity
+        let normalizedLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.displayLabel = normalizedLabel?.isEmpty == false ? normalizedLabel : nil
+    }
+
+    static func label(for locator: Locator, detail: String) -> String {
+        let path = locator.payload["path"] ?? locator.payload["href"]
+        guard let path,
+              !path.isEmpty,
+              path != "." else { return detail }
+        return "\(path) · \(detail)"
+    }
+}
+
 struct SourcePosition: Codable, Hashable, Sendable {
     let sourceID: String
     var locator: Locator
     var updatedAt: Date
+    var progressFraction: Double? = nil
+    var granularity: ReadingPositionGranularity? = nil
+    var displayLabel: String? = nil
+
+    var resolvedGranularity: ReadingPositionGranularity {
+        granularity ?? .document
+    }
 }
 
 struct ReadingProgress: Codable, Hashable, Sendable {

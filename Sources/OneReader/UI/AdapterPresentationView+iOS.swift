@@ -11,7 +11,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     let kind: NativeTextPresentationKind
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
-    let onPositionChange: (Locator) -> Void
+    let onPositionChange: (ReadingPositionUpdate) -> Void
 
     private var isCode: Bool { kind == .code }
 
@@ -308,7 +308,20 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let signature = AdapterUtilities.sha256("\(payload)|\(exact)|\(prefix)|\(suffix)")
             guard signature != lastPositionSignature else { return }
             lastPositionSignature = signature
-            parent.onPositionChange(locator)
+            let sourceLength = max(1, sourceValue.length)
+            let fraction = Double(sourceRange.location) / Double(sourceLength)
+            let line = Int(payload["startLine"] ?? "") ?? 1
+            parent.onPositionChange(
+                ReadingPositionUpdate(
+                    locator: locator,
+                    progressFraction: fraction,
+                    granularity: .text,
+                    displayLabel: ReadingPositionUpdate.label(
+                        for: locator,
+                        detail: "第 \(line) 行 · \(Int(fraction * 100))%"
+                    )
+                )
+            )
         }
 
         private func context(in value: NSString, start: Int, length: Int) -> String {
@@ -327,7 +340,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     let pageIndex: Int
     let scale: Double
     let onSelectionChange: (ReaderSelection?) -> Void
-    let onPositionChange: (Locator) -> Void
+    let onPositionChange: (ReadingPositionUpdate) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -381,6 +394,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             }
             DispatchQueue.main.async {
                 context.coordinator.isApplyingAnchor = false
+                context.coordinator.publishPosition(from: view)
             }
         }
     }
@@ -418,7 +432,12 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
         @objc private func pageDidChange(_ notification: Notification) {
             guard !isApplyingAnchor,
-                  let view = notification.object as? PDFView,
+                  let view = notification.object as? PDFView else { return }
+            publishPosition(from: view)
+        }
+
+        func publishPosition(from view: PDFView) {
+            guard !isApplyingAnchor,
                   let page = view.currentPage,
                   let document = view.document else { return }
             let index = document.index(for: page)
@@ -426,15 +445,31 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             var payload = parent.documentLocator.payload
             payload["pageIndex"] = String(index)
             payload["rect"] = nil
+            let locator = Locator(
+                sourceID: parent.documentLocator.sourceID,
+                snapshotID: parent.documentLocator.snapshotID,
+                adapterID: parent.documentLocator.adapterID,
+                payload: payload,
+                structuralPath: "page/\(index)",
+                textQuote: nil,
+                fingerprint: nil
+            )
+            let pageCount = document.pageCount
+            let fraction = pageCount > 0
+                ? Double(index + 1) / Double(pageCount)
+                : nil
+            let detail = pageCount > 0
+                ? "第 \(index + 1) / \(pageCount) 页"
+                : "第 \(index + 1) 页"
             parent.onPositionChange(
-                Locator(
-                    sourceID: parent.documentLocator.sourceID,
-                    snapshotID: parent.documentLocator.snapshotID,
-                    adapterID: parent.documentLocator.adapterID,
-                    payload: payload,
-                    structuralPath: "page/\(index)",
-                    textQuote: nil,
-                    fingerprint: nil
+                ReadingPositionUpdate(
+                    locator: locator,
+                    progressFraction: fraction,
+                    granularity: .page,
+                    displayLabel: ReadingPositionUpdate.label(
+                        for: locator,
+                        detail: detail
+                    )
                 )
             )
         }
@@ -507,7 +542,7 @@ struct ControlledWebPresentation: UIViewRepresentable {
     let preferences: ReaderPreferences
     let colorScheme: ColorScheme
     let onSelectionChange: (ReaderSelection?) -> Void
-    let onPositionChange: (Locator) -> Void
+    let onPositionChange: (ReadingPositionUpdate) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -623,12 +658,26 @@ struct ControlledWebPresentation: UIViewRepresentable {
     private static func anchorScript(for locator: Locator) -> String {
         let selector = locator.payload["domPath"].flatMap { $0.isEmpty ? nil : $0 }
             ?? locator.structuralPath.flatMap { $0.hasPrefix("body") ? $0 : nil }
+        let scrollFraction = locator.payload["scrollFraction"]
         return """
             (() => {
               const selector = \(javaScriptLiteral(selector));
               const quote = \(javaScriptLiteral(locator.textQuote?.exact));
+              const rawFraction = \(javaScriptLiteral(scrollFraction));
+              const fraction = rawFraction === null ? null : Number(rawFraction);
               const selection = window.getSelection();
+              function restoreFraction() {
+                if (!Number.isFinite(fraction)) return false;
+                const root = document.scrollingElement || document.documentElement;
+                const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
+                window.__oneReaderApplyingAnchor = true;
+                if (selection) selection.removeAllRanges();
+                window.scrollTo({ top: Math.min(1, Math.max(0, fraction)) * maximum, behavior: 'auto' });
+                requestAnimationFrame(() => { window.__oneReaderApplyingAnchor = false; });
+                return true;
+              }
               if (!selector && !quote) {
+                if (restoreFraction()) return true;
                 window.__oneReaderApplyingAnchor = true;
                 if (selection) selection.removeAllRanges();
                 window.scrollTo({ top: 0, behavior: 'auto' });
@@ -649,7 +698,7 @@ struct ControlledWebPresentation: UIViewRepresentable {
               let textNode = matchingTextNode(target || document.body, quote);
               if (!textNode && target) textNode = matchingTextNode(document.body, quote);
               if (!target && textNode) target = textNode.parentElement;
-              if (!target) return false;
+              if (!target) return restoreFraction();
               window.__oneReaderApplyingAnchor = true;
               if (selection) selection.removeAllRanges();
               if (selection && textNode && quote) {
@@ -684,7 +733,7 @@ struct ControlledWebPresentation: UIViewRepresentable {
                   parts.unshift(element.tagName.toLowerCase() + ':nth-of-type(' + index + ')');
                   element = element.parentElement;
                 }
-                return 'body > ' + parts.join(' > ');
+                return parts.length ? 'body > ' + parts.join(' > ') : 'body';
               }
               document.addEventListener('selectionchange', () => {
                 if (window.__oneReaderApplyingAnchor) return;
@@ -707,7 +756,7 @@ struct ControlledWebPresentation: UIViewRepresentable {
                   parts.unshift(element.tagName.toLowerCase() + ':nth-of-type(' + index + ')');
                   element = element.parentElement;
                 }
-                return 'body > ' + parts.join(' > ');
+                return parts.length ? 'body > ' + parts.join(' > ') : 'body';
               }
               function firstText(root) {
                 if (!root) return '';
@@ -722,7 +771,14 @@ struct ControlledWebPresentation: UIViewRepresentable {
               function publish() {
                 if (window.__oneReaderApplyingAnchor) return;
                 const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), Math.min(96, Math.max(1, window.innerHeight / 4))) || document.body;
-                window.webkit.messageHandlers.oneReaderPosition.postMessage({ path: pathFor(element), quote: firstText(element) });
+                const root = document.scrollingElement || document.documentElement;
+                const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
+                const fraction = maximum > 0 ? window.scrollY / maximum : 1;
+                window.webkit.messageHandlers.oneReaderPosition.postMessage({
+                  path: pathFor(element),
+                  quote: firstText(element),
+                  fraction
+                });
               }
               let timer = 0;
               document.addEventListener('scroll', () => {
@@ -786,21 +842,39 @@ struct ControlledWebPresentation: UIViewRepresentable {
                 let path = body["path"] as? String
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fraction = (body["fraction"] as? NSNumber)?.doubleValue
                 var payload = parent.document.locator.payload
                 if let path, !path.isEmpty { payload["domPath"] = path }
+                if let fraction, fraction.isFinite {
+                    payload["scrollFraction"] = String(
+                        format: "%.6f",
+                        min(max(fraction, 0), 1)
+                    )
+                }
+                let locator = Locator(
+                    sourceID: parent.document.locator.sourceID,
+                    snapshotID: parent.document.locator.snapshotID,
+                    adapterID: parent.document.locator.adapterID,
+                    payload: payload,
+                    structuralPath: path ?? parent.document.locator.structuralPath,
+                    textQuote: quote.flatMap {
+                        $0.isEmpty ? nil : TextQuote(prefix: nil, exact: $0, suffix: nil)
+                    },
+                    fingerprint: quote.flatMap {
+                        $0.isEmpty ? nil : AdapterUtilities.sha256($0)
+                    }
+                )
+                let normalizedFraction = fraction.map { min(max($0, 0), 1) }
+                let percentage = Int((normalizedFraction ?? 0) * 100)
                 parent.onPositionChange(
-                    Locator(
-                        sourceID: parent.document.locator.sourceID,
-                        snapshotID: parent.document.locator.snapshotID,
-                        adapterID: parent.document.locator.adapterID,
-                        payload: payload,
-                        structuralPath: path ?? parent.document.locator.structuralPath,
-                        textQuote: quote.flatMap {
-                            $0.isEmpty ? nil : TextQuote(prefix: nil, exact: $0, suffix: nil)
-                        },
-                        fingerprint: quote.flatMap {
-                            $0.isEmpty ? nil : AdapterUtilities.sha256($0)
-                        }
+                    ReadingPositionUpdate(
+                        locator: locator,
+                        progressFraction: normalizedFraction,
+                        granularity: .dom,
+                        displayLabel: ReadingPositionUpdate.label(
+                            for: locator,
+                            detail: "阅读到 \(percentage)%"
+                        )
                     )
                 )
                 return

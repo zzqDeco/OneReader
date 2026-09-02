@@ -110,7 +110,9 @@ highlight or AI evidence. Annotation rows expose current, relocated, or
 orphaned anchor state.
 
 Progress stores source position, per-unit completion, current frozen-plan step,
-and reading history independently. Opening a search result, annotation, graph
+and reading history independently. Each Source position carries its immutable
+Snapshot Locator, a presentation granularity, optional normalized fraction, and
+a short resume label. Opening a search result, annotation, graph
 unit, or evidence citation resolves its Locator before presentation. Text and
 Markdown surfaces select and scroll to the quote (using prefix/suffix context
 to disambiguate repeats), WebKit scrolls to a validated DOM/quote anchor, and
@@ -118,10 +120,30 @@ PDFKit navigates to the recorded page and prefers its clipped selection rectangl
 before quote-only fallback. A rect-derived selection is shown only when it
 matches the stored exact quote, but the rect still determines the reading
 position when repeated page text would make the first quote match ambiguous.
+WebKit also stores a normalized scroll fraction as a fallback when structural
+and quote relocation cannot find the old anchor.
 
-Each presentation emits a throttled current-position Locator. Reopening a Space
-restores its most recent Source position, and the Route view exposes unit
-completion plus reading history. Agent-generated graph/route revisions remain
+All presentation surfaces emit one normalized position stream:
+
+| Material | Recorded and restored position |
+| --- | --- |
+| PDF | exact Snapshot, page index, normalized page fraction; selection rectangles remain annotation anchors |
+| Markdown, text, code | source UTF-16/range, line, quote/fingerprint, normalized text fraction |
+| HTML and web snapshot | DOM path, quote/fingerprint, normalized scroll fraction |
+| EPUB | spine `href` plus the controlled-Web DOM/quote/fraction position |
+| directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
+| Quick Look fallback | Source/Snapshot document-level last-open position only |
+
+Continuous scroll updates use a 350 ms persistence debounce. The latest pending
+update is flushed before any Source or Space switch and whenever the scene
+becomes inactive or enters the background, so the debounce cannot discard the
+last position. Reopening a Space restores its most recently updated Source.
+The reader footer shows the saved label, and Library cards show the latest
+resume target plus aggregate Source reading fraction even when no Provider or
+Reading Graph exists. Graph-unit completion remains a separate route fact and
+is only the card's fallback when no Source fraction has been observed.
+
+The Route view exposes unit completion plus reading history. Agent-generated graph/route revisions remain
 pending while the reader is on a frozen plan; adopting a pending route is an
 explicit action that migrates only still-valid progress.
 

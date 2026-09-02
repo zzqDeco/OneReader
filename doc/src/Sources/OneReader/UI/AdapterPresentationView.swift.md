@@ -23,9 +23,14 @@ and the host-owned WebKit bridge scrolls to a safely escaped DOM/quote anchor
 while suppressing synthetic selection callbacks. The shared
 `PDFPageRectAnchor` parser rejects malformed, non-finite, empty, and out-of-page
 geometry before either platform bridge uses it.
-All readable surfaces also emit position Locators; PDFKit observes page changes
-and applies an incoming page/quote anchor only once rather than snapping the
+All readable surfaces emit normalized `ReadingPositionUpdate` values. PDFKit
+observes page changes and reports page fraction; native Markdown/text/code
+reports source range, line, quote, and text fraction; controlled WebKit reports
+DOM path, quote, and scroll fraction and uses that fraction as its final restore
+fallback. Directory/repository and EPUB child `path`/`href` identity stays in
+the Locator. Incoming anchors are applied only once rather than snapping the
 reader back after later scrolling.
 
 The presentation descriptor makes Quick Look limitations machine-readable so
 the workspace does not expose unsupported search or structured highlight UI.
+Quick Look emits only a document-granular last-open update.

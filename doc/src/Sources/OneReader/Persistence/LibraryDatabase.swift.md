@@ -42,6 +42,11 @@ sessions for affected Spaces; that transaction also cancels persisted
 active/waiting/interrupted runs, supersedes candidates, records events, and increments
 durable generations.
 
+When a Source position resolves against the staged Snapshot, the transaction
+rebinds its Locator and preserves the normalized fraction, granularity, and
+display label. An unresolved position is cleared, while the old Snapshot and
+historical Locators remain immutable.
+
 Schema v8 adds Source-keyed security-scoped bookmark storage. Import can insert
 the bookmark in the same transaction as Source/Snapshot/Space identity; Source
 removal deletes it even though the historical Source row remains marked

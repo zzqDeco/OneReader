@@ -76,6 +76,14 @@ and validates the recovered selection against its exact quote before falling
 back to page text, so repeated text on one page does not redirect the anchor to
 the first occurrence.
 
+Every bridge publishes the same `ReadingPositionUpdate` contract with Locator,
+granularity, optional fraction, and display label. SwiftUI flushes the pending
+debounced update when the scene leaves `.active`; `AppModel` also flushes before
+Source and Space changes. This lifecycle behavior is shared by macOS, iPhone,
+and iPad rather than implemented as platform-specific persistence. Quick Look
+publishes only document granularity because neither platform exposes a stable
+public API for the system preview's internal page or scroll state.
+
 Platform branches must remain below the presentation and application-shell
 boundary. A platform-specific adapter ID, Locator schema, graph, progress model,
 Provider protocol, or Agent tool would violate the shared-product contract.

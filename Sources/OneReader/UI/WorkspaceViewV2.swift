@@ -5,6 +5,7 @@ struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isDropTargeted = false
     @State private var isMobileNavigationPresented = false
@@ -52,6 +53,11 @@ struct WorkspaceView: View {
             Text(removalMessage(for: source))
         }
         .onOpenURL { model.handleOpenURL($0) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                model.flushReadingPosition()
+            }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             model.importLocalURLs(urls)
             return !urls.isEmpty

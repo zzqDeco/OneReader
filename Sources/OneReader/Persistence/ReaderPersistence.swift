@@ -186,6 +186,17 @@ extension LibraryDatabase {
                 arguments: [spaceID]
             ))
             for position in progress.sourcePositions.values {
+                if let fraction = position.progressFraction,
+                   !fraction.isFinite || !(0 ... 1).contains(fraction) {
+                    throw ReaderPersistenceError.invalidProgress(
+                        "来源位置的阅读百分比必须位于 0...1"
+                    )
+                }
+                if let label = position.displayLabel, label.count > 512 {
+                    throw ReaderPersistenceError.invalidProgress(
+                        "来源位置的显示标签过长"
+                    )
+                }
                 guard sourceIDs.contains(position.sourceID),
                       position.locator.sourceID == position.sourceID else {
                     throw ReaderPersistenceError.invalidProgress(

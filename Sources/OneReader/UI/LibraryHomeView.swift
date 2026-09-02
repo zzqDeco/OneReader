@@ -237,6 +237,12 @@ private struct SpaceCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ProgressView(value: model.progressFraction(for: space.id))
                         .tint(ReaderTheme.teal)
+                    if let resume = model.resumeDescription(for: space.id) {
+                        Label("继续阅读：\(resume)", systemImage: "bookmark.circle")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     HStack {
                         Label("\(sources.count) 个来源", systemImage: "square.stack.3d.up")
                         Spacer()

@@ -189,10 +189,25 @@ final class AppModelLibraryTests: XCTestCase {
             ),
             fingerprint: AdapterUtilities.sha256("A durable position lives here.")
         )
-        first.updateReadingPosition(position)
+        first.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: position,
+                progressFraction: 0.46,
+                granularity: .text,
+                displayLabel: "第 3 行 · 46%"
+            )
+        )
         try await waitUntil(timeout: .seconds(2)) {
             first.currentProgress.sourcePositions[sourceID]?.locator == position
         }
+        XCTAssertEqual(
+            try XCTUnwrap(first.currentProgress.sourcePositions[sourceID]?.progressFraction),
+            0.46,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(first.currentProgress.sourcePositions[sourceID]?.granularity, .text)
+        XCTAssertEqual(first.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 3 行 · 46%")
+        XCTAssertEqual(first.progressFraction(for: spaceID), 0.46, accuracy: 0.000_001)
 
         let restored = AppModel(
             libraryRootURL: libraryRoot,
@@ -208,6 +223,123 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertEqual(restored.selectedSourceID, sourceID)
         XCTAssertEqual(restored.currentPositionLocator, position)
         XCTAssertEqual(restored.presentationDocument?.locator, position)
+        XCTAssertEqual(
+            try XCTUnwrap(restored.currentProgress.sourcePositions[sourceID]?.progressFraction),
+            0.46,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.granularity, .text)
+        XCTAssertEqual(restored.currentPositionDescription, "第 3 行 · 46%")
+        XCTAssertEqual(
+            restored.resumeDescription(for: spaceID),
+            "long-note.txt · 第 3 行 · 46%"
+        )
+    }
+
+    func testPendingReadingPositionFlushesBeforeSourceSwitch() async throws {
+        let root = temporaryRoot("PositionSourceSwitch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstURL = root.appendingPathComponent("first.txt")
+        let secondURL = root.appendingPathComponent("second.txt")
+        try Data("first source\nposition".utf8).write(to: firstURL)
+        try Data("second source\nposition".utf8).write(to: secondURL)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library"),
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([firstURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument?.title == "first.txt" && model.activePendingImportCount == 0
+        }
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+        let firstSourceID = try XCTUnwrap(model.selectedSourceID)
+        model.importLocalURLs([secondURL], destination: .currentSpace)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.sources.count == 2 && model.activePendingImportCount == 0
+        }
+        model.openSource(firstSourceID)
+        try await waitUntil { model.presentationDocument?.title == "first.txt" }
+        let firstLocator = try XCTUnwrap(model.presentationDocument?.locator)
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: firstLocator,
+                progressFraction: 0.73,
+                granularity: .text,
+                displayLabel: "第 2 行 · 73%"
+            )
+        )
+
+        let secondSourceID = try XCTUnwrap(
+            model.sources.first(where: { $0.id != firstSourceID })?.id
+        )
+        model.openSource(secondSourceID)
+
+        XCTAssertEqual(model.selectedSpaceID, spaceID)
+        XCTAssertEqual(
+            try XCTUnwrap(
+                model.progressBySpace[spaceID]?.sourcePositions[firstSourceID]?.progressFraction
+            ),
+            0.73,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            model.progressBySpace[spaceID]?.sourcePositions[firstSourceID]?.displayLabel,
+            "第 2 行 · 73%"
+        )
+    }
+
+    func testExplicitPositionFlushPersistsWithoutWaitingForDebounce() async throws {
+        let root = temporaryRoot("PositionLifecycleFlush")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sourceURL = root.appendingPathComponent("background.txt")
+        try Data("background position".utf8).write(to: sourceURL)
+        let suite = "OneReaderTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let libraryRoot = root.appendingPathComponent("Library")
+        let model = AppModel(
+            libraryRootURL: libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([sourceURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activePendingImportCount == 0
+        }
+        let locator = try XCTUnwrap(model.presentationDocument?.locator)
+        let sourceID = locator.sourceID
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: locator,
+                progressFraction: 0.31,
+                granularity: .text,
+                displayLabel: "第 1 行 · 31%"
+            )
+        )
+        model.flushReadingPosition()
+
+        let restored = AppModel(
+            libraryRootURL: libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { restored.isBootstrapComplete }
+        restored.openSpace(spaceID)
+        try await waitUntil { restored.presentationDocument != nil }
+
+        XCTAssertEqual(
+            try XCTUnwrap(restored.currentProgress.sourcePositions[sourceID]?.progressFraction),
+            0.31,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 1 行 · 31%")
     }
 
     func testSeparateOpenEventsDoNotCancelEarlierImport() async throws {
@@ -314,7 +446,14 @@ final class AppModelLibraryTests: XCTestCase {
         )
         model.currentSelection = ReaderSelection(text: "removed quote", locator: removed)
         model.addNote("This anchor should become orphaned")
-        model.updateReadingPosition(stable)
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: stable,
+                progressFraction: 0.42,
+                granularity: .text,
+                displayLabel: "第 3 行 · 42%"
+            )
+        )
         try await waitUntil {
             model.currentProgress.sourcePositions[sourceID]?.locator == stable
         }
@@ -346,6 +485,13 @@ final class AppModelLibraryTests: XCTestCase {
             model.currentProgress.sourcePositions[sourceID]?.locator.snapshotID,
             newSnapshotID
         )
+        XCTAssertEqual(
+            try XCTUnwrap(model.currentProgress.sourcePositions[sourceID]?.progressFraction),
+            0.42,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(model.currentProgress.sourcePositions[sourceID]?.granularity, .text)
+        XCTAssertEqual(model.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 3 行 · 42%")
     }
 
     func testNewFrozenPlanRemainsPendingUntilExplicitProgressMigration() async throws {

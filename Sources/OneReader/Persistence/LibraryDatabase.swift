@@ -409,7 +409,10 @@ final class LibraryDatabase: @unchecked Sendable {
                     progress.sourcePositions[snapshot.sourceID] = SourcePosition(
                         sourceID: snapshot.sourceID,
                         locator: resolved,
-                        updatedAt: snapshot.observedAt
+                        updatedAt: snapshot.observedAt,
+                        progressFraction: migration.progressFraction,
+                        granularity: migration.granularity,
+                        displayLabel: migration.displayLabel
                     )
                 } else {
                     progress.sourcePositions[snapshot.sourceID] = nil
@@ -1897,6 +1900,9 @@ struct SourcePositionRevisionMigration: Sendable, Equatable {
     let spaceID: String
     let sourceID: String
     let resolvedLocator: Locator?
+    let progressFraction: Double?
+    let granularity: ReadingPositionGranularity?
+    let displayLabel: String?
 }
 
 struct SourceRevisionMigrationBatch: Sendable, Equatable {

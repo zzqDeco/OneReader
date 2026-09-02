@@ -44,7 +44,10 @@ final class ReaderPersistenceTests: XCTestCase {
         progress.sourcePositions[locator.sourceID] = SourcePosition(
             sourceID: locator.sourceID,
             locator: locator,
-            updatedAt: .now
+            updatedAt: .now,
+            progressFraction: 0.625,
+            granularity: .text,
+            displayLabel: "README.md · 第 25 行 · 62%"
         )
         try fixture.database.saveReadingProgress(
             progress,
@@ -74,6 +77,12 @@ final class ReaderPersistenceTests: XCTestCase {
         XCTAssertEqual(
             storedProgress.sourcePositions[locator.sourceID]?.locator,
             locator
+        )
+        XCTAssertEqual(storedProgress.sourcePositions[locator.sourceID]?.progressFraction, 0.625)
+        XCTAssertEqual(storedProgress.sourcePositions[locator.sourceID]?.granularity, .text)
+        XCTAssertEqual(
+            storedProgress.sourcePositions[locator.sourceID]?.displayLabel,
+            "README.md · 第 25 行 · 62%"
         )
 
         let storedHistory = try fixture.database.fetchReadingHistory(
@@ -145,6 +154,86 @@ final class ReaderPersistenceTests: XCTestCase {
                 spaceID: fixture.imported.space.id
             )
         )
+    }
+
+    func testProgressRejectsInvalidSourceFraction() async throws {
+        let fixture = try await makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let nodes = try await fixture.coordinator.list(plan: fixture.plan)
+        let locator = try XCTUnwrap(nodes.first?.locator)
+        var progress = ReadingProgress.empty
+        progress.sourcePositions[locator.sourceID] = SourcePosition(
+            sourceID: locator.sourceID,
+            locator: locator,
+            updatedAt: .now,
+            progressFraction: 1.01,
+            granularity: .text,
+            displayLabel: "invalid"
+        )
+
+        XCTAssertThrowsError(
+            try fixture.database.saveReadingProgress(
+                progress,
+                spaceID: fixture.imported.space.id
+            )
+        )
+    }
+
+    func testLegacySourcePositionWithoutMetadataStillDecodes() throws {
+        let locator = Locator(
+            sourceID: "legacy-source",
+            snapshotID: "legacy-snapshot",
+            adapterID: PlainTextAdapter.id,
+            payload: ["startLine": "8"]
+        )
+        var progress = ReadingProgress.empty
+        progress.sourcePositions[locator.sourceID] = SourcePosition(
+            sourceID: locator.sourceID,
+            locator: locator,
+            updatedAt: Date(timeIntervalSince1970: 42)
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(progress)
+        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        XCTAssertFalse(json.contains("progressFraction"))
+        XCTAssertFalse(json.contains("granularity"))
+        XCTAssertFalse(json.contains("displayLabel"))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ReadingProgress.self, from: encoded)
+        let position = try XCTUnwrap(decoded.sourcePositions[locator.sourceID])
+        XCTAssertEqual(position.locator, locator)
+        XCTAssertNil(position.progressFraction)
+        XCTAssertNil(position.granularity)
+        XCTAssertNil(position.displayLabel)
+        XCTAssertEqual(position.resolvedGranularity, .document)
+    }
+
+    func testReadingPositionUpdateNormalizesFractionAndLabel() {
+        let locator = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "4"]
+        )
+        let update = ReadingPositionUpdate(
+            locator: locator,
+            progressFraction: 1.5,
+            granularity: .page,
+            displayLabel: "  第 5 页  "
+        )
+        XCTAssertEqual(update.progressFraction, 1)
+        XCTAssertEqual(update.granularity, .page)
+        XCTAssertEqual(update.displayLabel, "第 5 页")
+
+        let invalid = ReadingPositionUpdate(
+            locator: locator,
+            progressFraction: .nan,
+            granularity: .page
+        )
+        XCTAssertNil(invalid.progressFraction)
     }
 
     func testRemovingSourceClearsSourceBoundReaderStateAndResetsRouteProgress() async throws {

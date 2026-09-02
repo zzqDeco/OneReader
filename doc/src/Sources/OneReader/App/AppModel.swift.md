@@ -35,6 +35,15 @@ incidental readable file.
 
 The model never writes Agent output directly. It delegates runs to the runtime,
 loads committed graphs/plans/activity, and exposes only host-validated results.
+Continuous presentation updates are retained as a pending rich Source position
+and debounced for 350 ms. `AppModel` synchronously flushes that pending update
+before Source/Space transitions; the root scene invokes the same flush when it
+leaves the active lifecycle state. The Library exposes the latest resume label
+and uses aggregate Source fractions without requiring a graph, while unit and
+plan progress remain independent. Opening the same Locator preserves its
+fraction/granularity metadata instead of replacing it with a bare document
+position.
+
 Space transitions cancel search, position, content, and Agent work, then require
 both the captured Space ID and workspace generation before any result can be
 published. Opening a Space restores its most recent persisted position.
@@ -54,6 +63,8 @@ loaded as pending while the reader remains on a frozen plan; adoption and valid
 progress migration require an explicit user action. Source refresh stages and
 probes new bytes under the existing Source identity, resolves annotation and
 position anchors, and commits the new Snapshot plus migration states atomically.
+Resolved position migrations retain fraction, granularity, and display label;
+unresolved positions are removed rather than rebound to stale bytes.
 
 Bootstrap also enumerates every active searchable AdapterPlan that lacks a
 completed schema-v9 projection and schedules background indexing without

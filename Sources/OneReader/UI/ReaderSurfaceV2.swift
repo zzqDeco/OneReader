@@ -111,9 +111,9 @@ struct ReaderSurfaceView: View {
                         model.currentSelection = selection
                     }
                 },
-                onPositionChange: { locator in
+                onPositionChange: { update in
                     Task { @MainActor in
-                        model.updateReadingPosition(locator)
+                        model.updateReadingPosition(update)
                     }
                 }
             )
@@ -160,6 +160,15 @@ struct ReaderSurfaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("下一项")
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+
+            if let position = model.currentPositionDescription {
+                Label("已记录 · \(position)", systemImage: "bookmark.circle")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityLabel("阅读位置已记录，\(position)")
+            }
 
             Spacer(minLength: 0)
 

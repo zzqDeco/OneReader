@@ -57,8 +57,18 @@ not receive database-write tools.
 ### Annotation and progress
 
 Bookmarks, highlights, and notes bind to capability-supported Locators and
-carry current, relocated, or orphaned state. Progress separately records source
-position, unit completion, frozen plan step, and history.
+carry current, relocated, or orphaned state. A `SourcePosition` stores one
+Snapshot-bound Locator plus optional normalized fraction, presentation
+granularity (`document`, `text`, `page`, or `dom`), update time, and a bounded
+display label. Presentation bridges publish transient `ReadingPositionUpdate`
+values; only the host validates and persists them. The optional metadata keeps
+schema-v1 progress payloads backward-decodable.
+
+Source position, unit completion, frozen plan step, and history are independent
+facts. A directory, Git repository, or EPUB retains its child `path`/`href` in
+the same Locator while the child presentation contributes text, page, or DOM
+position. Quick Look is deliberately document-granular and never fabricates an
+internal page or scroll percentage.
 
 ### AgentRun, AgentEvent, and AgentArtifact
 
