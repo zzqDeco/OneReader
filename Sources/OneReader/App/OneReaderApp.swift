@@ -1,10 +1,12 @@
 import SwiftUI
 
-@main
-struct OneReaderApp: App {
+public struct OneReaderScene: Scene {
     @StateObject private var model = AppModel()
 
-    var body: some Scene {
+    public init() {}
+
+    public var body: some Scene {
+#if os(macOS)
         WindowGroup {
             WorkspaceView()
                 .environmentObject(model)
@@ -81,5 +83,11 @@ struct OneReaderApp: App {
             ReaderSettingsView()
                 .environmentObject(model)
         }
+#else
+        WindowGroup {
+            WorkspaceView()
+                .environmentObject(model)
+        }
+#endif
     }
 }

@@ -143,7 +143,7 @@ struct ReaderNavigationSidebar: View {
                                 model.toggleSourceFavorite(source.id)
                             }
                             Divider()
-                            Button("移到废纸篓…", role: .destructive) {
+                            Button(removeSourceTitle, role: .destructive) {
                                 model.requestSourceRemoval(source.id)
                             }
                         }
@@ -188,6 +188,14 @@ struct ReaderNavigationSidebar: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private var removeSourceTitle: String {
+#if os(macOS)
+        "移到废纸篓…"
+#else
+        "从此设备移除…"
+#endif
     }
 
     private var routeView: some View {

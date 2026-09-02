@@ -5,10 +5,12 @@ import PackageDescription
 let package = Package(
     name: "OneReader",
     platforms: [
-        .macOS("26.1")
+        .macOS("26.1"),
+        .iOS("26.1")
     ],
     products: [
-        .executable(name: "OneReader", targets: ["OneReader"])
+        .library(name: "OneReader", targets: ["OneReader"]),
+        .executable(name: "OneReaderApp", targets: ["OneReaderApp"])
     ],
     dependencies: [
         .package(
@@ -39,7 +41,7 @@ let package = Package(
         )
     ],
     targets: [
-        .executableTarget(
+        .target(
             name: "OneReader",
             dependencies: [
                 .product(name: "SwiftAgent", package: "SwiftAgent"),
@@ -52,6 +54,11 @@ let package = Package(
                 .product(name: "Markdown", package: "swift-markdown")
             ],
             path: "Sources/OneReader"
+        ),
+        .executableTarget(
+            name: "OneReaderApp",
+            dependencies: ["OneReader"],
+            path: "Apps/OneReaderApp"
         ),
         .testTarget(
             name: "OneReaderTests",

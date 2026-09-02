@@ -13,7 +13,9 @@ struct ReaderSettingsView: View {
                 .environmentObject(model)
                 .tabItem { Label("模型", systemImage: "sparkles") }
         }
+#if os(macOS)
         .frame(width: 680, height: 500)
+#endif
     }
 }
 
@@ -34,22 +36,18 @@ private struct ReadingAppearanceSettings: View {
             Section("排版") {
                 LabeledContent("字号 \(Int(model.preferences.fontSize)) pt") {
                     Slider(value: $model.preferences.fontSize, in: 12...30, step: 1)
-                        .frame(width: 300)
                 }
                 LabeledContent("行宽 \(Int(model.preferences.lineWidth)) pt") {
                     Slider(value: $model.preferences.lineWidth, in: 480...1100, step: 20)
-                        .frame(width: 300)
                 }
                 LabeledContent("行距 \(Int(model.preferences.lineSpacing)) pt") {
                     Slider(value: $model.preferences.lineSpacing, in: 0...18, step: 1)
-                        .frame(width: 300)
                 }
             }
 
             Section("PDF") {
                 LabeledContent("默认缩放 \(Int(model.preferences.pdfScale * 100))%") {
                     Slider(value: $model.preferences.pdfScale, in: 0.5...2.5, step: 0.05)
-                        .frame(width: 300)
                 }
             }
         }
@@ -72,32 +70,66 @@ private struct ProviderSettings: View {
     @State private var draftID = UUID().uuidString.lowercased()
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                List(selection: $selectionID) {
-                    ForEach(model.providerProfiles) { profile in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(profile.displayName)
-                            Text("\(profile.kind.displayName) · \(profile.modelID)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .tag(profile.id)
-                    }
-                }
-                Divider()
-                Button {
-                    resetDraft()
-                } label: {
-                    Label("新建 Provider", systemImage: "plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .buttonStyle(.plain)
+        Group {
+#if os(macOS)
+            HSplitView {
+                providerSidebar
+                    .frame(minWidth: 190, idealWidth: 220)
+                providerForm
+                    .frame(minWidth: 430)
             }
-            .frame(minWidth: 190, idealWidth: 220)
+#else
+            NavigationStack {
+                providerForm
+                    .navigationTitle("模型")
+            }
+#endif
+        }
+        .onAppear {
+            selectionID = model.providerProfiles.first?.id
+            loadSelection()
+        }
+        .onChange(of: selectionID) { _, _ in loadSelection() }
+    }
 
-            Form {
+    private var providerSidebar: some View {
+        VStack(spacing: 0) {
+            List(selection: $selectionID) {
+                ForEach(model.providerProfiles) { profile in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.displayName)
+                        Text("\(profile.kind.displayName) · \(profile.modelID)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(profile.id)
+                }
+            }
+            Divider()
+            Button {
+                resetDraft()
+            } label: {
+                Label("新建 Provider", systemImage: "plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var providerForm: some View {
+        Form {
+#if os(iOS)
+                Section("Provider") {
+                    Picker("配置", selection: $selectionID) {
+                        Text("新建 Provider").tag(String?.none)
+                        ForEach(model.providerProfiles) { profile in
+                            Text(profile.displayName).tag(String?.some(profile.id))
+                        }
+                    }
+                    Button("新建 Provider", systemImage: "plus") { resetDraft() }
+                }
+#endif
                 Section("Provider Profile") {
                     TextField("名称", text: $displayName)
                     Picker("类型", selection: $kind) {
@@ -161,19 +193,12 @@ private struct ProviderSettings: View {
                 }
 
                 Section {
-                    Text("API Key 只写入 macOS Keychain。数据库与日志只保存引用；真实模型调用不会出现在 CI 中。")
+                    Text("API Key 只写入设备 Keychain。数据库与日志只保存引用；真实模型调用不会出现在 CI 中。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
-            .frame(minWidth: 430)
-        }
-        .onAppear {
-            selectionID = model.providerProfiles.first?.id
-            loadSelection()
-        }
-        .onChange(of: selectionID) { _, _ in loadSelection() }
     }
 
     private var existingProfile: ProviderProfile? {

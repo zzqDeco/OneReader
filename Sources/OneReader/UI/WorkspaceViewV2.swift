@@ -1,19 +1,17 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isDropTargeted = false
+    @State private var isMobileNavigationPresented = false
+    @State private var isSettingsPresented = false
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebarView()
-                .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
-        } detail: {
-            detail
-        }
-        .toolbar { toolbar }
+        rootWorkspace
         .sheet(isPresented: $model.isImportSheetPresented) {
             ImportSourceSheet()
                 .environmentObject(model)
@@ -46,12 +44,12 @@ struct WorkspaceView: View {
             ),
             presenting: model.pendingSourceRemoval
         ) { _ in
-            Button("移到废纸篓并移除", role: .destructive) {
+            Button(removalButtonTitle, role: .destructive) {
                 model.confirmSourceRemoval()
             }
             Button("取消", role: .cancel) { model.pendingSourceRemoval = nil }
         } message: { source in
-            Text("将移除“\(source.displayName)”及其本地阅读记录；独占的托管副本会进入 macOS 废纸篓，原始文件不会被修改。")
+            Text(removalMessage(for: source))
         }
         .onOpenURL { model.handleOpenURL($0) }
         .dropDestination(for: URL.self) { urls, _ in
@@ -73,47 +71,134 @@ struct WorkspaceView: View {
             }
         }
         .tint(ReaderTheme.teal)
+#if os(iOS)
+        .fileImporter(
+            isPresented: Binding(
+                get: { model.platformFileImportPurpose != nil },
+                set: { if !$0 { model.platformFileImportPurpose = nil } }
+            ),
+            allowedContentTypes: [.item, .folder],
+            allowsMultipleSelection: model.platformFileImportPurpose?.allowsMultipleSelection ?? true
+        ) { result in
+            model.completePlatformFileImport(result)
+        }
+        .sheet(isPresented: $isMobileNavigationPresented) {
+            NavigationStack {
+                ReaderNavigationSidebar()
+                    .environmentObject(model)
+                    .navigationTitle("阅读导航")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { isMobileNavigationPresented = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $isSettingsPresented) {
+            NavigationStack {
+                ReaderSettingsView()
+                    .environmentObject(model)
+                    .navigationTitle("设置")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { isSettingsPresented = false }
+                        }
+                    }
+            }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { usesCompactReader && model.isInspectorPresented },
+                set: { model.isInspectorPresented = $0 }
+            )
+        ) {
+            NavigationStack {
+                ReaderInspectorView()
+                    .environmentObject(model)
+                    .navigationTitle("Inspector")
+            }
+            .presentationDetents([.medium, .large])
+        }
+#endif
+    }
+
+    @ViewBuilder
+    private var rootWorkspace: some View {
+#if os(iOS)
+        if usesCompactReader {
+            NavigationStack {
+                LibraryHomeView()
+                    .toolbar { toolbar }
+                    .navigationDestination(isPresented: compactReaderBinding) {
+                        ReaderSurfaceView()
+                            .toolbar { toolbar }
+                    }
+            }
+        } else {
+            splitWorkspace
+        }
+#else
+        splitWorkspace
+#endif
+    }
+
+    private var splitWorkspace: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            LibrarySidebarView()
+                .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
+        } detail: {
+            detail
+        }
+        .toolbar { toolbar }
     }
 
     @ViewBuilder
     private var detail: some View {
         if model.isReadingWorkspaceOpen {
-            GeometryReader { geometry in
-                let compact = geometry.size.width < 920
-                ZStack(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                        ReaderNavigationSidebar()
-                            .frame(width: compact ? 210 : 245)
-                        Divider()
-                        ReaderSurfaceView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-
-                        if model.isInspectorPresented, !compact {
+            if usesCompactReader {
+                ReaderSurfaceView()
+                    .task {
+                        model.isInspectorPresented = false
+                    }
+            } else {
+                GeometryReader { geometry in
+                    let compact = geometry.size.width < 920
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            ReaderNavigationSidebar()
+                                .frame(width: compact ? 210 : 245)
                             Divider()
+                            ReaderSurfaceView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .layoutPriority(1)
+
+                            if model.isInspectorPresented, !compact {
+                                Divider()
+                                ReaderInspectorView()
+                                    .frame(width: 338)
+                            }
+                        }
+
+                        if model.isInspectorPresented, compact {
+                            Color.black.opacity(0.12)
+                                .contentShape(Rectangle())
+                                .onTapGesture { model.isInspectorPresented = false }
+                                .accessibilityHidden(true)
                             ReaderInspectorView()
-                                .frame(width: 338)
+                                .frame(width: min(338, geometry.size.width * 0.62))
+                                .shadow(color: .black.opacity(0.18), radius: 18, x: -5)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
-
-                    if model.isInspectorPresented, compact {
-                        Color.black.opacity(0.12)
-                            .contentShape(Rectangle())
-                            .onTapGesture { model.isInspectorPresented = false }
-                            .accessibilityHidden(true)
-                        ReaderInspectorView()
-                            .frame(width: min(338, geometry.size.width * 0.62))
-                            .shadow(color: .black.opacity(0.18), radius: 18, x: -5)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 0.18),
-                    value: model.isInspectorPresented
-                )
-                .task(id: compact) {
-                    if compact, model.isInspectorPresented {
-                        model.isInspectorPresented = false
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: 0.18),
+                        value: model.isInspectorPresented
+                    )
+                    .task(id: compact) {
+                        if compact, model.isInspectorPresented {
+                            model.isInspectorPresented = false
+                        }
                     }
                 }
             }
@@ -143,6 +228,30 @@ struct WorkspaceView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+#if os(iOS)
+            if usesCompactReader, !model.isReadingWorkspaceOpen {
+                Menu {
+                    ForEach(LibraryCollection.allCases) { collection in
+                        Button {
+                            model.selectCollection(collection)
+                        } label: {
+                            Label(collection.title, systemImage: collection.systemImage)
+                        }
+                    }
+                } label: {
+                    Label("资料库分类", systemImage: model.selectedCollection.systemImage)
+                }
+            }
+#endif
+
+            if model.isReadingWorkspaceOpen, usesCompactReader {
+                Button {
+                    isMobileNavigationPresented = true
+                } label: {
+                    Label("阅读导航", systemImage: "list.bullet")
+                }
+            }
+
             Menu {
                 Button("选择文件或目录…", systemImage: "folder") {
                     model.presentLocalSourceImporter()
@@ -164,6 +273,9 @@ struct WorkspaceView: View {
             if model.isReadingWorkspaceOpen {
                 Button {
                     model.navigationTab = .search
+                    if usesCompactReader {
+                        isMobileNavigationPresented = true
+                    }
                 } label: {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
@@ -176,6 +288,50 @@ struct WorkspaceView: View {
                 }
                 .help(model.isInspectorPresented ? "隐藏 Inspector" : "显示 Inspector")
             }
+
+#if os(iOS)
+            Button {
+                isSettingsPresented = true
+            } label: {
+                Label("设置", systemImage: "gearshape")
+            }
+            .help("阅读与模型设置")
+#endif
         }
+    }
+
+    private var usesCompactReader: Bool {
+#if os(iOS)
+        horizontalSizeClass == .compact
+#else
+        false
+#endif
+    }
+
+    private var compactReaderBinding: Binding<Bool> {
+        Binding(
+            get: { model.isReadingWorkspaceOpen },
+            set: { isPresented in
+                if !isPresented {
+                    model.closeReadingWorkspace()
+                }
+            }
+        )
+    }
+
+    private func removalMessage(for source: Source) -> String {
+#if os(macOS)
+        "将移除“\(source.displayName)”及其本地阅读记录；独占的托管副本会进入 macOS 废纸篓，原始文件不会被修改。"
+#else
+        "将移除“\(source.displayName)”及其本地阅读记录；独占的托管副本会从此设备的 App 沙盒移除，原始文件不会被修改。"
+#endif
+    }
+
+    private var removalButtonTitle: String {
+#if os(macOS)
+        "移到废纸篓并移除"
+#else
+        "从此设备移除"
+#endif
     }
 }

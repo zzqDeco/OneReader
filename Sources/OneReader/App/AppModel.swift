@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Combine
 import Foundation
 import UniformTypeIdentifiers
@@ -31,6 +35,16 @@ enum AgentRunAttentionKind: Equatable, Sendable {
     case interrupted
 }
 
+enum PlatformFileImportPurpose: Equatable, Sendable {
+    case add(ImportDestination)
+    case reauthorize(sourceID: String)
+
+    var allowsMultipleSelection: Bool {
+        if case .add = self { return true }
+        return false
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -50,7 +64,11 @@ final class AppModel: ObservableObject {
     @Published var isReadingWorkspaceOpen = false
     @Published var navigationTab: WorkspaceNavigationTab = .outline
     @Published var inspectorTab: ReaderInspectorTab = .annotations
+#if os(macOS)
     @Published var isInspectorPresented = true
+#else
+    @Published var isInspectorPresented = false
+#endif
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -75,6 +93,7 @@ final class AppModel: ObservableObject {
     @Published var pendingSourceRemoval: Source?
     @Published private(set) var isBootstrapComplete = false
     @Published var isImportSheetPresented = false
+    @Published var platformFileImportPurpose: PlatformFileImportPurpose?
     @Published var notice: AppNotice?
 
     @Published var preferences: ReaderPreferences {
@@ -373,6 +392,7 @@ final class AppModel: ObservableObject {
     }
 
     func presentLocalSourceImporter(destination: ImportDestination = .newSpace) {
+#if os(macOS)
         let panel = NSOpenPanel()
         panel.title = "添加到 OneReader"
         panel.prompt = "导入"
@@ -386,6 +406,41 @@ final class AppModel: ObservableObject {
             guard response == .OK else { return }
             Task { @MainActor [weak self] in
                 self?.importLocalURLs(panel.urls, destination: destination)
+            }
+        }
+#else
+        platformFileImportPurpose = .add(destination)
+#endif
+    }
+
+    func completePlatformFileImport(_ result: Result<[URL], any Error>) {
+        guard let purpose = platformFileImportPurpose else { return }
+        platformFileImportPurpose = nil
+        switch result {
+        case .failure(let error):
+            notice = AppNotice(title: "无法读取所选材料", message: error.localizedDescription)
+        case .success(let urls):
+            switch purpose {
+            case .add(let destination):
+                importLocalURLs(urls, destination: destination)
+            case .reauthorize(let sourceID):
+                guard let selectedURL = urls.first,
+                      let managedLibrary else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await managedLibrary.authorizeLocalSource(
+                            sourceID: sourceID,
+                            selectedURL: selectedURL
+                        )
+                        refreshSource(sourceID)
+                    } catch {
+                        notice = AppNotice(
+                            title: "无法授权来源",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
             }
         }
     }
@@ -848,6 +903,7 @@ final class AppModel: ObservableObject {
     }
 
     private func presentRefreshReauthorization(for source: Source) {
+#if os(macOS)
         guard let originURL = source.originURL else { return }
         let panel = NSOpenPanel()
         panel.title = "重新授权本地来源"
@@ -876,6 +932,9 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+#else
+        platformFileImportPurpose = .reauthorize(sourceID: source.id)
+#endif
     }
 
     func confirmSourceRemoval() {
@@ -928,7 +987,11 @@ final class AppModel: ObservableObject {
 
     func openOriginalSource() {
         guard let url = selectedSource?.originURL else { return }
+#if os(macOS)
         NSWorkspace.shared.open(url)
+#else
+        UIApplication.shared.open(url)
+#endif
     }
 
     func selectReadingUnit(_ unitID: String) {
@@ -1229,6 +1292,7 @@ final class AppModel: ObservableObject {
         }
     }
 
+#if os(macOS)
     func resizeMainWindow(width: CGFloat, height: CGFloat) {
         guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return }
         var frame = window.frame
@@ -1243,6 +1307,7 @@ final class AppModel: ObservableObject {
             animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
     }
+#endif
 
     private func importOne(
         _ request: ReaderImportRequest,

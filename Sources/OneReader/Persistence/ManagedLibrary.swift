@@ -74,7 +74,7 @@ actor ManagedLibrary {
         let authorizationWarning: String?
         do {
             accessBookmark = try sourceURL.bookmarkData(
-                options: [.withSecurityScope],
+                options: Self.bookmarkCreationOptions,
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
@@ -149,13 +149,13 @@ actor ManagedLibrary {
             do {
                 authorizedURL = try URL(
                     resolvingBookmarkData: bookmark,
-                    options: [.withSecurityScope, .withoutUI],
+                    options: Self.bookmarkResolutionOptions,
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 )
                 if isStale {
                     let renewed = try authorizedURL.bookmarkData(
-                        options: [.withSecurityScope],
+                        options: Self.bookmarkCreationOptions,
                         includingResourceValuesForKeys: nil,
                         relativeTo: nil
                     )
@@ -206,7 +206,7 @@ actor ManagedLibrary {
             if didAccess { selectedURL.stopAccessingSecurityScopedResource() }
         }
         let bookmark = try selectedURL.bookmarkData(
-            options: [.withSecurityScope],
+            options: Self.bookmarkCreationOptions,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
@@ -465,6 +465,13 @@ actor ManagedLibrary {
             }
             let generations = try database.commitRemoval(sourceID: sourceID)
             removeDerivedData(forSnapshotIDs: plan.snapshotIDs)
+#if os(iOS)
+            // iOS has no user-visible Trash API. Keep the move reversible until
+            // the database transaction succeeds, then discard the staged copy.
+            for item in movedItems {
+                try? fileManager.removeItem(at: item.trashed)
+            }
+#endif
             return generations
         } catch {
             for item in movedItems.reversed() {
@@ -751,12 +758,43 @@ actor ManagedLibrary {
     }
 
     private nonisolated static func moveToTrash(_ url: URL) throws -> URL {
+#if os(macOS)
         var resultingURL: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
         guard let resultingURL else {
             throw LibraryStorageError.trashDestinationUnavailable(url.path)
         }
         return resultingURL as URL
+#else
+        let stagingRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OneReader-RemovalTrash", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stagingRoot,
+            withIntermediateDirectories: true
+        )
+        let destination = stagingRoot.appendingPathComponent(
+            "\(UUID().uuidString.lowercased())-\(url.lastPathComponent)",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: url, to: destination)
+        return destination
+#endif
+    }
+
+    private nonisolated static var bookmarkCreationOptions: URL.BookmarkCreationOptions {
+#if os(macOS)
+        [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+#else
+        [.minimalBookmark]
+#endif
+    }
+
+    private nonisolated static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
+#if os(macOS)
+        [.withSecurityScope, .withoutUI]
+#else
+        [.withoutUI]
+#endif
     }
 }
 

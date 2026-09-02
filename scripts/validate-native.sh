@@ -10,6 +10,8 @@ lock_digest_after_resolve="$(shasum -a 256 "$repo_root/Package.resolved" | awk '
 [[ "$lock_digest_before" == "$lock_digest_after_resolve" ]]
 python3 "$repo_root/scripts/check-dependency-lock.py"
 python3 "$repo_root/scripts/check-doc-index.py"
+python3 "$repo_root/scripts/check-apple-platform-metadata.py"
+"$repo_root/scripts/check-xcode-project.sh"
 plutil -lint "$repo_root/Resources/ReleaseMetadata.plist" >/dev/null
 "$repo_root/scripts/test-release-gates.sh"
 "$repo_root/scripts/test-entitlement-gate.sh"
@@ -30,5 +32,8 @@ lock_digest_after_package="$(shasum -a 256 "$repo_root/Package.resolved" | awk '
 [[ "$lock_digest_before" == "$lock_digest_after_package" ]]
 codesign --verify --deep --strict --verbose=2 "$repo_root/dist/OneReader.app"
 "$repo_root/scripts/check-app-entitlements.sh" "$repo_root/dist/OneReader.app"
+"$repo_root/scripts/build-ios-simulator.sh"
+lock_digest_after_ios="$(shasum -a 256 "$repo_root/Package.resolved" | awk '{print $1}')"
+[[ "$lock_digest_before" == "$lock_digest_after_ios" ]]
 
-echo "Native validation passed."
+echo "Apple-platform native validation passed."

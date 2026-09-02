@@ -40,11 +40,18 @@ struct ApplicationSupportLayout: Sendable {
             return
         }
 
-        let base = FileManager.default.urls(
+        let discoveredBase = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+        ).first
+#if os(macOS)
+        let fallbackBase = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
+#else
+        let fallbackBase = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+#endif
+        let base = discoveredBase ?? fallbackBase
         self.rootURL = base.appendingPathComponent("OneReader", isDirectory: true)
     }
 
@@ -171,7 +178,7 @@ enum LibraryStorageError: LocalizedError, Equatable {
         case let .missingSource(id):
             "Source 不存在：\(id)"
         case let .trashDestinationUnavailable(path):
-            "无法确认废纸篓中的托管副本位置：\(path)"
+            "无法建立可恢复的托管副本移除位置：\(path)"
         }
     }
 }

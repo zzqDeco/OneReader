@@ -22,7 +22,7 @@ jobs:
   native-validation:
     name: Native validation
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -38,11 +38,24 @@ jobs:
           swift --version
           xcodebuild -version
 
+      - name: Prepare XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
       - name: Run authoritative native validation
         run: scripts/validate-native.sh
 
       - name: Archive app
         run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-developer-preview.zip
+
+      - name: Archive iPhone and iPad Simulator app
+        run: |
+          ditto -c -k --keepParent \
+            .onereader/DerivedData-iOS/Build/Products/Debug-iphonesimulator/OneReader.app \
+            dist/OneReader-ios-simulator.zip
 
       - name: Upload app artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -51,3 +64,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: dist/OneReader-macos-developer-preview.zip
+
+      - name: Upload iPhone and iPad Simulator artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OneReader-ios-simulator
+          if-no-files-found: error
+          retention-days: 7
+          path: dist/OneReader-ios-simulator.zip

@@ -1,6 +1,10 @@
+#if os(macOS)
 import AppKit
-import PDFKit
 import QuickLookUI
+#else
+import UIKit
+#endif
+import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -138,7 +142,12 @@ struct AdapterPresentationView: View {
 
     private var backgroundColor: Color {
         switch preferences.theme {
-        case .system: Color(nsColor: .textBackgroundColor)
+        case .system:
+#if os(macOS)
+            Color(nsColor: .textBackgroundColor)
+#else
+            Color(uiColor: .systemBackground)
+#endif
         case .paper: Color(red: 0.97, green: 0.95, blue: 0.90)
         case .dark: Color(red: 0.08, green: 0.09, blue: 0.10)
         }
@@ -177,12 +186,13 @@ struct AdapterPresentationView: View {
     }
 }
 
-private enum NativeTextPresentationKind: String {
+enum NativeTextPresentationKind: String {
     case markdown
     case text
     case code
 }
 
+#if os(macOS)
 private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let content: String
     let locator: Locator
@@ -1095,6 +1105,8 @@ private struct ControlledWebPresentation: NSViewRepresentable {
     }
 }
 
+#endif
+
 enum ReadOnlyContentResourceError: Error, Equatable {
     case invalidPath
     case missingFile
@@ -1261,7 +1273,7 @@ final class ReadOnlySchemeTaskLifecycle: @unchecked Sendable {
     }
 }
 
-private final class ReadOnlyContentSchemeHandler: NSObject, WKURLSchemeHandler,
+final class ReadOnlyContentSchemeHandler: NSObject, WKURLSchemeHandler,
     @unchecked Sendable
 {
 

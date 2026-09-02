@@ -14,14 +14,14 @@ git -C "$fixture" add Resources/Info.plist
 git -C "$fixture" commit --quiet -m "fixture"
 commit="$(git -C "$fixture" rev-parse HEAD)"
 git -C "$fixture" update-ref refs/remotes/origin/main "$commit"
-git -C "$fixture" tag -a v0.2.0 -m "fixture release"
+git -C "$fixture" tag -a v0.3.0 -m "fixture release"
 
 RELEASE_REPO_ROOT="$fixture" \
-  RELEASE_TAG="v0.2.0" \
+  RELEASE_TAG="v0.3.0" \
   "$repo_root/scripts/validate-release-ref.sh" >/dev/null
 
-git -C "$fixture" tag v0.2.1
-if RELEASE_REPO_ROOT="$fixture" RELEASE_TAG="v0.2.1" \
+git -C "$fixture" tag v0.3.1
+if RELEASE_REPO_ROOT="$fixture" RELEASE_TAG="v0.3.1" \
   "$repo_root/scripts/validate-release-ref.sh" >/dev/null 2>&1; then
   echo "Lightweight release tags must be rejected." >&2
   exit 1
@@ -29,7 +29,7 @@ fi
 
 git -C "$fixture" commit --quiet --allow-empty -m "new main tip"
 git -C "$fixture" update-ref refs/remotes/origin/main HEAD
-if RELEASE_REPO_ROOT="$fixture" RELEASE_TAG="v0.2.0" \
+if RELEASE_REPO_ROOT="$fixture" RELEASE_TAG="v0.3.0" \
   "$repo_root/scripts/validate-release-ref.sh" >/dev/null 2>&1; then
   echo "A tag behind origin/main tip must be rejected." >&2
   exit 1

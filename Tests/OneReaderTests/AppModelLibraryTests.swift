@@ -108,6 +108,19 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertEqual(restored.preferences.pdfScale, 1.2)
     }
 
+    func testPlatformFileImportPurposeOnlyAllowsBatchSelectionForNewImports() {
+        XCTAssertTrue(
+            PlatformFileImportPurpose.add(.newSpace).allowsMultipleSelection
+        )
+        XCTAssertTrue(
+            PlatformFileImportPurpose.add(.currentSpace).allowsMultipleSelection
+        )
+        XCTAssertFalse(
+            PlatformFileImportPurpose.reauthorize(sourceID: "source-1")
+                .allowsMultipleSelection
+        )
+    }
+
     func testReadingPositionPersistsAndRestoresAcrossModelInstances() async throws {
         let root = temporaryRoot("PositionRestore")
         defer { try? FileManager.default.removeItem(at: root) }

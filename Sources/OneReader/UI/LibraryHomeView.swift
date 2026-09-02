@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryHomeView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let columns = [
         GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 18),
@@ -10,7 +11,9 @@ struct LibraryHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                header
+                if !model.spaces.isEmpty || !model.pendingImports.isEmpty {
+                    header
+                }
 
                 if !model.pendingImports.isEmpty {
                     pendingSection
@@ -34,7 +37,7 @@ struct LibraryHomeView: View {
                     }
                 }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, horizontalSizeClass == .compact ? 18 : 28)
             .padding(.top, 24)
             .padding(.bottom, 52)
         }
@@ -43,22 +46,48 @@ struct LibraryHomeView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 16) {
+        Group {
+            if horizontalSizeClass == .compact {
+                Text(libraryDescription)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 16) {
+                        headerTitle
+                        Spacer()
+                        addMaterialButton
+                    }
+                    VStack(alignment: .leading, spacing: 14) {
+                        headerTitle
+                        addMaterialButton
+                    }
+                }
+            }
+        }
+    }
+
+    private var headerTitle: some View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.selectedCollection.title)
                     .font(.system(size: 30, weight: .semibold, design: .rounded))
-                Text("每个空间可以组合 PDF、EPUB、网页、代码和目录；基础阅读不依赖模型。")
+                Text(libraryDescription)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            Button {
-                model.isImportSheetPresented = true
-            } label: {
-                Label("添加材料", systemImage: "plus")
-            }
-            .buttonStyle(.borderedProminent)
+    }
+
+    private var addMaterialButton: some View {
+        Button {
+            model.isImportSheetPresented = true
+        } label: {
+            Label("添加材料", systemImage: "plus")
         }
+        .buttonStyle(.borderedProminent)
+    }
+
+    private var libraryDescription: String {
+        "每个空间可以组合 PDF、EPUB、网页、代码和目录；基础阅读不依赖模型。"
     }
 
     private var pendingSection: some View {
@@ -110,7 +139,7 @@ struct LibraryHomeView: View {
             VStack(spacing: 7) {
                 Text("建立你的阅读资料库")
                     .font(.title2.weight(.semibold))
-                Text("拖入材料、按 ⌘O，或粘贴网页和公开 GitHub URL。OneReader 会先让内容可读，再在后台建立索引和阅读结构。")
+                Text(emptyLibraryDescription)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 520)
@@ -141,6 +170,14 @@ struct LibraryHomeView: View {
                 .strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [7, 7]))
         )
         .accessibilityElement(children: .contain)
+    }
+
+    private var emptyLibraryDescription: String {
+#if os(macOS)
+        "拖入材料、按 ⌘O，或粘贴网页和公开 GitHub URL。OneReader 会先让内容可读，再在后台建立索引和阅读结构。"
+#else
+        "选择材料、从其他 App 打开文件，或粘贴网页和公开 GitHub URL。OneReader 会先让内容可读，再在后台建立索引和阅读结构。"
+#endif
     }
 
     private func label(for state: PendingImport.State) -> String {

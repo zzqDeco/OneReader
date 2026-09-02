@@ -1,6 +1,61 @@
+#if os(macOS)
 import AppKit
+private typealias PlatformFont = NSFont
+private typealias PlatformColor = NSColor
+#else
+import UIKit
+private typealias PlatformFont = UIFont
+private typealias PlatformColor = UIColor
+#endif
 import Markdown
 import SwiftSoup
+
+private enum PlatformFontTrait {
+    case bold
+    case italic
+}
+
+private extension PlatformColor {
+    static var readerLabel: PlatformColor {
+#if os(macOS)
+        .labelColor
+#else
+        .label
+#endif
+    }
+
+    static var readerSecondaryLabel: PlatformColor {
+#if os(macOS)
+        .secondaryLabelColor
+#else
+        .secondaryLabel
+#endif
+    }
+
+    static var readerQuaternaryLabel: PlatformColor {
+#if os(macOS)
+        .quaternaryLabelColor
+#else
+        .quaternaryLabel
+#endif
+    }
+
+    static var readerLink: PlatformColor {
+#if os(macOS)
+        .linkColor
+#else
+        .link
+#endif
+    }
+
+    static var readerSeparator: PlatformColor {
+#if os(macOS)
+        .separatorColor
+#else
+        .separator
+#endif
+    }
+}
 
 /// Converts untrusted Markdown into a native, selectable attributed document.
 /// Raw HTML and image payloads are never executed or fetched here.
@@ -53,7 +108,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         }
         result.addAttributes(
             [
-                .font: NSFont.systemFont(
+                .font: PlatformFont.systemFont(
                     ofSize: fontSize * scale,
                     weight: heading.level <= 2 ? .bold : .semibold
                 ),
@@ -80,11 +135,11 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitStrong(_ strong: Strong) -> NSMutableAttributedString {
-        applyingFontTrait(.boldFontMask, to: renderChildren(of: strong))
+        applyingFontTrait(.bold, to: renderChildren(of: strong))
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) -> NSMutableAttributedString {
-        applyingFontTrait(.italicFontMask, to: renderChildren(of: emphasis))
+        applyingFontTrait(.italic, to: renderChildren(of: emphasis))
     }
 
     mutating func visitStrikethrough(
@@ -109,11 +164,11 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             unavailableSourceUTF16Range: sourceIndex?.utf16Range(for: inlineCode.range),
             decodesMarkdownText: false,
             attributes: [
-                .font: NSFont.monospacedSystemFont(
+                .font: PlatformFont.monospacedSystemFont(
                     ofSize: max(11, fontSize - 1),
                     weight: .regular
                 ),
-                .backgroundColor: NSColor.quaternaryLabelColor,
+                .backgroundColor: PlatformColor.readerQuaternaryLabel,
             ]
         )
     }
@@ -126,12 +181,12 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             unavailableSourceUTF16Range: sourceIndex?.utf16Range(for: codeBlock.range),
             decodesMarkdownText: false,
             attributes: [
-                .font: NSFont.monospacedSystemFont(
+                .font: PlatformFont.monospacedSystemFont(
                     ofSize: max(11, fontSize - 2),
                     weight: .regular
                 ),
-                .foregroundColor: NSColor.labelColor,
-                .backgroundColor: NSColor.quaternaryLabelColor,
+                .foregroundColor: PlatformColor.readerLabel,
+                .backgroundColor: PlatformColor.readerQuaternaryLabel,
                 .paragraphStyle: paragraphStyle(
                     paragraphSpacingBefore: 8,
                     paragraphSpacing: 12,
@@ -152,7 +207,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         result.append(attributed("\n"))
         result.addAttributes(
             [
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: PlatformColor.readerSecondaryLabel,
                 .paragraphStyle: paragraphStyle(
                     paragraphSpacingBefore: 8,
                     paragraphSpacing: 10,
@@ -191,7 +246,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         result.addAttributes(
             [
                 .link: url,
-                .foregroundColor: NSColor.linkColor,
+                .foregroundColor: PlatformColor.readerLink,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
             ],
             range: result.fullRange
@@ -207,8 +262,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         result.append(attributed("］"))
         result.addAttributes(
             [
-                .font: NSFont.systemFont(ofSize: max(11, fontSize - 1)),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: PlatformFont.systemFont(ofSize: max(11, fontSize - 1)),
+                .foregroundColor: PlatformColor.readerSecondaryLabel,
             ],
             range: result.fullRange
         )
@@ -229,8 +284,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         NSMutableAttributedString(
             string: "────────────────────────\n",
             attributes: [
-                .font: NSFont.systemFont(ofSize: max(10, fontSize - 3)),
-                .foregroundColor: NSColor.separatorColor,
+                .font: PlatformFont.systemFont(ofSize: max(10, fontSize - 3)),
+                .foregroundColor: PlatformColor.readerSeparator,
                 .paragraphStyle: paragraphStyle(
                     paragraphSpacingBefore: 10,
                     paragraphSpacing: 10
@@ -304,8 +359,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         NSMutableAttributedString(
             string: string,
             attributes: [
-                .font: NSFont.systemFont(ofSize: fontSize),
-                .foregroundColor: NSColor.labelColor,
+                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .foregroundColor: PlatformColor.readerLabel,
             ]
         )
     }
@@ -335,8 +390,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let result = NSMutableAttributedString(
             string: string,
             attributes: attributes ?? [
-                .font: NSFont.systemFont(ofSize: fontSize),
-                .foregroundColor: NSColor.labelColor,
+                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .foregroundColor: PlatformColor.readerLabel,
             ]
         )
         guard !string.isEmpty else { return result }
@@ -410,13 +465,22 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     private func applyingFontTrait(
-        _ trait: NSFontTraitMask,
+        _ trait: PlatformFontTrait,
         to result: NSMutableAttributedString
     ) -> NSMutableAttributedString {
         let snapshot = NSAttributedString(attributedString: result)
         snapshot.enumerateAttribute(.font, in: snapshot.fullRange) { value, range, _ in
-            let font = (value as? NSFont) ?? NSFont.systemFont(ofSize: fontSize)
-            let converted = NSFontManager.shared.convert(font, toHaveTrait: trait)
+            let font = (value as? PlatformFont) ?? PlatformFont.systemFont(ofSize: fontSize)
+#if os(macOS)
+            let mask: NSFontTraitMask = trait == .bold ? .boldFontMask : .italicFontMask
+            let converted = NSFontManager.shared.convert(font, toHaveTrait: mask)
+#else
+            var symbolicTraits = font.fontDescriptor.symbolicTraits
+            symbolicTraits.insert(trait == .bold ? .traitBold : .traitItalic)
+            let descriptor = font.fontDescriptor.withSymbolicTraits(symbolicTraits)
+                ?? font.fontDescriptor
+            let converted = PlatformFont(descriptor: descriptor, size: font.pointSize)
+#endif
             result.addAttribute(.font, value: converted, range: range)
         }
         return result

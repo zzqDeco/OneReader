@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ReaderSurfaceView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,6 +122,26 @@ struct ReaderSurfaceView: View {
     }
 
     private var readerFooter: some View {
+        Group {
+#if os(iOS)
+            if horizontalSizeClass == .compact {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    footerControls
+                        .labelStyle(.iconOnly)
+                }
+            } else {
+                footerControls
+            }
+#else
+            footerControls
+#endif
+        }
+        .padding(.horizontal, 17)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private var footerControls: some View {
         HStack(spacing: 12) {
             Button {
                 model.selectPreviousNode()
@@ -140,7 +161,7 @@ struct ReaderSurfaceView: View {
             .accessibilityLabel("下一项")
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
 
-            Spacer()
+            Spacer(minLength: 0)
 
             if let unitID = model.currentProgress.currentUnitID {
                 Button {
@@ -193,9 +214,6 @@ struct ReaderSurfaceView: View {
             .disabled(model.presentationDocument == nil)
             .help("在 Inspector 中编写带当前位置的笔记")
         }
-        .padding(.horizontal, 17)
-        .padding(.vertical, 10)
-        .background(.bar)
     }
 
     private var highlightHelp: String {

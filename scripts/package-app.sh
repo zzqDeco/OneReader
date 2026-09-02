@@ -19,16 +19,17 @@ entitlements="$repo_root/Resources/OneReader.entitlements"
 swift build \
   --package-path "$repo_root" \
   --configuration "$configuration" \
-  --product OneReader
+  --product OneReaderApp
 
 binary_path="$(swift build \
   --package-path "$repo_root" \
   --configuration "$configuration" \
-  --show-bin-path)/OneReader"
+  --show-bin-path)/OneReaderApp"
 
 mkdir -p "$binary_dir" "$resource_dir"
 cp "$binary_path" "$binary_dir/OneReader"
 cp "$repo_root/Resources/Info.plist" "$contents_dir/Info.plist"
+cp "$repo_root/Resources/AppIcon.icns" "$resource_dir/AppIcon.icns"
 chmod +x "$binary_dir/OneReader"
 
 plutil -lint "$contents_dir/Info.plist"
