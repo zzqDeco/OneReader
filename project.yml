@@ -6,7 +6,7 @@ options:
   deploymentTarget:
     iOS: "26.1"
     macOS: "26.1"
-  minimumXcodeGenVersion: 2.45.0
+  minimumXcodeGenVersion: 2.45.3
   xcodeVersion: "26.6"
 
 packages:

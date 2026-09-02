@@ -33,8 +33,10 @@ script is the local and Release build gate. It:
 11. validates release-ref rejection fixtures and schema metadata;
 12. uploads separate macOS Developer Preview and iOS Simulator artifacts.
 
-The runner prepares XcodeGen when it is not preinstalled; the repository's
-minimum supported generator version is encoded in `project.yml`. Concurrency
+Both CI and Release install the official XcodeGen 2.45.3 release archive and
+verify its pinned SHA-256 before use. The exact version, also encoded in
+`project.yml` and enforced by the project-drift check, prevents a newer
+Homebrew formula from silently changing the checked-in project. Concurrency
 cancels superseded runs for the same pull request or branch. Permissions are
 read-only and CI receives no Provider secret.
 

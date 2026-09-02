@@ -28,12 +28,12 @@ jobs:
       - name: Select Xcode 26.6
         run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
 
-      - name: Prepare XcodeGen
+      - name: Prepare pinned XcodeGen
+        shell: bash
         run: |
-          if ! command -v xcodegen >/dev/null; then
-            brew install xcodegen
-          fi
-          xcodegen --version
+          xcodegen_bin="$(scripts/install-xcodegen.sh "$RUNNER_TEMP")"
+          "$xcodegen_bin/xcodegen" --version
+          echo "$xcodegen_bin" >> "$GITHUB_PATH"
 
       - name: Validate release tag
         if: github.event_name == 'push'
