@@ -86,10 +86,15 @@ the first occurrence.
 Every bridge publishes the same `ReadingPositionUpdate` contract with Locator,
 granularity, optional fraction, and display label. SwiftUI flushes the pending
 debounced update when the scene leaves `.active`; `AppModel` also flushes before
-Source and Space changes. This lifecycle behavior is shared by macOS, iPhone,
-and iPad rather than implemented as platform-specific persistence. Quick Look
-publishes only document granularity because neither platform exposes a stable
-public API for the system preview's internal page or scroll state.
+Source and Space changes. Native text and PDF capture synchronously. WebKit uses
+the same host-installed JavaScript capture function on macOS and iOS, and the
+host persists its asynchronous result against the captured prior Space/Source
+context even if navigation has already changed the visible generation. Failed
+evaluation stores only a safe fraction fallback and never pairs it with stale
+DOM evidence. This lifecycle behavior is shared by macOS, iPhone, and iPad
+rather than implemented as platform-specific persistence. Quick Look publishes
+only document granularity because neither platform exposes a stable public API
+for the system preview's internal page or scroll state.
 
 The host supplies a presentation-generation token to every bridge callback and
 remounts the presentation when it changes. This applies even when the Source ID

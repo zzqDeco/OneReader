@@ -149,9 +149,15 @@ observable-model mutation, and storage scheduling do not run on every display
 frame. AppKit publishes immediately at live-scroll end; UIKit does so when drag
 or deceleration ends. The normalized position stream then uses a 350 ms
 persistence debounce. Before any Source/Space switch or inactive-scene flush,
-the host synchronously asks the active native bridge for its current sample and
-persists that fresh update before changing generation. Reopening a Space
-restores its most recently updated Source.
+the host asks the active bridge for its current sample. Text and PDF bridges
+answer synchronously. Controlled WebKit evaluates a host-owned capture function
+against the live document; its result remains bound to the prior Space, Source,
+Snapshot, and presentation generation, so a Source/Space transition cannot make
+the callback write into the new reading context. A failed WebKit evaluation may
+fall back to the last normalized fraction, but that fallback removes stale DOM
+path, quote, and fingerprint evidence so restoration cannot jump to an old
+paragraph ahead of the saved fraction. Reopening a Space restores its most
+recently updated Source.
 The reader footer shows the saved label, and Library cards show the latest
 resume target plus aggregate Source reading fraction even when no Provider or
 Reading Graph exists. Graph-unit completion remains a separate route fact and
@@ -194,6 +200,12 @@ Directory outlines filter actual image and font media rather than directory
 names. A readable `assets/README.md` therefore stays visible, while cover bytes
 remain out of the reading sequence. Previous/next uses that same readable node
 set, so sequential navigation cannot enter an item hidden from the outline.
+Navigation resolves exact Locators first, then format discriminators such as PDF
+page, EPUB spine, DOM path, structural heading, fingerprint/quote, and nearest
+preceding Markdown line. A relative path is used alone only when it identifies
+one node; multiple headings in one Markdown or HTML file therefore cannot all
+collapse to the first outline item. Previous/next controls are disabled at the
+resolved sequence boundaries.
 
 ## Responsive and accessible behavior
 

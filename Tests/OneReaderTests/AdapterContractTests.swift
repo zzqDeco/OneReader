@@ -200,6 +200,10 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertNotNil(probe)
         let nodes = try await adapter.listContent(in: fixture.context, under: nil, limit: 20)
         XCTAssertEqual(nodes.first?.title, "Chapter")
+        XCTAssertEqual(
+            nodes.first?.locator.payload["domPath"],
+            "body > h1:nth-of-type(1)"
+        )
         let rendered = try await adapter.presentation(in: fixture.context, at: nil)
         let html = try XCTUnwrap(rendered.content)
         XCTAssertFalse(html.localizedCaseInsensitiveContains("<script"))
