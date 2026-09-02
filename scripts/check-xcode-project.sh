@@ -8,6 +8,12 @@ mkdir -p "$temporary_root"
 trap 'find "$temporary_parent" -depth -delete 2>/dev/null || true' EXIT
 
 command -v xcodegen >/dev/null
+expected_xcodegen_version="Version: 2.45.3"
+actual_xcodegen_version="$(xcodegen --version)"
+if [[ "$actual_xcodegen_version" != "$expected_xcodegen_version" ]]; then
+  echo "XcodeGen 2.45.3 is required to verify the checked-in project; found: $actual_xcodegen_version" >&2
+  exit 1
+fi
 
 cp "$repo_root/project.yml" "$temporary_root/project.yml"
 cp "$repo_root/Package.swift" "$temporary_root/Package.swift"

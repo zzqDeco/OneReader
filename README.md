@@ -16,7 +16,7 @@ Requirements:
 
 - macOS, iOS, or iPadOS 26.1 or newer
 - Xcode 26.6 with Swift tools 6.2
-- XcodeGen 2.45 or newer when regenerating the checked-in Xcode project
+- XcodeGen 2.45.3 when regenerating the checked-in Xcode project
 - Network access only when importing a remote source or using a remote Provider
 
 ```bash

@@ -38,12 +38,12 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Prepare XcodeGen
+      - name: Prepare pinned XcodeGen
+        shell: bash
         run: |
-          if ! command -v xcodegen >/dev/null; then
-            brew install xcodegen
-          fi
-          xcodegen --version
+          xcodegen_bin="$(scripts/install-xcodegen.sh "$RUNNER_TEMP")"
+          "$xcodegen_bin/xcodegen" --version
+          echo "$xcodegen_bin" >> "$GITHUB_PATH"
 
       - name: Run authoritative native validation
         run: scripts/validate-native.sh
