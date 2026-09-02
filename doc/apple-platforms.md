@@ -2,7 +2,7 @@
 
 ## Target model
 
-OneReader ships one native product across macOS, iPhone, and iPad. The shared
+OneReader maintains one native product across macOS, iPhone, and iPad. The shared
 Swift package target named `OneReader` owns domain contracts, GRDB persistence,
 managed snapshots, deterministic adapters, the Reading Agent runtime, and most
 SwiftUI views. `Apps/OneReaderApp/OneReaderAppMain.swift` is a thin executable
@@ -20,6 +20,11 @@ must match a fresh XcodeGen rendering of `project.yml`. Both targets consume the
 local `OneReader` package product and the same exact `Package.resolved` graph.
 There is no copied mobile module, second database schema, or format-specific
 mobile product mode.
+
+The v0.3.1 release gate covers macOS and the connected physical iPhone. The
+universal target remains compile-compatible with iPad, but physical iPad layout
+and gesture acceptance is deferred by product decision and is not claimed by
+this release.
 
 ## Adaptive application shell
 
@@ -125,3 +130,8 @@ shared tests, a SwiftPM Release build, macOS Sandbox packaging,
 signature/entitlement checks, documentation gates, and lock-digest checks. CI
 uses the default Simulator destination and the same script; real Provider
 credentials are never present.
+
+Hosted CI and release remain pinned to Xcode 26.6. A user-local Xcode 27 beta is
+used only when an attached iOS 27 beta device is ineligible under the stable
+toolchain; that device-only evidence does not constitute a hosted Xcode 27
+migration.

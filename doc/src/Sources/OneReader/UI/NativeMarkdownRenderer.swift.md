@@ -8,7 +8,10 @@ thematic breaks, and tables.
 Raw HTML is omitted. Remote image URLs are never fetched. Relative images are
 resolved through `ReadOnlyContentResourceLoader` under the presentation's
 Snapshot resource root, so path traversal, symlinks, unsupported media, and
-oversized payloads fail closed to alt text. A rendered attachment carries an
+oversized payloads fail closed to alt text. ImageIO metadata is checked before
+decode: either dimension above 16,384 pixels or more than 64 Mi pixels is
+rejected, and accepted images are downsampled to at most 4,096 pixels on their
+long edge before becoming an attachment. A rendered attachment carries an
 unavailable-map sentinel and cannot become a fabricated text Locator. Tables
 render as readable pipe-delimited rows with preserved cell source mapping rather
 than tabs. Only explicit HTTP(S) destinations receive link attributes. The

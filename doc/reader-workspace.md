@@ -67,10 +67,12 @@ Locator are retained and are never rewritten to look current.
 Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
 Relative images are resolved only through the same read-only Snapshot-root
 loader used by controlled WebKit, including path/symlink containment, MIME, and
-32 MiB limits; unavailable or remote images keep a readable alt-text
-placeholder. Rendered image attachments are deliberately unlocatable text, so
-selection cannot fabricate an anchor. Tables use readable bordered rows rather
-than tab-separated fallback text. Leaf text carries deterministic source UTF-16
+32 MiB limits. Image metadata is inspected before decode, source dimensions are
+bounded to 16,384 pixels and 64 Mi pixels, and accepted images are downsampled
+to a 4,096-pixel maximum decoded edge; unavailable or remote images keep a
+readable alt-text placeholder. Rendered image attachments are deliberately
+unlocatable text, so selection cannot fabricate an anchor. Tables use readable
+bordered rows rather than tab-separated fallback text. Leaf text carries deterministic source UTF-16
 attributes through heading, emphasis, list, and code styling. Mapping begins
 from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
 fenced-code delimiter/language lines are then removed before alignment. UTF-8
@@ -141,12 +143,14 @@ All presentation surfaces emit one normalized position stream:
 | directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
 | Quick Look fallback | Source/Snapshot document-level last-open position only |
 
-Native text bridges first coalesce 150 ms of live-scroll callbacks so text
-layout, quote extraction, observable-model mutation, and storage scheduling do
-not run on every display frame. The normalized position stream then uses a 350
-ms persistence debounce. The latest pending update is flushed before any Source
-or Space switch and whenever the scene becomes inactive or enters the
-background, so the debounce cannot discard the last position. Reopening a Space
+Native text bridges keep one coalescer for a live-scroll burst and wait 150 ms
+after its latest bounds change, so text layout, quote extraction,
+observable-model mutation, and storage scheduling do not run on every display
+frame. AppKit publishes immediately at live-scroll end; UIKit does so when drag
+or deceleration ends. The normalized position stream then uses a 350 ms
+persistence debounce. Before any Source/Space switch or inactive-scene flush,
+the host synchronously asks the active native bridge for its current sample and
+persists that fresh update before changing generation. Reopening a Space
 restores its most recently updated Source.
 The reader footer shows the saved label, and Library cards show the latest
 resume target plus aggregate Source reading fraction even when no Provider or
@@ -186,6 +190,11 @@ opened deliberately. User-facing chrome says 阅读空间、阅读辅助、引�
 adapter names, digests, and identifiers live only in explicit run or citation
 detail disclosures.
 
+Directory outlines filter actual image and font media rather than directory
+names. A readable `assets/README.md` therefore stays visible, while cover bytes
+remain out of the reading sequence. Previous/next uses that same readable node
+set, so sequential navigation cannot enter an item hidden from the outline.
+
 ## Responsive and accessible behavior
 
 macOS uses a 338-point trailing Reading Assistance panel at wide sizes and a
@@ -201,7 +210,9 @@ macOS commands expose import, Space import, search, previous/next content,
 bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and
 iPad expose import, reading navigation, search, Reading Assistance, and Settings in the
 toolbar and preserve hardware-keyboard shortcuts where the platform supports
-them. Controls and search results have explicit accessibility labels, text is
+them. A toolbar or keyboard search request also reveals a hidden navigation
+column (or the compact navigation sheet) before selecting Search. Controls and
+search results have explicit accessibility labels, text is
 selectable, and animation honors Reduce Motion. Reader theme, font size, line
 width, line spacing, and PDF scale persist across launches.
 

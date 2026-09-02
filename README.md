@@ -31,6 +31,9 @@ scheme, or build the unsigned universal Simulator app with:
 scripts/build-ios-simulator.sh
 ```
 
+The shared target remains iPad-capable, but v0.3.1 release acceptance is scoped
+to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
+
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
 unused SwiftAgent transitive product whose upstream manifest requires a newer

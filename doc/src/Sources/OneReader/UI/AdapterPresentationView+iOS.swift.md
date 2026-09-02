@@ -13,9 +13,13 @@ text fraction and source line, PDF page fraction, controlled-Web DOM/quote and
 scroll fraction, or Quick Look document granularity. Incoming Web positions try
 DOM/quote relocation before the fraction fallback.
 
-Live `UITextView` scrolling coalesces position sampling for 150 ms and flushes
-immediately when dragging or deceleration ends. Presentation IDs, rather than
-full-content hashing during view updates, guard expensive Markdown rendering.
+Live `UITextView` scrolling uses one 150 ms coalescer per scroll burst and
+flushes immediately when dragging or deceleration ends. It also answers the
+same synchronous host capture signal as AppKit before navigation or lifecycle
+flushes. Presentation IDs, rather than full-content hashing during view
+updates, guard expensive Markdown rendering. Markdown image width comes from
+the active text container/window scene and is re-rendered when that width
+changes; it never depends on a process-global screen singleton.
 
 Compact reader chrome is composed outside these bridges, so every format keeps
 the same native navigation and four-action bottom bar.

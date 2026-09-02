@@ -15,4 +15,7 @@ sheets. `fileImporter` owns iOS/iPadOS selection;
 the AppModel routes its result without adding format-specific entry points.
 The scene lifecycle flushes the latest debounced reading position whenever it
 leaves the active state, before suspension can discard it. Animation is
-disabled when Reduce Motion is active.
+disabled when Reduce Motion is active. Search requests travel through a
+host-owned reveal token: a hidden regular-width leading column is reopened, and
+compact iPhone presents the navigation sheet, so toolbar and keyboard search
+never change an invisible tab.
