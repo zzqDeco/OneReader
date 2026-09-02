@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import GRDB
 import XCTest
 @testable import OneReader
 
@@ -453,6 +454,66 @@ final class ManagedLibraryTests: XCTestCase {
         XCTAssertTrue(try database.fetchSources().isEmpty)
         XCTAssertEqual(try database.fetchSources(includeRemoved: true).first?.managedState, .removed)
         XCTAssertTrue(try database.sourceIDs(in: imported.space.id).isEmpty)
+    }
+
+    func testFailedRemovalWithFailedImmediateRestoreRecoversOnNextInitialization() async throws {
+        let fixture = try makeFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let sourceURL = fixture.input.appendingPathComponent("recover.txt")
+        try Data("persistent recovery".utf8).write(to: sourceURL)
+        let database = try LibraryDatabase(rootURL: fixture.library)
+        let library = try ManagedLibrary(
+            database: database,
+            usesPersistentRemovalRecovery: true,
+            removalRecoveryRestoreHandler: { record, _, _ in
+                throw LibraryStorageError.removalRecoveryPending(record.id)
+            }
+        )
+        let imported = try await library.importLocalSource(at: sourceURL)
+        let managedContainer = imported.managedURL.deletingLastPathComponent()
+        try await database.pool.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_test_source_removal
+                BEFORE UPDATE OF managed_state ON sources
+                WHEN NEW.managed_state = 'removed'
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced removal failure');
+                END
+                """)
+        }
+
+        do {
+            _ = try await library.removeSource(id: imported.source.id)
+            XCTFail("Expected persistent recovery error")
+        } catch let error as LibraryStorageError {
+            guard case .removalRecoveryPending = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        XCTAssertEqual(try database.fetchSources().map(\.id), [imported.source.id])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: managedContainer.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: database.layout.removalRecoveryURL,
+                includingPropertiesForKeys: nil
+            ).count,
+            1
+        )
+
+        try await database.pool.write { db in
+            try db.execute(sql: "DROP TRIGGER fail_test_source_removal")
+        }
+        _ = try ManagedLibrary(database: database)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: managedContainer.path))
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: database.layout.removalRecoveryURL,
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
+        XCTAssertEqual(try database.fetchSources().map(\.id), [imported.source.id])
     }
 
     func testRemovingSourceReclaimsSnapshotDerivedEPUBCache() async throws {

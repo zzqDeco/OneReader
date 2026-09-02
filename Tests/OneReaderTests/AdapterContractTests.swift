@@ -304,6 +304,20 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertEqual(resolution.state, .current)
     }
 
+    func testPDFRectAnchorParsesAndClipsExactSelectionGeometry() throws {
+        let anchor = try XCTUnwrap(PDFPageRectAnchor.parse("12.5,20,80,24"))
+        XCTAssertEqual(anchor.rect, CGRect(x: 12.5, y: 20, width: 80, height: 24))
+        XCTAssertEqual(
+            anchor.clipped(to: CGRect(x: 20, y: 10, width: 30, height: 40)),
+            CGRect(x: 20, y: 20, width: 30, height: 24)
+        )
+        XCTAssertNil(PDFPageRectAnchor.parse("12,20,0,24"))
+        XCTAssertNil(PDFPageRectAnchor.parse("12,20,-1,24"))
+        XCTAssertNil(PDFPageRectAnchor.parse("12,20,nan,24"))
+        XCTAssertNil(PDFPageRectAnchor.parse("12,20,80"))
+        XCTAssertNil(anchor.clipped(to: CGRect(x: 200, y: 200, width: 10, height: 10)))
+    }
+
     func testDirectoryComposesChildAdaptersAndFTSIndex() async throws {
         let root = try makeTemporaryRoot(prefix: "OneReader-DirectoryAdapter")
         defer { try? FileManager.default.removeItem(at: root) }

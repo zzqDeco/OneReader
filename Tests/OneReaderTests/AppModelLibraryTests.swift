@@ -121,6 +121,27 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testMobileOriginalSourcePolicyExposesOnlyExplicitWebLinks() {
+        XCTAssertTrue(
+            OriginalSourceOpenPolicy.allows(
+                URL(string: "https://example.com/book"),
+                onMobile: true
+            )
+        )
+        XCTAssertFalse(
+            OriginalSourceOpenPolicy.allows(
+                URL(fileURLWithPath: "/private/provider/book.pdf"),
+                onMobile: true
+            )
+        )
+        XCTAssertTrue(
+            OriginalSourceOpenPolicy.allows(
+                URL(fileURLWithPath: "/Users/reader/book.pdf"),
+                onMobile: false
+            )
+        )
+    }
+
     func testReadingPositionPersistsAndRestoresAcrossModelInstances() async throws {
         let root = temporaryRoot("PositionRestore")
         defer { try? FileManager.default.removeItem(at: root) }

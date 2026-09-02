@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OSLog
 import SwiftSoup
 
 struct ManagedImportResult: Sendable {
@@ -21,24 +22,184 @@ struct ManagedRefreshCandidate: Sendable {
     fileprivate let createdContainerURL: URL?
 }
 
+struct RemovalRecoveryRecord: Codable, Equatable, Sendable {
+    let id: String
+    let sourceID: String
+    let originalRelativePath: String
+    let stagedRelativePath: String
+}
+
+enum RemovalRecoveryJournal {
+    private static let manifestName = "record.json"
+
+    static func stage(
+        sourceID: String,
+        originalURL: URL,
+        layout: ApplicationSupportLayout,
+        fileManager: FileManager
+    ) throws -> RemovalRecoveryRecord {
+        let id = UUID().uuidString.lowercased()
+        let recordDirectory = try recordDirectory(id: id, layout: layout)
+        let stagedURL = recordDirectory.appendingPathComponent(
+            "managed-container",
+            isDirectory: true
+        )
+        let record = RemovalRecoveryRecord(
+            id: id,
+            sourceID: sourceID,
+            originalRelativePath: try layout.relativePath(for: originalURL),
+            stagedRelativePath: try layout.relativePath(for: stagedURL)
+        )
+        try fileManager.createDirectory(
+            at: recordDirectory,
+            withIntermediateDirectories: true
+        )
+        do {
+            let manifest = try JSONEncoder().encode(record)
+            try manifest.write(
+                to: recordDirectory.appendingPathComponent(manifestName),
+                options: .atomic
+            )
+            try fileManager.moveItem(at: originalURL, to: stagedURL)
+            return record
+        } catch {
+            try? fileManager.removeItem(at: recordDirectory)
+            throw error
+        }
+    }
+
+    static func restore(
+        _ record: RemovalRecoveryRecord,
+        layout: ApplicationSupportLayout,
+        fileManager: FileManager
+    ) throws {
+        let recordDirectory = try recordDirectory(id: record.id, layout: layout)
+        let originalURL = try layout.url(forRelativePath: record.originalRelativePath)
+        let stagedURL = try layout.url(forRelativePath: record.stagedRelativePath)
+        let originalExists = fileManager.fileExists(atPath: originalURL.path)
+        let stagedExists = fileManager.fileExists(atPath: stagedURL.path)
+
+        if stagedExists {
+            guard !originalExists else {
+                throw LibraryStorageError.removalRecoveryPending(record.id)
+            }
+            try fileManager.createDirectory(
+                at: originalURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: stagedURL, to: originalURL)
+        } else if !originalExists {
+            throw LibraryStorageError.removalRecoveryPending(record.id)
+        }
+        try fileManager.removeItem(at: recordDirectory)
+    }
+
+    static func finalize(
+        _ record: RemovalRecoveryRecord,
+        layout: ApplicationSupportLayout,
+        fileManager: FileManager
+    ) throws {
+        let recordDirectory = try recordDirectory(id: record.id, layout: layout)
+        if fileManager.fileExists(atPath: recordDirectory.path) {
+            try fileManager.removeItem(at: recordDirectory)
+        }
+    }
+
+    static func recoverPending(
+        layout: ApplicationSupportLayout,
+        activeSourceIDs: Set<String>,
+        fileManager: FileManager
+    ) throws {
+        let entries = try fileManager.contentsOfDirectory(
+            at: layout.removalRecoveryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        ).sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for entry in entries {
+            let values = try entry.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                throw LibraryStorageError.removalRecoveryPending(entry.lastPathComponent)
+            }
+            let manifestURL = entry.appendingPathComponent(manifestName)
+            let record: RemovalRecoveryRecord
+            do {
+                record = try JSONDecoder().decode(
+                    RemovalRecoveryRecord.self,
+                    from: Data(contentsOf: manifestURL)
+                )
+                guard record.id == entry.lastPathComponent else {
+                    throw LibraryStorageError.removalRecoveryPending(entry.lastPathComponent)
+                }
+            } catch {
+                throw LibraryStorageError.removalRecoveryPending(entry.lastPathComponent)
+            }
+            if activeSourceIDs.contains(record.sourceID) {
+                try restore(record, layout: layout, fileManager: fileManager)
+            } else {
+                try finalize(record, layout: layout, fileManager: fileManager)
+            }
+        }
+    }
+
+    private static func recordDirectory(
+        id: String,
+        layout: ApplicationSupportLayout
+    ) throws -> URL {
+        guard UUID(uuidString: id) != nil else {
+            throw LibraryStorageError.removalRecoveryPending(id)
+        }
+        return layout.removalRecoveryURL.appendingPathComponent(id, isDirectory: true)
+    }
+}
+
 actor ManagedLibrary {
     typealias TrashHandler = @Sendable (URL) throws -> URL
+    typealias RemovalRecoveryRestoreHandler = @Sendable (
+        RemovalRecoveryRecord,
+        ApplicationSupportLayout,
+        FileManager
+    ) throws -> Void
+
+    private static let logger = Logger(
+        subsystem: "io.github.zzqDeco.OneReader",
+        category: "ManagedLibrary"
+    )
 
     let database: LibraryDatabase
     private let fileManager: FileManager
     private let storagePolicy: LibraryStoragePolicy
     private let trashHandler: TrashHandler
+    private let usesPersistentRemovalRecovery: Bool
+    private let removalRecoveryRestoreHandler: RemovalRecoveryRestoreHandler
 
     init(
         database: LibraryDatabase,
         fileManager: FileManager = .default,
         storagePolicy: LibraryStoragePolicy = .production,
-        trashHandler: @escaping TrashHandler = ManagedLibrary.moveToTrash
+        trashHandler: @escaping TrashHandler = ManagedLibrary.moveToTrash,
+        usesPersistentRemovalRecovery: Bool = ManagedLibrary.platformUsesPersistentRemovalRecovery,
+        removalRecoveryRestoreHandler: @escaping RemovalRecoveryRestoreHandler = {
+            record, layout, fileManager in
+            try RemovalRecoveryJournal.restore(
+                record,
+                layout: layout,
+                fileManager: fileManager
+            )
+        }
     ) throws {
         self.database = database
         self.fileManager = fileManager
         self.storagePolicy = storagePolicy
         self.trashHandler = trashHandler
+        self.usesPersistentRemovalRecovery = usesPersistentRemovalRecovery
+        self.removalRecoveryRestoreHandler = removalRecoveryRestoreHandler
+        try RemovalRecoveryJournal.recoverPending(
+            layout: database.layout,
+            activeSourceIDs: Set(try database.fetchSources().map(\.id)),
+            fileManager: fileManager
+        )
         try Self.removeAbandonedStaging(
             at: database.layout.stagingURL,
             fileManager: fileManager
@@ -452,6 +613,7 @@ actor ManagedLibrary {
     func removeSource(id sourceID: String) throws -> [String: Int] {
         let plan = try database.removalPlan(sourceID: sourceID)
         var movedItems: [(original: URL, trashed: URL)] = []
+        var recoveryRecords: [RemovalRecoveryRecord] = []
 
         do {
             for relativePath in plan.exclusiveManagedRelativePaths {
@@ -460,27 +622,65 @@ actor ManagedLibrary {
                 guard fileManager.fileExists(atPath: containerURL.path) else {
                     continue
                 }
-                let trashedURL = try trashHandler(containerURL)
-                movedItems.append((containerURL, trashedURL))
+                if usesPersistentRemovalRecovery {
+                    recoveryRecords.append(
+                        try RemovalRecoveryJournal.stage(
+                            sourceID: sourceID,
+                            originalURL: containerURL,
+                            layout: database.layout,
+                            fileManager: fileManager
+                        )
+                    )
+                } else {
+                    let trashedURL = try trashHandler(containerURL)
+                    movedItems.append((containerURL, trashedURL))
+                }
             }
             let generations = try database.commitRemoval(sourceID: sourceID)
             removeDerivedData(forSnapshotIDs: plan.snapshotIDs)
-#if os(iOS)
-            // iOS has no user-visible Trash API. Keep the move reversible until
-            // the database transaction succeeds, then discard the staged copy.
-            for item in movedItems {
-                try? fileManager.removeItem(at: item.trashed)
+            for record in recoveryRecords {
+                do {
+                    try RemovalRecoveryJournal.finalize(
+                        record,
+                        layout: database.layout,
+                        fileManager: fileManager
+                    )
+                } catch {
+                    Self.logger.error(
+                        "Committed removal left recovery cleanup pending: \(record.id, privacy: .public)"
+                    )
+                }
             }
-#endif
             return generations
         } catch {
-            for item in movedItems.reversed() {
-                try? fileManager.createDirectory(
-                    at: item.original.deletingLastPathComponent(),
-                    withIntermediateDirectories: true,
-                    attributes: nil
+            var recoveryFailures: [String] = []
+            for record in recoveryRecords.reversed() {
+                do {
+                    try removalRecoveryRestoreHandler(
+                        record,
+                        database.layout,
+                        fileManager
+                    )
+                } catch {
+                    recoveryFailures.append(record.id)
+                }
+            }
+            for (index, item) in movedItems.reversed().enumerated() {
+                do {
+                    try fileManager.createDirectory(
+                        at: item.original.deletingLastPathComponent(),
+                        withIntermediateDirectories: true,
+                        attributes: nil
+                    )
+                    try fileManager.moveItem(at: item.trashed, to: item.original)
+                } catch {
+                    recoveryFailures.append("trash-\(index + 1)")
+                }
+            }
+            if !recoveryFailures.isEmpty {
+                throw LibraryStorageError.removalRecoveryPending(
+                    recoveryFailures.joined(separator: ",")
                 )
-                try? fileManager.moveItem(at: item.trashed, to: item.original)
             }
             throw error
         }
@@ -766,18 +966,15 @@ actor ManagedLibrary {
         }
         return resultingURL as URL
 #else
-        let stagingRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("OneReader-RemovalTrash", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: stagingRoot,
-            withIntermediateDirectories: true
-        )
-        let destination = stagingRoot.appendingPathComponent(
-            "\(UUID().uuidString.lowercased())-\(url.lastPathComponent)",
-            isDirectory: true
-        )
-        try FileManager.default.moveItem(at: url, to: destination)
-        return destination
+        throw LibraryStorageError.trashDestinationUnavailable(url.lastPathComponent)
+#endif
+    }
+
+    private nonisolated static var platformUsesPersistentRemovalRecovery: Bool {
+#if os(iOS)
+        true
+#else
+        false
 #endif
     }
 

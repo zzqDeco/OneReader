@@ -83,6 +83,10 @@ struct ApplicationSupportLayout: Sendable {
         rootURL.appendingPathComponent(".Staging", isDirectory: true)
     }
 
+    var removalRecoveryURL: URL {
+        rootURL.appendingPathComponent(".RemovalRecovery", isDirectory: true)
+    }
+
     var legacyProgressURL: URL {
         rootURL.appendingPathComponent("progress-v1.json", isDirectory: false)
     }
@@ -96,6 +100,7 @@ struct ApplicationSupportLayout: Sendable {
             artifactsURL,
             legacyURL,
             stagingURL,
+            removalRecoveryURL,
         ] {
             try fileManager.createDirectory(
                 at: directory,
@@ -154,6 +159,7 @@ enum LibraryStorageError: LocalizedError, Equatable {
     case missingSpace(String)
     case missingSource(String)
     case trashDestinationUnavailable(String)
+    case removalRecoveryPending(String)
 
     var errorDescription: String? {
         switch self {
@@ -179,6 +185,8 @@ enum LibraryStorageError: LocalizedError, Equatable {
             "Source 不存在：\(id)"
         case let .trashDestinationUnavailable(path):
             "无法建立可恢复的托管副本移除位置：\(path)"
+        case let .removalRecoveryPending(identifier):
+            "来源移除未提交，托管副本正在等待安全恢复：\(identifier)"
         }
     }
 }

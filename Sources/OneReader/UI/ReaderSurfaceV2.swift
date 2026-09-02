@@ -42,7 +42,7 @@ struct ReaderSurfaceView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 10)
-            if model.selectedSource?.originURL != nil {
+            if model.canOpenOriginalSource {
                 Button {
                     model.openOriginalSource()
                 } label: {

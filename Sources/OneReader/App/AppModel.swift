@@ -45,6 +45,15 @@ enum PlatformFileImportPurpose: Equatable, Sendable {
     }
 }
 
+enum OriginalSourceOpenPolicy {
+    static func allows(_ url: URL?, onMobile: Bool) -> Bool {
+        guard let url else { return false }
+        guard onMobile else { return true }
+        let scheme = url.scheme?.lowercased()
+        return scheme == "https" || scheme == "http"
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -986,12 +995,25 @@ final class AppModel: ObservableObject {
     }
 
     func openOriginalSource() {
-        guard let url = selectedSource?.originURL else { return }
+        guard canOpenOriginalSource,
+              let url = selectedSource?.originURL else { return }
 #if os(macOS)
         NSWorkspace.shared.open(url)
 #else
         UIApplication.shared.open(url)
 #endif
+    }
+
+    var canOpenOriginalSource: Bool {
+#if os(iOS)
+        let onMobile = true
+#else
+        let onMobile = false
+#endif
+        return OriginalSourceOpenPolicy.allows(
+            selectedSource?.originURL,
+            onMobile: onMobile
+        )
     }
 
     func selectReadingUnit(_ unitID: String) {

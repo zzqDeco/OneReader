@@ -358,7 +358,19 @@ struct ManagedPDFPresentation: UIViewRepresentable {
            let page = view.document?.page(at: pageIndex) {
             context.coordinator.isApplyingAnchor = true
             context.coordinator.appliedAnchorSignature = signature
-            if let exact = documentLocator.textQuote?.exact,
+            if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
+               let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
+                if let selection = page.selection(for: rect) {
+                    if let exact = documentLocator.textQuote?.exact {
+                        if selection.string?.contains(exact) == true {
+                            view.setCurrentSelection(selection, animate: false)
+                        }
+                    } else {
+                        view.setCurrentSelection(selection, animate: false)
+                    }
+                }
+                view.go(to: rect, on: page)
+            } else if let exact = documentLocator.textQuote?.exact,
                let pageText = page.string,
                let range = pageText.range(of: exact),
                let selection = page.selection(for: NSRange(range, in: pageText)) {

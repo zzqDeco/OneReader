@@ -192,6 +192,36 @@ enum NativeTextPresentationKind: String {
     case code
 }
 
+struct PDFPageRectAnchor: Equatable, Sendable {
+    let rect: CGRect
+
+    static func parse(_ rawValue: String?) -> PDFPageRectAnchor? {
+        guard let rawValue else { return nil }
+        let values = rawValue.split(separator: ",", omittingEmptySubsequences: false)
+            .map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard values.count == 4,
+              values.allSatisfy({ $0?.isFinite == true }),
+              let x = values[0],
+              let y = values[1],
+              let width = values[2],
+              let height = values[3],
+              width > 0,
+              height > 0 else { return nil }
+        return PDFPageRectAnchor(
+            rect: CGRect(x: x, y: y, width: width, height: height)
+        )
+    }
+
+    func clipped(to pageBounds: CGRect) -> CGRect? {
+        let clipped = rect.intersection(pageBounds)
+        guard !clipped.isNull,
+              !clipped.isEmpty,
+              clipped.width.isFinite,
+              clipped.height.isFinite else { return nil }
+        return clipped
+    }
+}
+
 #if os(macOS)
 private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let content: String
@@ -649,7 +679,19 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
            let page = view.document?.page(at: pageIndex) {
             context.coordinator.isApplyingAnchor = true
             context.coordinator.appliedAnchorSignature = anchorSignature
-            if let exact = documentLocator.textQuote?.exact,
+            if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
+               let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
+                if let selection = page.selection(for: rect) {
+                    if let exact = documentLocator.textQuote?.exact {
+                        if selection.string?.contains(exact) == true {
+                            view.setCurrentSelection(selection, animate: false)
+                        }
+                    } else {
+                        view.setCurrentSelection(selection, animate: false)
+                    }
+                }
+                view.go(to: rect, on: page)
+            } else if let exact = documentLocator.textQuote?.exact,
                let pageText = page.string,
                let range = pageText.range(of: exact),
                let selection = page.selection(
