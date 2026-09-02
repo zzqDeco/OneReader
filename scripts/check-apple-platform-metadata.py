@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "0.3.0"
-BUILD = "3"
+VERSION = "0.3.1"
+BUILD = "4"
 BUNDLE_ID = "io.github.zzqDeco.OneReader"
 
 

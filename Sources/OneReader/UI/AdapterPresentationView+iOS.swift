@@ -716,7 +716,6 @@ struct ControlledWebPresentation: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
-        coordinator.publishPositionImmediately(from: view)
         coordinator.stopObservingCaptureRequests()
         view.configuration.userContentController.removeScriptMessageHandler(
             forName: Coordinator.selectionHandlerName
@@ -892,17 +891,27 @@ struct ControlledWebPresentation: UIViewRepresentable {
                 }
                 return '';
               }
-              function publish() {
-                if (window.__oneReaderApplyingAnchor) return;
-                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), Math.min(96, Math.max(1, window.innerHeight / 4))) || document.body;
+              function capturePosition() {
+                const referenceY = Math.min(96, Math.max(1, window.innerHeight / 4));
+                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), referenceY) || document.body;
+                let anchor = null;
+                for (const heading of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+                  if (heading.getBoundingClientRect().top <= referenceY) anchor = heading;
+                  else break;
+                }
                 const root = document.scrollingElement || document.documentElement;
                 const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-                const fraction = maximum > 0 ? window.scrollY / maximum : 1;
-                window.webkit.messageHandlers.oneReaderPosition.postMessage({
-                  path: pathFor(element),
+                const fraction = maximum > 0 ? root.scrollTop / maximum : 1;
+                return {
+                  path: pathFor(anchor || element),
                   quote: firstText(element),
                   fraction
-                });
+                };
+              }
+              window.__oneReaderCapturePosition = capturePosition;
+              function publish() {
+                if (window.__oneReaderApplyingAnchor) return;
+                window.webkit.messageHandlers.oneReaderPosition.postMessage(capturePosition());
               }
               let timer = 0;
               document.addEventListener('scroll', () => {
@@ -949,28 +958,78 @@ struct ControlledWebPresentation: UIViewRepresentable {
 
         @objc private func positionCaptureRequested(_ notification: Notification) {
             guard let observedWebView else { return }
+            if let request = notification.object as? ReadingPositionCaptureRequest {
+                request.claim()
+                captureCurrentPosition(from: observedWebView) { update in
+                    request.finish(with: update)
+                }
+                return
+            }
             publishPositionImmediately(from: observedWebView)
         }
 
         func publishPositionImmediately(from webView: WKWebView) {
-            guard !webView.isLoading else { return }
-            let scrollView = webView.scrollView
-            let inset = scrollView.adjustedContentInset
-            let fraction = WebReadingPositionCapture.normalizedScrollFraction(
-                offset: Double(scrollView.contentOffset.y + inset.top),
-                contentExtent: Double(
-                    scrollView.contentSize.height + inset.top + inset.bottom
-                ),
-                viewportExtent: Double(scrollView.bounds.height)
-            ) ?? lastFraction
-            parent.onPositionChange(
-                WebReadingPositionCapture.update(
-                    for: parent.document.locator,
-                    path: lastPath,
-                    quote: lastQuote,
-                    fraction: fraction
+            captureCurrentPosition(from: webView) { [weak self] update in
+                self?.parent.onPositionChange(update)
+            }
+        }
+
+        private func captureCurrentPosition(
+            from webView: WKWebView,
+            completion: @escaping @MainActor (ReadingPositionUpdate) -> Void
+        ) {
+            let base = parent.document.locator
+            let fallbackFraction = lastFraction
+            guard !webView.isLoading else {
+                completion(
+                    WebReadingPositionCapture.fractionOnlyUpdate(
+                        for: base,
+                        fraction: fallbackFraction
+                    )
                 )
-            )
+                return
+            }
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let result = try? await webView.evaluateJavaScript(
+                    WebReadingPositionCapture.currentPositionJavaScript
+                )
+                guard let body = result as? [String: Any],
+                      let number = body["fraction"] as? NSNumber,
+                      number.doubleValue.isFinite else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let path = (body["path"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let quote = (body["quote"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fraction = min(max(number.doubleValue, 0), 1)
+                if let path, !path.isEmpty { self?.lastPath = path }
+                if let quote, !quote.isEmpty { self?.lastQuote = quote }
+                self?.lastFraction = fraction
+                completion(
+                    WebReadingPositionCapture.capturedUpdate(
+                        for: base,
+                        path: path,
+                        quote: quote,
+                        fraction: fraction
+                    )
+                )
+            }
         }
 
         func applyAnchor(_ anchorID: String, in webView: WKWebView) {

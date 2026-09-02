@@ -61,6 +61,14 @@ private struct PendingReadingPosition {
     let update: ReadingPositionUpdate
 }
 
+private struct ReadingPositionCaptureContext {
+    let spaceID: String
+    let sourceID: String
+    let snapshotID: String
+    let presentationToken: UUID
+    let requestedAt: Date
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -734,10 +742,38 @@ final class AppModel: ObservableObject {
     }
 
     func flushReadingPosition() {
+        // Commit the latest coalesced update before asking the presentation for
+        // an exact boundary capture. A synchronous WebKit fallback must not be
+        // overwritten by an older pending sample after the notification returns.
+        flushPendingReadingPosition()
+        let captureContext: ReadingPositionCaptureContext? = selectedSpaceID.flatMap { spaceID in
+            guard let source = selectedSource,
+                  let snapshotID = source.latestSnapshotID else { return nil }
+            return ReadingPositionCaptureContext(
+                spaceID: spaceID,
+                sourceID: source.id,
+                snapshotID: snapshotID,
+                presentationToken: contentGeneration,
+                requestedAt: .now
+            )
+        }
+        let captureRequest = ReadingPositionCaptureRequest { [weak self] update in
+            guard let self, let captureContext, let update else { return }
+            persistCapturedReadingPosition(update, context: captureContext)
+        }
         NotificationCenter.default.post(
             name: ReadingPositionCaptureSignal.requested,
-            object: nil
+            object: captureRequest
         )
+        // Native text/PDF surfaces publish synchronously through their existing
+        // callback, so commit the sample they produced during the notification.
+        flushPendingReadingPosition()
+        if !captureRequest.isClaimed {
+            captureRequest.finish(with: nil)
+        }
+    }
+
+    private func flushPendingReadingPosition() {
         positionSaveTask?.cancel()
         positionSaveTask = nil
         guard let pendingPositionUpdate else { return }
@@ -753,6 +789,42 @@ final class AppModel: ObservableObject {
             pendingPositionUpdate.update,
             spaceID: pendingPositionUpdate.spaceID
         )
+    }
+
+    private func persistCapturedReadingPosition(
+        _ update: ReadingPositionUpdate,
+        context: ReadingPositionCaptureContext
+    ) {
+        let locator = update.locator
+        guard locator.sourceID == context.sourceID,
+              locator.snapshotID == context.snapshotID,
+              source(id: context.sourceID)?.latestSnapshotID == context.snapshotID else {
+            return
+        }
+        if selectedSpaceID == context.spaceID,
+           selectedSourceID == context.sourceID,
+           contentGeneration != context.presentationToken {
+            return
+        }
+        if let existing = progressBySpace[context.spaceID]?
+            .sourcePositions[context.sourceID],
+           existing.updatedAt > context.requestedAt {
+            return
+        }
+        let position = SourcePosition(
+            sourceID: context.sourceID,
+            locator: locator,
+            updatedAt: .now,
+            progressFraction: update.progressFraction,
+            granularity: update.granularity,
+            displayLabel: update.displayLabel
+        )
+        persistSourcePosition(position, spaceID: context.spaceID)
+        if selectedSpaceID == context.spaceID,
+           selectedSourceID == context.sourceID,
+           contentGeneration == context.presentationToken {
+            currentPositionLocator = locator
+        }
     }
 
     func selectPreviousNode() {

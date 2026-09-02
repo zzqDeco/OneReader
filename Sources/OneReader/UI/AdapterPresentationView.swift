@@ -994,7 +994,7 @@ private struct ManagedQuickLookPresentation: NSViewRepresentable {
     }
 }
 
-private struct ControlledWebPresentation: NSViewRepresentable {
+struct ControlledWebPresentation: NSViewRepresentable {
     let document: PresentationDocument
     let preferences: ReaderPreferences
     let colorScheme: ColorScheme
@@ -1065,7 +1065,6 @@ private struct ControlledWebPresentation: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
-        coordinator.publishPositionImmediately(from: view)
         coordinator.stopObservingCaptureRequests()
         view.configuration.userContentController.removeScriptMessageHandler(
             forName: Coordinator.selectionHandlerName
@@ -1244,17 +1243,27 @@ private struct ControlledWebPresentation: NSViewRepresentable {
                 }
                 return '';
               }
-              function publish() {
-                if (window.__oneReaderApplyingAnchor) return;
-                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), Math.min(96, Math.max(1, window.innerHeight / 4))) || document.body;
+              function capturePosition() {
+                const referenceY = Math.min(96, Math.max(1, window.innerHeight / 4));
+                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), referenceY) || document.body;
+                let anchor = null;
+                for (const heading of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+                  if (heading.getBoundingClientRect().top <= referenceY) anchor = heading;
+                  else break;
+                }
                 const root = document.scrollingElement || document.documentElement;
                 const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-                const fraction = maximum > 0 ? window.scrollY / maximum : 1;
-                window.webkit.messageHandlers.oneReaderPosition.postMessage({
-                  path: pathFor(element),
+                const fraction = maximum > 0 ? root.scrollTop / maximum : 1;
+                return {
+                  path: pathFor(anchor || element),
                   quote: firstText(element),
                   fraction
-                });
+                };
+              }
+              window.__oneReaderCapturePosition = capturePosition;
+              function publish() {
+                if (window.__oneReaderApplyingAnchor) return;
+                window.webkit.messageHandlers.oneReaderPosition.postMessage(capturePosition());
               }
               let timer = 0;
               document.addEventListener('scroll', () => {
@@ -1306,21 +1315,80 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         @objc @MainActor
         private func positionCaptureRequested(_ notification: Notification) {
             guard let observedWebView else { return }
+            if let request = notification.object as? ReadingPositionCaptureRequest {
+                request.claim()
+                captureCurrentPosition(from: observedWebView) { update in
+                    request.finish(with: update)
+                }
+                return
+            }
             publishPositionImmediately(from: observedWebView)
         }
 
         @MainActor
         func publishPositionImmediately(from webView: WKWebView) {
-            guard !webView.isLoading else { return }
-            let fraction = Self.hostScrollFraction(in: webView) ?? lastFraction
-            parent.onPositionChange(
-                WebReadingPositionCapture.update(
-                    for: parent.document.locator,
-                    path: lastPath,
-                    quote: lastQuote,
-                    fraction: fraction
+            captureCurrentPosition(from: webView) { [weak self] update in
+                self?.parent.onPositionChange(update)
+            }
+        }
+
+        @MainActor
+        private func captureCurrentPosition(
+            from webView: WKWebView,
+            completion: @escaping @MainActor (ReadingPositionUpdate) -> Void
+        ) {
+            let base = parent.document.locator
+            let fallbackFraction = lastFraction
+            guard !webView.isLoading else {
+                completion(
+                    WebReadingPositionCapture.fractionOnlyUpdate(
+                        for: base,
+                        fraction: fallbackFraction
+                    )
                 )
-            )
+                return
+            }
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let result = try? await webView.evaluateJavaScript(
+                    WebReadingPositionCapture.currentPositionJavaScript
+                )
+                guard let body = result as? [String: Any],
+                      let number = body["fraction"] as? NSNumber,
+                      number.doubleValue.isFinite else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let path = (body["path"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let quote = (body["quote"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fraction = min(max(number.doubleValue, 0), 1)
+                if let path, !path.isEmpty { self?.lastPath = path }
+                if let quote, !quote.isEmpty { self?.lastQuote = quote }
+                self?.lastFraction = fraction
+                completion(
+                    WebReadingPositionCapture.capturedUpdate(
+                        for: base,
+                        path: path,
+                        quote: quote,
+                        fraction: fraction
+                    )
+                )
+            }
         }
 
         @MainActor
@@ -1410,30 +1478,6 @@ private struct ControlledWebPresentation: NSViewRepresentable {
             parent.onSelectionChange(ReaderSelection(text: text, locator: locator))
         }
 
-        @MainActor
-        private static func hostScrollFraction(in webView: WKWebView) -> Double? {
-            guard let scrollView = descendantScrollView(in: webView),
-                  let documentView = scrollView.documentView else { return nil }
-            let documentHeight = documentView.bounds.height
-            let visible = scrollView.documentVisibleRect
-            let offset = documentView.isFlipped
-                ? visible.minY
-                : max(0, documentHeight - visible.maxY)
-            return WebReadingPositionCapture.normalizedScrollFraction(
-                offset: offset,
-                contentExtent: documentHeight,
-                viewportExtent: visible.height
-            )
-        }
-
-        @MainActor
-        private static func descendantScrollView(in view: NSView) -> NSScrollView? {
-            if let scrollView = view as? NSScrollView { return scrollView }
-            for subview in view.subviews {
-                if let found = descendantScrollView(in: subview) { return found }
-            }
-            return nil
-        }
     }
 }
 

@@ -175,29 +175,66 @@ enum ReaderContentNavigation {
     }
 
     static func index(of locator: Locator, in nodes: [ContentNode]) -> Int? {
-        nodes.firstIndex { node in
+        let candidates = nodes.enumerated().filter { _, node in
             let candidate = node.locator
-            guard candidate.sourceID == locator.sourceID,
-                  candidate.snapshotID == locator.snapshotID,
-                  candidate.adapterID == locator.adapterID else { return false }
-            if candidate == locator { return true }
-
-            if let path = locator.relativePath,
-               candidate.relativePath == path {
-                if let candidatePage = candidate.pdfPageIndex,
-                   let page = locator.pdfPageIndex {
-                    return candidatePage == page
-                }
-                return true
-            }
-
-            if let page = locator.pdfPageIndex,
-               candidate.pdfPageIndex == page {
-                return true
-            }
-            return candidate.structuralPath == locator.structuralPath
-                && candidate.structuralPath != nil
+            return candidate.sourceID == locator.sourceID
+                && candidate.snapshotID == locator.snapshotID
+                && candidate.adapterID == locator.adapterID
         }
+        if let exact = candidates.first(where: { $0.element.locator == locator }) {
+            return exact.offset
+        }
+
+        let samePath: ((Locator) -> Bool) = { candidate in
+            guard let path = locator.relativePath else { return true }
+            return candidate.relativePath == path
+        }
+        for key in ["pageIndex", "spineIndex", "href", "domPath"] {
+            guard let value = locator.payload[key], !value.isEmpty else { continue }
+            if let match = candidates.first(where: {
+                samePath($0.element.locator)
+                    && $0.element.locator.payload[key] == value
+            }) {
+                return match.offset
+            }
+        }
+        if let structuralPath = locator.structuralPath,
+           let match = candidates.first(where: {
+               $0.element.locator.structuralPath == structuralPath
+           }) {
+            return match.offset
+        }
+        if let fingerprint = locator.fingerprint,
+           let match = candidates.first(where: {
+               samePath($0.element.locator)
+                   && $0.element.locator.fingerprint == fingerprint
+           }) {
+            return match.offset
+        }
+        if let quote = locator.textQuote?.exact,
+           let match = candidates.first(where: {
+               samePath($0.element.locator)
+                   && $0.element.locator.textQuote?.exact == quote
+           }) {
+            return match.offset
+        }
+        if let path = locator.relativePath {
+            let pathMatches = candidates.filter {
+                $0.element.locator.relativePath == path
+            }
+            if let line = locator.lineRange?.lowerBound {
+                let preceding = pathMatches.compactMap { candidate -> (Int, Int)? in
+                    guard let start = candidate.element.locator.lineRange?.lowerBound,
+                          start <= line else { return nil }
+                    return (candidate.offset, start)
+                }.max(by: { $0.1 < $1.1 })
+                if let preceding { return preceding.0 }
+            }
+            // A file path is a safe fallback only when it identifies one node.
+            // Section outlines deliberately contain many nodes with the same path.
+            if pathMatches.count == 1 { return pathMatches[0].offset }
+        }
+        return nil
     }
 
     static func availability(
@@ -214,6 +251,12 @@ enum ReaderContentNavigation {
 }
 
 enum WebReadingPositionCapture {
+    static let currentPositionJavaScript = """
+        window.__oneReaderCapturePosition
+          ? window.__oneReaderCapturePosition()
+          : null;
+        """
+
     static func normalizedScrollFraction(
         offset: Double,
         contentExtent: Double,
@@ -273,6 +316,51 @@ enum WebReadingPositionCapture {
             )
         )
     }
+
+    static func fractionOnlyUpdate(
+        for base: Locator,
+        fraction: Double?
+    ) -> ReadingPositionUpdate {
+        update(
+            for: anchorWithoutDOMEvidence(base),
+            path: nil,
+            quote: nil,
+            fraction: fraction
+        )
+    }
+
+    static func capturedUpdate(
+        for base: Locator,
+        path: String?,
+        quote: String?,
+        fraction: Double?
+    ) -> ReadingPositionUpdate {
+        update(
+            for: anchorWithoutDOMEvidence(base),
+            path: path,
+            quote: quote,
+            fraction: fraction
+        )
+    }
+
+    private static func anchorWithoutDOMEvidence(_ base: Locator) -> Locator {
+        var payload = base.payload
+        payload.removeValue(forKey: "domPath")
+        let structuralPath = base.structuralPath.flatMap { path in
+            path.hasPrefix("body") ? base.relativePath : path
+        }
+        let anchor = Locator(
+            sourceID: base.sourceID,
+            snapshotID: base.snapshotID,
+            adapterID: base.adapterID,
+            schemaVersion: base.schemaVersion,
+            payload: payload,
+            structuralPath: structuralPath,
+            textQuote: nil,
+            fingerprint: nil
+        )
+        return anchor
+    }
 }
 
 private extension String {
@@ -283,6 +371,26 @@ enum ReadingPositionCaptureSignal {
     static let requested = Notification.Name(
         "io.github.zzqDeco.OneReader.captureReadingPosition"
     )
+}
+
+@MainActor
+final class ReadingPositionCaptureRequest {
+    private(set) var isClaimed = false
+    private var completion: ((ReadingPositionUpdate?) -> Void)?
+
+    init(completion: @escaping (ReadingPositionUpdate?) -> Void) {
+        self.completion = completion
+    }
+
+    func claim() {
+        isClaimed = true
+    }
+
+    func finish(with update: ReadingPositionUpdate?) {
+        guard let completion else { return }
+        self.completion = nil
+        completion(update)
+    }
 }
 
 struct ReaderActivityItem: Identifiable, Equatable, Sendable {

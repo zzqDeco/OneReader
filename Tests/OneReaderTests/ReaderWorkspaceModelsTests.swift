@@ -139,6 +139,82 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         XCTAssertFalse(single.next)
     }
 
+    func testNavigationUsesMarkdownHeadingInsteadOfFirstSharedPath() {
+        let sections = [
+            section(path: "book.md", title: "One", anchor: "one", startLine: 1),
+            section(path: "book.md", title: "Two", anchor: "two", startLine: 20),
+            section(path: "book.md", title: "Three", anchor: "three", startLine: 40),
+        ]
+        let active = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "adapter",
+            payload: ["path": "book.md", "startLine": "44"],
+            structuralPath: "three",
+            textQuote: TextQuote(prefix: nil, exact: "body", suffix: nil)
+        )
+
+        XCTAssertEqual(ReaderContentNavigation.index(of: active, in: sections), 2)
+        let availability = ReaderContentNavigation.availability(at: active, in: sections)
+        XCTAssertTrue(availability.previous)
+        XCTAssertFalse(availability.next)
+    }
+
+    func testNavigationMapsTextPositionToNearestPrecedingHeading() {
+        let sections = [
+            section(path: "book.md", title: "One", anchor: "one", startLine: 1),
+            section(path: "book.md", title: "Two", anchor: "two", startLine: 20),
+            section(path: "book.md", title: "Three", anchor: "three", startLine: 40),
+        ]
+        let active = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "adapter",
+            payload: ["path": "book.md", "startLine": "28"],
+            structuralPath: "book.md"
+        )
+
+        XCTAssertEqual(ReaderContentNavigation.index(of: active, in: sections), 1)
+        XCTAssertEqual(
+            ReaderContentNavigation.availability(at: active, in: sections).next,
+            true
+        )
+    }
+
+    func testNavigationUsesHTMLDOMAnchorInsteadOfFirstSharedPath() {
+        let first = section(
+            path: "chapter.html",
+            title: "First",
+            anchor: "body > h2:nth-of-type(1)",
+            startLine: nil,
+            domPath: "body > h2:nth-of-type(1)"
+        )
+        let second = section(
+            path: "chapter.html",
+            title: "Second",
+            anchor: "body > h2:nth-of-type(2)",
+            startLine: nil,
+            domPath: "body > h2:nth-of-type(2)"
+        )
+        let active = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "adapter",
+            payload: [
+                "path": "chapter.html",
+                "domPath": "body > h2:nth-of-type(2)",
+                "scrollFraction": "0.8",
+            ],
+            structuralPath: "body > h2:nth-of-type(2)",
+            textQuote: TextQuote(prefix: nil, exact: "visible paragraph", suffix: nil)
+        )
+
+        XCTAssertEqual(ReaderContentNavigation.index(of: active, in: [first, second]), 1)
+        XCTAssertFalse(
+            ReaderContentNavigation.availability(at: active, in: [first, second]).next
+        )
+    }
+
     func testWebPositionCaptureUsesImmediateHostFractionAndRetainsEvidence() throws {
         let base = Locator(
             sourceID: "source",
@@ -192,6 +268,33 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         ))
     }
 
+    func testWebFractionOnlyFallbackDropsStaleDOMEvidence() throws {
+        let base = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "onereader.html",
+            payload: [
+                "path": "chapter.html",
+                "domPath": "body > p:nth-of-type(1)",
+            ],
+            structuralPath: "body > p:nth-of-type(1)",
+            textQuote: TextQuote(prefix: nil, exact: "stale paragraph", suffix: nil),
+            fingerprint: "stale-fingerprint"
+        )
+
+        let update = WebReadingPositionCapture.fractionOnlyUpdate(
+            for: base,
+            fraction: 0.82
+        )
+
+        XCTAssertEqual(update.locator.relativePath, "chapter.html")
+        XCTAssertEqual(update.locator.structuralPath, "chapter.html")
+        XCTAssertNil(update.locator.payload["domPath"])
+        XCTAssertNil(update.locator.textQuote)
+        XCTAssertNil(update.locator.fingerprint)
+        XCTAssertEqual(update.locator.payload["scrollFraction"], "0.820000")
+    }
+
     private func node(
         path: String,
         mediaType: String,
@@ -214,6 +317,37 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
             order: 0,
             mediaType: mediaType,
             isReadable: isReadable
+        )
+    }
+
+    private func section(
+        path: String,
+        title: String,
+        anchor: String,
+        startLine: Int?,
+        domPath: String? = nil
+    ) -> ContentNode {
+        var payload = ["path": path]
+        if let startLine { payload["startLine"] = String(startLine) }
+        if let domPath { payload["domPath"] = domPath }
+        let locator = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "adapter",
+            payload: payload,
+            structuralPath: anchor,
+            textQuote: TextQuote(prefix: nil, exact: title, suffix: nil),
+            fingerprint: AdapterUtilities.sha256(title)
+        )
+        return ContentNode(
+            id: locator.stableID,
+            title: title,
+            kind: .section,
+            locator: locator,
+            depth: 0,
+            order: startLine ?? 0,
+            mediaType: domPath == nil ? "text/markdown" : "text/html",
+            isReadable: true
         )
     }
 }
