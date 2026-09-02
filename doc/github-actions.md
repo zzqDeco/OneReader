@@ -62,11 +62,14 @@ explicitly unnotarized prerelease.
 
 ## Repository settings
 
-When the GitHub remote is created:
+The public remote is
+[`zzqDeco/OneReader`](https://github.com/zzqDeco/OneReader). It keeps `main` as
+the default branch, Issues and Projects enabled, Wiki disabled, and GitHub
+secret scanning plus push protection enabled.
 
-- keep `main` as the default branch;
-- protect `main` and `dev`;
-- disable force pushes;
-- require pull requests;
-- require the CI job;
-- keep release creation restricted to tags on `main`.
+`main` and `dev` both require pull requests and a strict `Native validation`
+check bound to the GitHub Actions app. The policy applies to administrators and
+disallows force pushes and deletion. Active `v*` tag rules restrict creation to
+elevated repository roles and make published version tags immutable. Release CI
+still independently requires an annotated semantic-version tag at the exact
+`origin/main` tip; branch or tag protection does not replace that content gate.

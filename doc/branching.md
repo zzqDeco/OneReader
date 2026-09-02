@@ -26,9 +26,10 @@
 8. Promote `dev` into `main` through a separate pull request.
 9. Create an annotated `vX.Y.Z` tag only on a commit reachable from `main`.
 
-Direct routine pushes to `main` or `dev` are discouraged. Repository branch
-protection should require pull requests and the `CI / Native validation`
-check when a GitHub remote is configured.
+Direct routine pushes to `main` or `dev` are blocked by repository protection.
+Both branches require pull requests and a strict `CI / Native validation`
+check from GitHub Actions, enforce the policy for administrators, and reject
+force pushes and branch deletion.
 
 ## Commit format
 

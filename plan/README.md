@@ -17,7 +17,7 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
-| [GitHub remote bootstrap](github-remote-bootstrap.plan.md) | Public repository, hosted validation, branch protection, and project governance | Active |
+| [GitHub remote bootstrap](github-remote-bootstrap.plan.md) | Public repository, hosted validation, branch protection, and project governance | Delivered |
 | [Universal reading position](universal-reading-position.plan.md) | Cross-format resume positions, lifecycle-safe persistence, and Library progress | Delivered |
 | [Apple multiplatform reader](apple-multiplatform-v1.plan.md) | Shared macOS, iPhone, and iPad app, adaptive native UI, and app icon | Delivered |
 | [All-in-One Reader v1](all-in-one-reader-v1.plan.md) | Umbrella delivery plan for OneReader v0.2.0 | Delivered |
