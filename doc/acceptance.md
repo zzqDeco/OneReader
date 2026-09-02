@@ -91,6 +91,45 @@ to place the implementation SHA directly in this durable record; the paragraph
 above applies that recommendation. A final delivery-metadata-only commit is
 revalidated and reinstalled before handoff without changing runtime sources.
 
+### Universal reading-position record
+
+On 2026-09-02, implementation commit
+`dc87f405bc6bae9c45aad93f0ead442dcc89bb9e` was built from the
+`OneReader-iOS` application scheme with Xcode 27 beta 6 (build `27A5252f`) and
+the iOS 27 SDK. The signed version 0.3.0 (3) application was installed and
+launched on the same connected iPhone 13 Pro Max running iOS 27.0 beta (build
+`24A5424a`). The personal development Team was provided only as a command-line
+override and remains absent from the project.
+
+The running application imported
+`https://raw.githubusercontent.com/xiaolai/time-as-a-friend/master/README.md`
+through its public Open In URL path. Device-container inspection proved a new
+immutable remote Source and Snapshot plus a durable `reading_progress` row.
+After terminating the process and launching the app again, a second device
+container read showed the same Source/Snapshot position republished with:
+
+- adapter `onereader.markdown` and text granularity;
+- `README.md`, line 1, UTF-16 source/rendered offsets, heading structural path,
+  exact quote context, and Snapshot-bound fingerprint;
+- display label `README.md · 第 1 行 · 0%` and normalized fraction
+  `0.0010395010395010396`.
+
+This is physical-device evidence for import, presentation callback, debounced
+SQLite persistence, terminated-process restart, Locator restoration, and
+position remeasurement. The complete automated suite covers PDF page/rect,
+HTML/web/EPUB DOM and fraction, Markdown/text/code ranges, directory/repository
+child identity, Quick Look document checkpoints, stale presentation rejection,
+and refresh relocation. Quick Look still does not claim private preview page or
+scroll state. No physical iPad was connected, so iPadOS physical gesture and
+regular-width layout acceptance remains unrecorded.
+
+The exact implementation commit passed 204 tests. The final Sol max reviewer
+returned `APPROVE` with no P0, P1, P2, or P3 finding and confirmed no new
+concurrency, persistence, refresh-recovery, or reading-position regression.
+The final metadata-only head also passed the stable Xcode 26.6 native validation
+path. No Simulator device was created or booted; the Simulator device list was
+empty after validation.
+
 ## Fixture and contract coverage
 
 Generated, non-copyrighted fixtures exercise PDF, EPUB, Markdown, text, code,

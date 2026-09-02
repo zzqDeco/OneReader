@@ -1,6 +1,6 @@
 # Universal Reading Position
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/universal-reading-position`
 
@@ -81,10 +81,23 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
 
 ## Acceptance Evidence
 
-Record the exact implementation commit, test total, macOS release/package and
-entitlement gates, generic universal-target compile, empty Simulator device
-list, physical-device build/install/launch evidence, unavailable physical iPad
-scope, and final reviewer disposition.
+Implementation commit `dc87f405bc6bae9c45aad93f0ead442dcc89bb9e`
+passed 204 tests. Xcode 27 beta 6 built and signed the universal iOS target with
+the iOS 27 SDK, then installed and launched it on the connected iPhone 13 Pro
+Max running iOS 27.0 beta. The device imported the public
+`xiaolai/time-as-a-friend` README, persisted its Snapshot-bound Markdown
+Locator, text granularity, label, quote, range, and normalized fraction, then
+restored and republished that position after a terminated-process relaunch.
+
+The stable Xcode 26.6 validation path passed dependency-lock, documentation,
+project-drift, release-fixture, entitlement, 204-test, release-build, Sandbox
+package, codesign, and generic universal-target compilation gates. The generic
+target compilation created or booted no Simulator device, and the Simulator
+device list remained empty. No physical iPad was connected, so physical iPadOS
+gesture and regular-width layout evidence remains unavailable.
+
+The final Sol max reviewer returned `APPROVE` with no P0, P1, P2, or P3 finding
+and no delivery blocker.
 
 ## Non-goals
 
@@ -98,7 +111,7 @@ position with AI route completion.
 - [x] Transition and lifecycle flush implemented
 - [x] Library and reader resume affordances implemented
 - [x] Focused persistence and AppModel tests pass
-- [ ] Current-state and source docs synchronized
-- [ ] Full local and physical-device validation passes at exact head
-- [ ] Final Sol max review accepted
-- [ ] Branch merged into `dev`
+- [x] Current-state and source docs synchronized
+- [x] Full local and physical-device validation passes at exact head
+- [x] Final Sol max review accepted
+- [x] Branch merged into `dev`
