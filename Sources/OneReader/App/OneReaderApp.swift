@@ -40,11 +40,13 @@ public struct OneReaderScene: Scene {
                     model.selectPreviousNode()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(!model.canSelectPreviousNode)
 
                 Button("下一项") {
                     model.selectNextNode()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(!model.canSelectNextNode)
 
                 Divider()
 

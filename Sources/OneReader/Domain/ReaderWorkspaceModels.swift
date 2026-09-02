@@ -173,6 +173,110 @@ enum ReaderContentNavigation {
     static func readableNodes(from nodes: [ContentNode]) -> [ContentNode] {
         outlineNodes(from: nodes).filter(\.isReadable)
     }
+
+    static func index(of locator: Locator, in nodes: [ContentNode]) -> Int? {
+        nodes.firstIndex { node in
+            let candidate = node.locator
+            guard candidate.sourceID == locator.sourceID,
+                  candidate.snapshotID == locator.snapshotID,
+                  candidate.adapterID == locator.adapterID else { return false }
+            if candidate == locator { return true }
+
+            if let path = locator.relativePath,
+               candidate.relativePath == path {
+                if let candidatePage = candidate.pdfPageIndex,
+                   let page = locator.pdfPageIndex {
+                    return candidatePage == page
+                }
+                return true
+            }
+
+            if let page = locator.pdfPageIndex,
+               candidate.pdfPageIndex == page {
+                return true
+            }
+            return candidate.structuralPath == locator.structuralPath
+                && candidate.structuralPath != nil
+        }
+    }
+
+    static func availability(
+        at locator: Locator?,
+        in nodes: [ContentNode]
+    ) -> (previous: Bool, next: Bool) {
+        let readable = readableNodes(from: nodes)
+        guard let locator,
+              let index = index(of: locator, in: readable) else {
+            return (false, false)
+        }
+        return (index > 0, index + 1 < readable.count)
+    }
+}
+
+enum WebReadingPositionCapture {
+    static func normalizedScrollFraction(
+        offset: Double,
+        contentExtent: Double,
+        viewportExtent: Double
+    ) -> Double? {
+        guard offset.isFinite,
+              contentExtent.isFinite,
+              viewportExtent.isFinite,
+              contentExtent >= 0,
+              viewportExtent >= 0 else { return nil }
+        let maximum = max(0, contentExtent - viewportExtent)
+        guard maximum > 0 else { return 1 }
+        return min(max(offset / maximum, 0), 1)
+    }
+
+    static func update(
+        for base: Locator,
+        path: String?,
+        quote: String?,
+        fraction: Double?
+    ) -> ReadingPositionUpdate {
+        let normalizedPath = path?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let normalizedQuote = quote?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let normalizedFraction = fraction.flatMap { value in
+            value.isFinite ? min(max(value, 0), 1) : nil
+        }
+        var payload = base.payload
+        if let normalizedPath { payload["domPath"] = normalizedPath }
+        if let normalizedFraction {
+            payload["scrollFraction"] = String(format: "%.6f", normalizedFraction)
+        }
+        let evidenceQuote = normalizedQuote.map {
+            TextQuote(prefix: nil, exact: $0, suffix: nil)
+        } ?? base.textQuote
+        let locator = Locator(
+            sourceID: base.sourceID,
+            snapshotID: base.snapshotID,
+            adapterID: base.adapterID,
+            schemaVersion: base.schemaVersion,
+            payload: payload,
+            structuralPath: normalizedPath ?? base.structuralPath,
+            textQuote: evidenceQuote,
+            fingerprint: normalizedQuote.map(AdapterUtilities.sha256) ?? base.fingerprint
+        )
+        let percentage = Int((normalizedFraction ?? 0) * 100)
+        return ReadingPositionUpdate(
+            locator: locator,
+            progressFraction: normalizedFraction,
+            granularity: .dom,
+            displayLabel: ReadingPositionUpdate.label(
+                for: locator,
+                detail: "阅读到 \(percentage)%"
+            )
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 enum ReadingPositionCaptureSignal {

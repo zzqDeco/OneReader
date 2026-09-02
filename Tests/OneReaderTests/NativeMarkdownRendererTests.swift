@@ -421,6 +421,26 @@ final class NativeMarkdownRendererTests: XCTestCase {
         XCTAssertEqual(capped.thumbnailPixelSize, 4_096)
     }
 
+    func testMarkdownAttachmentResizesToTheActualNarrowViewport() throws {
+        let image = NSImage(size: NSSize(width: 1_200, height: 600))
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(x: 0, y: 0, width: 720, height: 360)
+        let storage = NSMutableAttributedString(attachment: attachment)
+
+        NativeMarkdownRenderer.resizeImageAttachments(
+            in: storage,
+            maximumImageWidth: 436
+        )
+
+        let resized = try XCTUnwrap(
+            storage.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? NSTextAttachment
+        )
+        XCTAssertEqual(resized.bounds.width, 436, accuracy: 0.1)
+        XCTAssertEqual(resized.bounds.height, 218, accuracy: 0.1)
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0

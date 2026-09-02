@@ -691,13 +691,14 @@ struct ControlledWebPresentation: UIViewRepresentable {
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.backgroundColor = .clear
+        context.coordinator.observeCaptureRequests(for: view)
         return view
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.parent = self
         let renderID = [
-            AdapterUtilities.sha256(document.content ?? ""),
+            document.id,
             String(describing: preferences),
             colorScheme == .dark ? "dark" : "light",
             document.baseURL?.standardizedFileURL.path ?? "",
@@ -715,6 +716,8 @@ struct ControlledWebPresentation: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
+        coordinator.publishPositionImmediately(from: view)
+        coordinator.stopObservingCaptureRequests()
         view.configuration.userContentController.removeScriptMessageHandler(
             forName: Coordinator.selectionHandlerName
         )
@@ -914,8 +917,61 @@ struct ControlledWebPresentation: UIViewRepresentable {
         var loadedDocumentID: String?
         var pendingAnchorID: String?
         var appliedAnchorID: String?
+        private weak var observedWebView: WKWebView?
+        private var lastPath: String?
+        private var lastQuote: String?
+        private var lastFraction: Double?
 
         init(parent: ControlledWebPresentation) { self.parent = parent }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func observeCaptureRequests(for webView: WKWebView) {
+            observedWebView = webView
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        func stopObservingCaptureRequests() {
+            observedWebView = nil
+            NotificationCenter.default.removeObserver(
+                self,
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        @objc private func positionCaptureRequested(_ notification: Notification) {
+            guard let observedWebView else { return }
+            publishPositionImmediately(from: observedWebView)
+        }
+
+        func publishPositionImmediately(from webView: WKWebView) {
+            guard !webView.isLoading else { return }
+            let scrollView = webView.scrollView
+            let inset = scrollView.adjustedContentInset
+            let fraction = WebReadingPositionCapture.normalizedScrollFraction(
+                offset: Double(scrollView.contentOffset.y + inset.top),
+                contentExtent: Double(
+                    scrollView.contentSize.height + inset.top + inset.bottom
+                ),
+                viewportExtent: Double(scrollView.bounds.height)
+            ) ?? lastFraction
+            parent.onPositionChange(
+                WebReadingPositionCapture.update(
+                    for: parent.document.locator,
+                    path: lastPath,
+                    quote: lastQuote,
+                    fraction: fraction
+                )
+            )
+        }
 
         func applyAnchor(_ anchorID: String, in webView: WKWebView) {
             guard appliedAnchorID != anchorID else { return }
@@ -964,38 +1020,17 @@ struct ControlledWebPresentation: UIViewRepresentable {
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let fraction = (body["fraction"] as? NSNumber)?.doubleValue
-                var payload = parent.document.locator.payload
-                if let path, !path.isEmpty { payload["domPath"] = path }
+                if let path, !path.isEmpty { lastPath = path }
+                if let quote, !quote.isEmpty { lastQuote = quote }
                 if let fraction, fraction.isFinite {
-                    payload["scrollFraction"] = String(
-                        format: "%.6f",
-                        min(max(fraction, 0), 1)
-                    )
+                    lastFraction = min(max(fraction, 0), 1)
                 }
-                let locator = Locator(
-                    sourceID: parent.document.locator.sourceID,
-                    snapshotID: parent.document.locator.snapshotID,
-                    adapterID: parent.document.locator.adapterID,
-                    payload: payload,
-                    structuralPath: path ?? parent.document.locator.structuralPath,
-                    textQuote: quote.flatMap {
-                        $0.isEmpty ? nil : TextQuote(prefix: nil, exact: $0, suffix: nil)
-                    },
-                    fingerprint: quote.flatMap {
-                        $0.isEmpty ? nil : AdapterUtilities.sha256($0)
-                    }
-                )
-                let normalizedFraction = fraction.map { min(max($0, 0), 1) }
-                let percentage = Int((normalizedFraction ?? 0) * 100)
                 parent.onPositionChange(
-                    ReadingPositionUpdate(
-                        locator: locator,
-                        progressFraction: normalizedFraction,
-                        granularity: .dom,
-                        displayLabel: ReadingPositionUpdate.label(
-                            for: locator,
-                            detail: "阅读到 \(percentage)%"
-                        )
+                    WebReadingPositionCapture.update(
+                        for: parent.document.locator,
+                        path: lastPath,
+                        quote: lastQuote,
+                        fraction: lastFraction
                     )
                 )
                 return

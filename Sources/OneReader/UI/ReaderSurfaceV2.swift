@@ -157,6 +157,7 @@ struct ReaderSurfaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("上一项")
             .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .disabled(!model.canSelectPreviousNode)
 
             Button {
                 model.selectNextNode()
@@ -166,6 +167,7 @@ struct ReaderSurfaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("下一项")
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .disabled(!model.canSelectNextNode)
 
             if let position = model.currentPositionDescription {
                 Label("已记录 · \(position)", systemImage: "bookmark.circle")
@@ -237,10 +239,18 @@ struct ReaderSurfaceView: View {
             CompactReaderAction(title: "目录", systemImage: "list.bullet") {
                 onShowNavigation?()
             }
-            CompactReaderAction(title: "上一项", systemImage: "chevron.left") {
+            CompactReaderAction(
+                title: "上一项",
+                systemImage: "chevron.left",
+                isDisabled: !model.canSelectPreviousNode
+            ) {
                 model.selectPreviousNode()
             }
-            CompactReaderAction(title: "下一项", systemImage: "chevron.right") {
+            CompactReaderAction(
+                title: "下一项",
+                systemImage: "chevron.right",
+                isDisabled: !model.canSelectNextNode
+            ) {
                 model.selectNextNode()
             }
             CompactReaderAction(title: "笔记", systemImage: "note.text") {
@@ -288,6 +298,7 @@ private extension PresentationSurface {
 private struct CompactReaderAction: View {
     let title: String
     let systemImage: String
+    var isDisabled = false
     let action: () -> Void
 
     var body: some View {
@@ -303,6 +314,7 @@ private struct CompactReaderAction: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .disabled(isDisabled)
     }
 }
 #endif

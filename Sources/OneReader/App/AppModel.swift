@@ -757,18 +757,32 @@ final class AppModel: ObservableObject {
 
     func selectPreviousNode() {
         let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
-        guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator, in: nodes),
+        guard let locator = activeReadingLocator,
+              let index = ReaderContentNavigation.index(of: locator, in: nodes),
               index > 0 else { return }
         openNode(nodes[index - 1])
     }
 
     func selectNextNode() {
         let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
-        guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator, in: nodes),
+        guard let locator = activeReadingLocator,
+              let index = ReaderContentNavigation.index(of: locator, in: nodes),
               index + 1 < nodes.count else { return }
         openNode(nodes[index + 1])
+    }
+
+    var canSelectPreviousNode: Bool {
+        ReaderContentNavigation.availability(
+            at: activeReadingLocator,
+            in: contentNodes
+        ).previous
+    }
+
+    var canSelectNextNode: Bool {
+        ReaderContentNavigation.availability(
+            at: activeReadingLocator,
+            in: contentNodes
+        ).next
     }
 
     func performSearch() {
@@ -1595,27 +1609,6 @@ final class AppModel: ObservableObject {
         pendingImports.removeAll { ids.contains($0.id) }
     }
 
-    private func contentNodeIndex(
-        for locator: Locator,
-        in nodes: [ContentNode]
-    ) -> Int? {
-        nodes.firstIndex { node in
-            let candidate = node.locator
-            guard candidate.sourceID == locator.sourceID,
-                  candidate.snapshotID == locator.snapshotID,
-                  candidate.adapterID == locator.adapterID else { return false }
-            if candidate == locator { return true }
-            if let page = locator.pdfPageIndex {
-                return candidate.pdfPageIndex == page
-            }
-            if let path = locator.relativePath {
-                return candidate.relativePath == path
-            }
-            return candidate.structuralPath == locator.structuralPath
-                && candidate.structuralPath != nil
-        }
-    }
-
     private func resolvedTarget(
         _ requested: Locator?,
         plan: AdapterPlan,
@@ -1641,6 +1634,10 @@ final class AppModel: ObservableObject {
             .min { lhs, rhs in
                 Self.defaultNodeRank(lhs) < Self.defaultNodeRank(rhs)
             }
+    }
+
+    private var activeReadingLocator: Locator? {
+        currentPositionLocator ?? presentationDocument?.locator
     }
 
     private static func defaultNodeRank(_ node: ContentNode) -> (Int, Int, String) {

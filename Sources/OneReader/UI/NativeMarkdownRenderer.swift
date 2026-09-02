@@ -110,6 +110,51 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         )
     }
 
+    static func imageDisplaySize(
+        pixelWidth: CGFloat,
+        pixelHeight: CGFloat,
+        maximumImageWidth: CGFloat
+    ) -> CGSize? {
+        guard pixelWidth.isFinite,
+              pixelHeight.isFinite,
+              maximumImageWidth.isFinite,
+              pixelWidth > 0,
+              pixelHeight > 0,
+              maximumImageWidth > 0 else { return nil }
+        let scale = min(1, maximumImageWidth / pixelWidth)
+        return CGSize(width: pixelWidth * scale, height: pixelHeight * scale)
+    }
+
+    static func resizeImageAttachments(
+        in storage: NSMutableAttributedString,
+        maximumImageWidth: CGFloat
+    ) {
+        guard maximumImageWidth.isFinite, maximumImageWidth > 0 else { return }
+        var replacements: [(NSRange, NSTextAttachment)] = []
+        storage.enumerateAttribute(
+            .attachment,
+            in: storage.fullRange,
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? NSTextAttachment,
+                  let image = attachment.image,
+                  let size = imageDisplaySize(
+                      pixelWidth: image.size.width,
+                      pixelHeight: image.size.height,
+                      maximumImageWidth: maximumImageWidth
+                  ), abs(attachment.bounds.width - size.width) >= 0.5
+                    || abs(attachment.bounds.height - size.height) >= 0.5 else { return }
+            attachment.bounds = CGRect(origin: .zero, size: size)
+            replacements.append((range, attachment))
+        }
+        guard !replacements.isEmpty else { return }
+        storage.beginEditing()
+        for (range, attachment) in replacements {
+            storage.addAttribute(.attachment, value: attachment, range: range)
+        }
+        storage.endEditing()
+    }
+
     mutating func render(_ source: String) -> NSAttributedString {
         sourceIndex = MarkdownUTF16SourceIndex(source: source)
         let document = Markdown.Document(parsing: source)
@@ -458,7 +503,11 @@ struct NativeMarkdownRenderer: MarkupVisitor {
               ), decoded.width > 0, decoded.height > 0 else { return nil }
         let decodedWidth = CGFloat(decoded.width)
         let decodedHeight = CGFloat(decoded.height)
-        let scale = min(1, maximumImageWidth / decodedWidth)
+        guard let displaySize = Self.imageDisplaySize(
+            pixelWidth: decodedWidth,
+            pixelHeight: decodedHeight,
+            maximumImageWidth: maximumImageWidth
+        ) else { return nil }
 #if os(macOS)
         let image = NSImage(
             cgImage: decoded,
@@ -469,8 +518,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         attachment.bounds = CGRect(
             x: 0,
             y: 0,
-            width: decodedWidth * scale,
-            height: decodedHeight * scale
+            width: displaySize.width,
+            height: displaySize.height
         )
 #else
         let attachment = NSTextAttachment()
@@ -478,8 +527,8 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         attachment.bounds = CGRect(
             x: 0,
             y: 0,
-            width: decodedWidth * scale,
-            height: decodedHeight * scale
+            width: displaySize.width,
+            height: displaySize.height
         )
 #endif
         return attachment

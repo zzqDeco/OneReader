@@ -344,7 +344,29 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             textView.backgroundColor = .clear
             textView.anchorSignature = nil
         }
+        resizeMarkdownImages(in: textView)
         applyAnchor(to: textView)
+    }
+
+    private func resizeMarkdownImages(
+        in textView: ReaderTextView,
+        availableWidth: CGFloat? = nil
+    ) {
+        guard kind == .markdown, let storage = textView.textStorage else { return }
+        let preferredWidth = CGFloat(min(preferences.lineWidth, ReaderTheme.proseMaxWidth))
+        let viewportWidth = availableWidth
+            ?? textView.enclosingScrollView?.contentSize.width
+            ?? 0
+        let measuredWidth = viewportWidth
+            - textView.textContainerInset.width * 2
+            - (textView.textContainer?.lineFragmentPadding ?? 0) * 2
+        let maximumWidth = measuredWidth > 0
+            ? min(preferredWidth, measuredWidth)
+            : preferredWidth
+        NativeMarkdownRenderer.resizeImageAttachments(
+            in: storage,
+            maximumImageWidth: max(1, maximumWidth)
+        )
     }
 
     private func readerSerifFont(ofSize size: CGFloat) -> NSFont {
@@ -454,8 +476,12 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        func observe(_ textView: ReaderTextView, scrollView: NSScrollView) {
+        func observe(_ textView: ReaderTextView, scrollView: ReaderTextScrollView) {
             observedTextView = textView
+            scrollView.contentWidthDidChange = { [weak self, weak textView] width in
+                guard let self, let textView else { return }
+                parent.resizeMarkdownImages(in: textView, availableWidth: width)
+            }
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(selectionDidChange(_:)),
@@ -486,6 +512,8 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         func stopObserving() {
             positionPublishTask?.cancel()
             positionPublishTask = nil
+            (observedTextView?.enclosingScrollView as? ReaderTextScrollView)?
+                .contentWidthDidChange = nil
             observedTextView = nil
             NotificationCenter.default.removeObserver(self)
         }
@@ -746,8 +774,31 @@ private final class ReaderTextView: NSTextView {
 }
 
 private final class ReaderTextScrollView: NSScrollView {
+    var contentWidthDidChange: ((CGFloat) -> Void)?
+    private var lastReportedContentWidth: CGFloat = 0
+    private var pendingContentWidth: CGFloat?
+    private var isWidthReportScheduled = false
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func layout() {
+        super.layout()
+        let width = contentSize.width
+        guard width > 0,
+              abs(width - lastReportedContentWidth) >= 1 else { return }
+        lastReportedContentWidth = width
+        pendingContentWidth = width
+        guard !isWidthReportScheduled else { return }
+        isWidthReportScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            isWidthReportScheduled = false
+            guard let width = pendingContentWidth else { return }
+            pendingContentWidth = nil
+            contentWidthDidChange?(width)
+        }
     }
 }
 
@@ -989,13 +1040,14 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.underPageBackgroundColor = .clear
+        context.coordinator.observeCaptureRequests(for: view)
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.parent = self
         let renderID = [
-            AdapterUtilities.sha256(document.content ?? ""),
+            document.id,
             String(describing: preferences),
             colorScheme == .dark ? "dark" : "light",
             document.baseURL?.standardizedFileURL.path ?? "",
@@ -1013,6 +1065,8 @@ private struct ControlledWebPresentation: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        coordinator.publishPositionImmediately(from: view)
+        coordinator.stopObservingCaptureRequests()
         view.configuration.userContentController.removeScriptMessageHandler(
             forName: Coordinator.selectionHandlerName
         )
@@ -1215,9 +1269,58 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         var loadedDocumentID: String?
         var pendingAnchorID: String?
         var appliedAnchorID: String?
+        private weak var observedWebView: WKWebView?
+        private var lastPath: String?
+        private var lastQuote: String?
+        private var lastFraction: Double?
 
         init(parent: ControlledWebPresentation) {
             self.parent = parent
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @MainActor
+        func observeCaptureRequests(for webView: WKWebView) {
+            observedWebView = webView
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        @MainActor
+        func stopObservingCaptureRequests() {
+            observedWebView = nil
+            NotificationCenter.default.removeObserver(
+                self,
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        @objc @MainActor
+        private func positionCaptureRequested(_ notification: Notification) {
+            guard let observedWebView else { return }
+            publishPositionImmediately(from: observedWebView)
+        }
+
+        @MainActor
+        func publishPositionImmediately(from webView: WKWebView) {
+            guard !webView.isLoading else { return }
+            let fraction = Self.hostScrollFraction(in: webView) ?? lastFraction
+            parent.onPositionChange(
+                WebReadingPositionCapture.update(
+                    for: parent.document.locator,
+                    path: lastPath,
+                    quote: lastQuote,
+                    fraction: fraction
+                )
+            )
         }
 
         @MainActor
@@ -1271,38 +1374,17 @@ private struct ControlledWebPresentation: NSViewRepresentable {
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let fraction = (body["fraction"] as? NSNumber)?.doubleValue
-                var payload = parent.document.locator.payload
-                if let path, !path.isEmpty { payload["domPath"] = path }
+                if let path, !path.isEmpty { lastPath = path }
+                if let quote, !quote.isEmpty { lastQuote = quote }
                 if let fraction, fraction.isFinite {
-                    payload["scrollFraction"] = String(
-                        format: "%.6f",
-                        min(max(fraction, 0), 1)
-                    )
+                    lastFraction = min(max(fraction, 0), 1)
                 }
-                let locator = Locator(
-                    sourceID: parent.document.locator.sourceID,
-                    snapshotID: parent.document.locator.snapshotID,
-                    adapterID: parent.document.locator.adapterID,
-                    payload: payload,
-                    structuralPath: path ?? parent.document.locator.structuralPath,
-                    textQuote: quote.flatMap { value in
-                        value.isEmpty ? nil : TextQuote(prefix: nil, exact: value, suffix: nil)
-                    },
-                    fingerprint: quote.flatMap { value in
-                        value.isEmpty ? nil : AdapterUtilities.sha256(value)
-                    }
-                )
-                let normalizedFraction = fraction.map { min(max($0, 0), 1) }
-                let percentage = Int((normalizedFraction ?? 0) * 100)
                 parent.onPositionChange(
-                    ReadingPositionUpdate(
-                        locator: locator,
-                        progressFraction: normalizedFraction,
-                        granularity: .dom,
-                        displayLabel: ReadingPositionUpdate.label(
-                            for: locator,
-                            detail: "阅读到 \(percentage)%"
-                        )
+                    WebReadingPositionCapture.update(
+                        for: parent.document.locator,
+                        path: lastPath,
+                        quote: lastQuote,
+                        fraction: lastFraction
                     )
                 )
                 return
@@ -1326,6 +1408,31 @@ private struct ControlledWebPresentation: NSViewRepresentable {
                 fingerprint: AdapterUtilities.sha256(text)
             )
             parent.onSelectionChange(ReaderSelection(text: text, locator: locator))
+        }
+
+        @MainActor
+        private static func hostScrollFraction(in webView: WKWebView) -> Double? {
+            guard let scrollView = descendantScrollView(in: webView),
+                  let documentView = scrollView.documentView else { return nil }
+            let documentHeight = documentView.bounds.height
+            let visible = scrollView.documentVisibleRect
+            let offset = documentView.isFlipped
+                ? visible.minY
+                : max(0, documentHeight - visible.maxY)
+            return WebReadingPositionCapture.normalizedScrollFraction(
+                offset: offset,
+                contentExtent: documentHeight,
+                viewportExtent: visible.height
+            )
+        }
+
+        @MainActor
+        private static func descendantScrollView(in view: NSView) -> NSScrollView? {
+            if let scrollView = view as? NSScrollView { return scrollView }
+            for subview in view.subviews {
+                if let found = descendantScrollView(in: subview) { return found }
+            }
+            return nil
         }
     }
 }
