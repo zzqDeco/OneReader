@@ -79,6 +79,7 @@ final class AppModel: ObservableObject {
     @Published var selectedSourceID: String?
     @Published var isReadingWorkspaceOpen = false
     @Published var navigationTab: WorkspaceNavigationTab = .outline
+    @Published private(set) var readerNavigationRequestID = UUID()
     @Published var inspectorTab: ReaderInspectorTab = .annotations
     @Published var isInspectorPresented = false
 
@@ -668,6 +669,11 @@ final class AppModel: ObservableObject {
         openSource(locator.sourceID, locator: locator)
     }
 
+    func revealReaderNavigation(_ tab: WorkspaceNavigationTab) {
+        navigationTab = tab
+        readerNavigationRequestID = UUID()
+    }
+
     func openSearchHit(_ hit: ContentSearchHit) {
         if selectedSpaceID.map({ sourceIDs(in: $0).contains(hit.sourceID) }) != true,
            let targetSpaceID = spaces.first(where: {
@@ -728,6 +734,10 @@ final class AppModel: ObservableObject {
     }
 
     func flushReadingPosition() {
+        NotificationCenter.default.post(
+            name: ReadingPositionCaptureSignal.requested,
+            object: nil
+        )
         positionSaveTask?.cancel()
         positionSaveTask = nil
         guard let pendingPositionUpdate else { return }
@@ -746,17 +756,19 @@ final class AppModel: ObservableObject {
     }
 
     func selectPreviousNode() {
+        let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
         guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator),
+              let index = contentNodeIndex(for: locator, in: nodes),
               index > 0 else { return }
-        openNode(contentNodes[index - 1])
+        openNode(nodes[index - 1])
     }
 
     func selectNextNode() {
+        let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
         guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator),
-              index + 1 < contentNodes.count else { return }
-        openNode(contentNodes[index + 1])
+              let index = contentNodeIndex(for: locator, in: nodes),
+              index + 1 < nodes.count else { return }
+        openNode(nodes[index + 1])
     }
 
     func performSearch() {
@@ -1583,8 +1595,11 @@ final class AppModel: ObservableObject {
         pendingImports.removeAll { ids.contains($0.id) }
     }
 
-    private func contentNodeIndex(for locator: Locator) -> Int? {
-        contentNodes.firstIndex { node in
+    private func contentNodeIndex(
+        for locator: Locator,
+        in nodes: [ContentNode]
+    ) -> Int? {
+        nodes.firstIndex { node in
             let candidate = node.locator
             guard candidate.sourceID == locator.sourceID,
                   candidate.snapshotID == locator.snapshotID,

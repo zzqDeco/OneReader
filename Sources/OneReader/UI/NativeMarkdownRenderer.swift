@@ -8,6 +8,7 @@ private typealias PlatformFont = UIFont
 private typealias PlatformColor = UIColor
 #endif
 import Markdown
+import ImageIO
 import SwiftSoup
 
 private enum PlatformFontTrait {
@@ -68,6 +69,14 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     let maximumImageWidth: CGFloat
     private var sourceIndex: MarkdownUTF16SourceIndex?
 
+    static let maximumSourceImageDimension = 16_384
+    static let maximumSourceImagePixels = 64 * 1_024 * 1_024
+    static let maximumDecodedImageDimension = 4_096
+
+    struct ImageDecodePlan: Equatable {
+        let thumbnailPixelSize: Int
+    }
+
     init(
         fontSize: CGFloat,
         lineSpacing: CGFloat,
@@ -78,6 +87,27 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         self.lineSpacing = lineSpacing
         self.resourceRootURL = resourceRootURL
         self.maximumImageWidth = maximumImageWidth
+    }
+
+    static func imageDecodePlan(
+        pixelWidth: Int,
+        pixelHeight: Int,
+        maximumImageWidth: CGFloat
+    ) -> ImageDecodePlan? {
+        guard pixelWidth > 0,
+              pixelHeight > 0,
+              pixelWidth <= maximumSourceImageDimension,
+              pixelHeight <= maximumSourceImageDimension,
+              pixelWidth <= maximumSourceImagePixels / pixelHeight,
+              maximumImageWidth.isFinite,
+              maximumImageWidth > 0 else { return nil }
+        let target = Int(ceil(maximumImageWidth * 2))
+        return ImageDecodePlan(
+            thumbnailPixelSize: min(
+                maximumDecodedImageDimension,
+                max(1, target)
+            )
+        )
     }
 
     mutating func render(_ source: String) -> NSAttributedString {
@@ -404,31 +434,52 @@ struct NativeMarkdownRenderer: MarkupVisitor {
               let resource = try? ReadOnlyContentResourceLoader(rootURL: resourceRootURL)
                 .resolve(requestURL: requestURL),
               resource.mediaType.hasPrefix("image/") else { return nil }
+        guard let source = CGImageSourceCreateWithURL(
+            resource.fileURL as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any],
+              let pixelWidth = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let pixelHeight = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              let plan = Self.imageDecodePlan(
+                  pixelWidth: pixelWidth,
+                  pixelHeight: pixelHeight,
+                  maximumImageWidth: maximumImageWidth
+              ),
+              let decoded = CGImageSourceCreateThumbnailAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: plan.thumbnailPixelSize,
+                      kCGImageSourceShouldCacheImmediately: true,
+                  ] as CFDictionary
+              ), decoded.width > 0, decoded.height > 0 else { return nil }
+        let decodedWidth = CGFloat(decoded.width)
+        let decodedHeight = CGFloat(decoded.height)
+        let scale = min(1, maximumImageWidth / decodedWidth)
 #if os(macOS)
-        guard let image = NSImage(contentsOf: resource.fileURL), image.size.width > 0 else {
-            return nil
-        }
-        let scale = min(1, maximumImageWidth / image.size.width)
+        let image = NSImage(
+            cgImage: decoded,
+            size: NSSize(width: decodedWidth, height: decodedHeight)
+        )
         let attachment = NSTextAttachment()
         attachment.image = image
         attachment.bounds = CGRect(
             x: 0,
             y: 0,
-            width: image.size.width * scale,
-            height: image.size.height * scale
+            width: decodedWidth * scale,
+            height: decodedHeight * scale
         )
 #else
-        guard let image = UIImage(contentsOfFile: resource.fileURL.path), image.size.width > 0 else {
-            return nil
-        }
-        let scale = min(1, maximumImageWidth / image.size.width)
         let attachment = NSTextAttachment()
-        attachment.image = image
+        attachment.image = UIImage(cgImage: decoded)
         attachment.bounds = CGRect(
             x: 0,
             y: 0,
-            width: image.size.width * scale,
-            height: image.size.height * scale
+            width: decodedWidth * scale,
+            height: decodedHeight * scale
         )
 #endif
         return attachment

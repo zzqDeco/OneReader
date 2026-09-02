@@ -62,7 +62,7 @@ public struct OneReaderScene: Scene {
                 Divider()
 
                 Button("搜索阅读空间") {
-                    model.navigationTab = .search
+                    model.revealReaderNavigation(.search)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }

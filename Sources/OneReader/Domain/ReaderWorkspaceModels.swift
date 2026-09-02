@@ -150,6 +150,37 @@ struct ReaderSelection: Equatable, Sendable {
     let locator: Locator
 }
 
+enum ReaderContentNavigation {
+    private static let hiddenExtensions: Set<String> = [
+        "avif", "bmp", "gif", "heic", "ico", "jpeg", "jpg", "png", "svg", "webp",
+        "woff", "woff2", "ttf", "otf",
+    ]
+
+    static func isVisible(_ node: ContentNode) -> Bool {
+        let path = (node.locator.relativePath ?? node.locator.structuralPath ?? "")
+            .lowercased()
+        let pathExtension = (path as NSString).pathExtension
+        if hiddenExtensions.contains(pathExtension) { return false }
+        if node.mediaType?.lowercased().hasPrefix("image/") == true { return false }
+        if node.mediaType?.lowercased().hasPrefix("font/") == true { return false }
+        return true
+    }
+
+    static func outlineNodes(from nodes: [ContentNode]) -> [ContentNode] {
+        nodes.filter(isVisible)
+    }
+
+    static func readableNodes(from nodes: [ContentNode]) -> [ContentNode] {
+        outlineNodes(from: nodes).filter(\.isReadable)
+    }
+}
+
+enum ReadingPositionCaptureSignal {
+    static let requested = Notification.Name(
+        "io.github.zzqDeco.OneReader.captureReadingPosition"
+    )
+}
+
 struct ReaderActivityItem: Identifiable, Equatable, Sendable {
     enum State: String, Sendable {
         case pending

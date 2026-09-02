@@ -280,7 +280,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.setAccessibilityLabel(isCode ? "代码阅读内容" : "文本阅读内容")
         scrollView.documentView = textView
-        context.coordinator.observe(textView, clipView: scrollView.contentView)
+        context.coordinator.observe(textView, scrollView: scrollView)
         apply(to: textView)
         return scrollView
     }
@@ -289,6 +289,13 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ReaderTextView else { return }
         apply(to: textView)
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = scrollView.documentView as? ReaderTextView {
+            coordinator.publishPositionImmediately(from: textView)
+        }
+        coordinator.stopObserving()
     }
 
     private func apply(to textView: ReaderTextView) {
@@ -436,6 +443,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         private weak var observedTextView: ReaderTextView?
         private var lastPositionSignature: String?
         private var positionPublishTask: Task<Void, Never>?
+        private var lastPositionChange = Date.distantPast
 
         init(parent: NativeSelectableTextPresentation) {
             self.parent = parent
@@ -446,7 +454,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        func observe(_ textView: ReaderTextView, clipView: NSClipView) {
+        func observe(_ textView: ReaderTextView, scrollView: NSScrollView) {
             observedTextView = textView
             NotificationCenter.default.addObserver(
                 self,
@@ -454,13 +462,32 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 name: NSTextView.didChangeSelectionNotification,
                 object: textView,
             )
-            clipView.postsBoundsChangedNotifications = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(visibleBoundsDidChange(_:)),
                 name: NSView.boundsDidChangeNotification,
-                object: clipView
+                object: scrollView.contentView
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(liveScrollDidEnd(_:)),
+                name: NSScrollView.didEndLiveScrollNotification,
+                object: scrollView
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        func stopObserving() {
+            positionPublishTask?.cancel()
+            positionPublishTask = nil
+            observedTextView = nil
+            NotificationCenter.default.removeObserver(self)
         }
 
         @objc private func selectionDidChange(_ notification: Notification) {
@@ -475,18 +502,49 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             schedulePositionPublish(from: textView)
         }
 
+        @objc private func liveScrollDidEnd(_ notification: Notification) {
+            guard let textView = observedTextView,
+                  !textView.isApplyingAnchor else { return }
+            publishPositionImmediately(from: textView)
+        }
+
+        @objc private func positionCaptureRequested(_ notification: Notification) {
+            guard let textView = observedTextView,
+                  !textView.isApplyingAnchor else { return }
+            publishPositionImmediately(from: textView)
+        }
+
         private func schedulePositionPublish(from textView: ReaderTextView) {
-            positionPublishTask?.cancel()
+            lastPositionChange = .now
+            guard positionPublishTask == nil else { return }
             positionPublishTask = Task { @MainActor [weak self, weak textView] in
-                do {
-                    try await Task.sleep(for: .milliseconds(150))
-                } catch {
+                while let self, !Task.isCancelled {
+                    let elapsed = Date.now.timeIntervalSince(lastPositionChange)
+                    if elapsed < 0.15 {
+                        let remaining = max(1, Int(ceil((0.15 - elapsed) * 1_000)))
+                        do {
+                            try await Task.sleep(for: .milliseconds(remaining))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+                    guard let textView, !textView.isApplyingAnchor else {
+                        positionPublishTask = nil
+                        return
+                    }
+                    positionPublishTask = nil
+                    publishPosition(from: textView)
                     return
                 }
-                guard let self, let textView, !textView.isApplyingAnchor else { return }
-                positionPublishTask = nil
-                publishPosition(from: textView)
             }
+        }
+
+        func publishPositionImmediately(from textView: ReaderTextView) {
+            positionPublishTask?.cancel()
+            positionPublishTask = nil
+            guard !textView.isApplyingAnchor else { return }
+            publishPosition(from: textView)
         }
 
         private func publishSelection(from textView: NSTextView) {

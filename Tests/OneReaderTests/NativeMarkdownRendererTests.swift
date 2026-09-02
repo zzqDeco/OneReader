@@ -394,6 +394,33 @@ final class NativeMarkdownRendererTests: XCTestCase {
         XCTAssertEqual((remote.string as NSString).range(of: "\u{FFFC}").location, NSNotFound)
     }
 
+    func testMarkdownImageDecodePlanRejectsPixelBombsAndBoundsDecodedSize() throws {
+        XCTAssertNil(NativeMarkdownRenderer.imageDecodePlan(
+            pixelWidth: 100_000,
+            pixelHeight: 100_000,
+            maximumImageWidth: 680
+        ))
+        XCTAssertNil(NativeMarkdownRenderer.imageDecodePlan(
+            pixelWidth: 10_000,
+            pixelHeight: 10_000,
+            maximumImageWidth: 680
+        ))
+
+        let plan = try XCTUnwrap(NativeMarkdownRenderer.imageDecodePlan(
+            pixelWidth: 8_000,
+            pixelHeight: 4_000,
+            maximumImageWidth: 680
+        ))
+        XCTAssertEqual(plan.thumbnailPixelSize, 1_360)
+
+        let capped = try XCTUnwrap(NativeMarkdownRenderer.imageDecodePlan(
+            pixelWidth: 8_000,
+            pixelHeight: 4_000,
+            maximumImageWidth: 3_000
+        ))
+        XCTAssertEqual(capped.thumbnailPixelSize, 4_096)
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0

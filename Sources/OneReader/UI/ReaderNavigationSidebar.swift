@@ -338,21 +338,7 @@ struct ReaderNavigationSidebar: View {
     }
 
     private var readerOutlineNodes: [ContentNode] {
-        let hiddenExtensions: Set<String> = [
-            "avif", "bmp", "gif", "heic", "ico", "jpeg", "jpg", "png", "svg", "webp",
-            "woff", "woff2", "ttf", "otf",
-        ]
-        return model.contentNodes.filter { node in
-            let path = (node.locator.relativePath ?? node.locator.structuralPath ?? "").lowercased()
-            let components = path.split(separator: "/").map(String.init)
-            if components.contains(where: { ["images", "image", "img", "assets"].contains($0) }) {
-                return false
-            }
-            let pathExtension = (path as NSString).pathExtension
-            if hiddenExtensions.contains(pathExtension) { return false }
-            if node.mediaType?.lowercased().hasPrefix("image/") == true { return false }
-            return true
-        }
+        ReaderContentNavigation.outlineNodes(from: model.contentNodes)
     }
 
     private func sourceSymbol(_ source: Source) -> String {

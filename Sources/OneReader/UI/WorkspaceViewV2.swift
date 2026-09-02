@@ -58,6 +58,16 @@ struct WorkspaceView: View {
                 model.flushReadingPosition()
             }
         }
+        .onChange(of: model.readerNavigationRequestID) { _, _ in
+            guard model.isReadingWorkspaceOpen else { return }
+            if usesCompactReader {
+                isMobileNavigationPresented = true
+            } else {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                    columnVisibility = .all
+                }
+            }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             model.importLocalURLs(urls)
             return !urls.isEmpty
@@ -264,7 +274,7 @@ struct WorkspaceView: View {
 
             if model.isReadingWorkspaceOpen, !usesCompactReader {
                 Button {
-                    model.navigationTab = .search
+                    model.revealReaderNavigation(.search)
                 } label: {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
@@ -292,8 +302,7 @@ struct WorkspaceView: View {
                         model.presentLocalSourceImporter(destination: .currentSpace)
                     }
                     Button("搜索正文", systemImage: "magnifyingglass") {
-                        model.navigationTab = .search
-                        isMobileNavigationPresented = true
+                        model.revealReaderNavigation(.search)
                     }
                     if model.canOpenOriginalSource {
                         Button("打开原始来源", systemImage: "arrow.up.right.square") {

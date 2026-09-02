@@ -40,6 +40,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         textView.textContainer.lineBreakMode = isCode ? .byClipping : .byWordWrapping
         textView.adjustsFontForContentSizeCategory = true
         textView.accessibilityLabel = isCode ? "代码阅读内容" : "文本阅读内容"
+        context.coordinator.observeCaptureRequests(for: textView)
         apply(to: textView, coordinator: context.coordinator)
         return textView
     }
@@ -47,6 +48,11 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
         apply(to: textView, coordinator: context.coordinator)
+    }
+
+    static func dismantleUIView(_ textView: UITextView, coordinator: Coordinator) {
+        coordinator.publishPositionImmediately(from: textView)
+        coordinator.stopObservingCaptureRequests()
     }
 
     private func apply(to textView: UITextView, coordinator: Coordinator) {
@@ -185,13 +191,38 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         var isApplyingAnchor = false
         private var lastPositionSignature: String?
         private var positionPublishTask: Task<Void, Never>?
+        private var lastPositionChange = Date.distantPast
+        private weak var observedTextView: UITextView?
 
         deinit {
             positionPublishTask?.cancel()
+            NotificationCenter.default.removeObserver(self)
         }
 
         init(parent: NativeSelectableTextPresentation) {
             self.parent = parent
+        }
+
+        func observeCaptureRequests(for textView: UITextView) {
+            observedTextView = textView
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        func stopObservingCaptureRequests() {
+            positionPublishTask?.cancel()
+            positionPublishTask = nil
+            observedTextView = nil
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc private func positionCaptureRequested(_ notification: Notification) {
+            guard let textView = observedTextView, !isApplyingAnchor else { return }
+            publishPositionImmediately(from: textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -218,20 +249,32 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         }
 
         private func schedulePositionPublish(from textView: UITextView) {
-            positionPublishTask?.cancel()
+            lastPositionChange = .now
+            guard positionPublishTask == nil else { return }
             positionPublishTask = Task { @MainActor [weak self, weak textView] in
-                do {
-                    try await Task.sleep(for: .milliseconds(150))
-                } catch {
+                while let self, !Task.isCancelled {
+                    let elapsed = Date.now.timeIntervalSince(lastPositionChange)
+                    if elapsed < 0.15 {
+                        let remaining = max(1, Int(ceil((0.15 - elapsed) * 1_000)))
+                        do {
+                            try await Task.sleep(for: .milliseconds(remaining))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+                    guard let textView, !isApplyingAnchor else {
+                        positionPublishTask = nil
+                        return
+                    }
+                    positionPublishTask = nil
+                    publishPosition(from: textView)
                     return
                 }
-                guard let self, let textView, !isApplyingAnchor else { return }
-                positionPublishTask = nil
-                publishPosition(from: textView)
             }
         }
 
-        private func publishPositionImmediately(from textView: UITextView) {
+        func publishPositionImmediately(from textView: UITextView) {
             positionPublishTask?.cancel()
             positionPublishTask = nil
             guard !isApplyingAnchor else { return }

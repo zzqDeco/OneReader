@@ -399,7 +399,24 @@ final class AppModelLibraryTests: XCTestCase {
                 displayLabel: "第 1 行 · 31%"
             )
         )
+        let captureProbe = PositionCaptureProbe {
+            model.updateReadingPosition(
+                ReadingPositionUpdate(
+                    locator: locator,
+                    progressFraction: 0.73,
+                    granularity: .text,
+                    displayLabel: "第 1 行 · 73%"
+                )
+            )
+        }
+        NotificationCenter.default.addObserver(
+            captureProbe,
+            selector: #selector(PositionCaptureProbe.capture(_:)),
+            name: ReadingPositionCaptureSignal.requested,
+            object: nil
+        )
         model.flushReadingPosition()
+        NotificationCenter.default.removeObserver(captureProbe)
 
         let restored = AppModel(
             libraryRootURL: libraryRoot,
@@ -412,10 +429,10 @@ final class AppModelLibraryTests: XCTestCase {
 
         XCTAssertEqual(
             try XCTUnwrap(restored.currentProgress.sourcePositions[sourceID]?.progressFraction),
-            0.31,
+            0.73,
             accuracy: 0.000_001
         )
-        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 1 行 · 31%")
+        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 1 行 · 73%")
     }
 
     func testSeparateOpenEventsDoNotCancelEarlierImport() async throws {
@@ -1617,6 +1634,20 @@ final class AppModelLibraryTests: XCTestCase {
             sourceOrder: 0,
             preferredPresentation: .markdown
         )
+    }
+}
+
+@MainActor
+private final class PositionCaptureProbe: NSObject {
+    private let action: @MainActor () -> Void
+
+    init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+        super.init()
+    }
+
+    @objc func capture(_ notification: Notification) {
+        action()
     }
 }
 

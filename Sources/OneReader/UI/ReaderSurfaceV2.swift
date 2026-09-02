@@ -125,18 +125,14 @@ struct ReaderSurfaceView: View {
                 document: document,
                 preferences: model.preferences,
                 onSelectionChange: { selection in
-                    Task { @MainActor in
-                        guard model.currentPresentationToken == presentationToken else { return }
-                        model.currentSelection = selection
-                    }
+                    guard model.currentPresentationToken == presentationToken else { return }
+                    model.currentSelection = selection
                 },
                 onPositionChange: { update in
-                    Task { @MainActor in
-                        model.updateReadingPosition(
-                            update,
-                            presentationToken: presentationToken
-                        )
-                    }
+                    model.updateReadingPosition(
+                        update,
+                        presentationToken: presentationToken
+                    )
                 }
             )
             .id(presentationToken)
