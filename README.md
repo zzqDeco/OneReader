@@ -86,3 +86,10 @@ not publish, tag, or push anything.
 
 See [the development workflow](doc/branching.md), [current documentation](doc/README.md),
 and [the plan index](plan/README.md).
+
+## License
+
+OneReader is licensed under the [Apache License 2.0](LICENSE). Dependency
+licenses and binary attribution behavior are documented in
+[third-party notices](THIRD_PARTY_NOTICES.md) and the
+[licensing contract](doc/licensing.md).
