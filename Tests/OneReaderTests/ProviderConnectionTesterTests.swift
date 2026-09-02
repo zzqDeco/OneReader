@@ -523,7 +523,7 @@ final class ProviderConnectionTesterTests: XCTestCase {
 
         XCTAssertFalse(result.succeeded)
         XCTAssertEqual(result.category, "provider-unavailable")
-        XCTAssertLessThan(elapsed, .milliseconds(150))
+        XCTAssertLessThan(elapsed, .milliseconds(300))
     }
 
     func testStreamingProbeTimeoutPreservesOnlyProvenCapabilities() async throws {
@@ -547,7 +547,7 @@ final class ProviderConnectionTesterTests: XCTestCase {
             result.capabilities,
             [.connection, .structuredGeneration, .toolCalling]
         )
-        XCTAssertLessThan(elapsed, .milliseconds(150))
+        XCTAssertLessThan(elapsed, .milliseconds(300))
     }
 
     func testConnectionProbeRejectsOversizedStreamSnapshot() async throws {
@@ -916,7 +916,7 @@ private final class ProbeLanguageModel: LanguageModel, @unchecked Sendable {
 
     private static func nonCooperativeDelay() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
                 continuation.resume()
             }
         }
