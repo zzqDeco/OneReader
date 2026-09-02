@@ -49,12 +49,19 @@ bookmark when Foundation permits it; bookmark resolution and
 `startAccessingSecurityScopedResource` are best-effort. If refresh cannot regain
 the original, the app asks the user to select the exact source again. Bookmark
 failure affects refresh only and never invalidates an already committed copy.
+On iOS/iPadOS the Open Original action is therefore shown only for explicit
+HTTP(S) origins. Local document-provider URLs are not handed back to
+`UIApplication` after their picker authorization expires; the reader continues
+to use its managed Snapshot and refresh uses reauthorization when necessary.
 
 On macOS, exclusive managed bytes move to the user Trash before the database
-removal transaction. iOS has no public Trash API, so the app first moves those
-bytes to a private temporary rollback area, commits metadata removal, then
-deletes the staged copy. A failed metadata transaction restores the copy on
-both platforms. The user-selected original is never modified.
+removal transaction. iOS has no public Trash API, so the app first writes a
+recovery manifest and atomically moves those bytes below the persistent
+`.RemovalRecovery/` Application Support directory. It commits metadata removal
+before deleting that record. A failed metadata transaction restores the copy;
+if immediate restoration also fails, initialization retries from the durable
+journal. A committed removal left behind by a crash is finalized instead. The
+user-selected original is never modified.
 
 ## Native presentation bridges
 
@@ -64,7 +71,10 @@ use platform-specific representables. macOS uses `NSTextView`; iOS/iPadOS use
 emit the same Snapshot-bound selection and position Locators. Web content uses
 the same sanitizer, read-only scheme handler, no-source-script policy, and
 explicit external-link handoff. Quick Look keeps its source-level capability
-limit on every OS.
+limit on every OS. PDF selection restoration prefers its recorded page rectangle
+and validates the recovered selection against its exact quote before falling
+back to page text, so repeated text on one page does not redirect the anchor to
+the first occurrence.
 
 Platform branches must remain below the presentation and application-shell
 boundary. A platform-specific adapter ID, Locator schema, graph, progress model,

@@ -75,7 +75,9 @@ The app's sandboxed Application Support `OneReader/` directory contains:
 - `Derived/` for rebuildable extraction, sanitization, and thumbnails;
 - `Artifacts/` for large Agent/tool results;
 - `Legacy/` for migration backups;
-- `.Staging/` for incomplete internal imports.
+- `.Staging/` for incomplete internal imports;
+- `.RemovalRecovery/` for durable, host-owned iOS/iPadOS removal rollback
+  manifests and staged managed containers.
 
 Local import copies into staging, calculates and rechecks a SHA-256 or stable
 directory-tree digest, then moves the complete staging directory to a
@@ -99,14 +101,20 @@ tree.
 Removing a Source first stages only exclusively owned content-addressed
 containers in a reversible location, then marks the Source removed and detaches
 Space membership in one database transaction. macOS uses the user Trash;
-iOS/iPadOS use a private temporary rollback directory because those platforms
-have no public Trash API, and delete it after a successful commit. That same
-commit removes Source-bound annotations and
+iOS/iPadOS use one persistent recovery record per container because those
+platforms have no public Trash API, and finalize it after a successful commit.
+On startup an active Source causes any interrupted move to be restored, while a
+Source already marked removed causes the leftover recovery record to be
+finalized. A corrupt or unresolvable record fails Library initialization closed
+instead of silently exposing a Source whose managed bytes are missing. That
+same commit removes Source-bound annotations and
 history, clears the Source position, invalidates graphs/frozen plans and their
 unit/plan progress, and cancels active Agent runs while advancing each affected
-session generation. If metadata commit fails, the host attempts to move the
-trashed container back. Shared bytes remain until the final active Source
-reference is removed; the user-selected original is never touched.
+session generation. If metadata commit and immediate restoration both fail,
+the original database error is replaced with a recovery-pending error and the
+durable record is retried on next initialization. Shared bytes remain until the
+final active Source reference is removed; the user-selected original is never
+touched.
 
 The database schema records sources, snapshots, Space membership, adapter
 plans, raw observations, plan-bound search projections, graphs/plans,

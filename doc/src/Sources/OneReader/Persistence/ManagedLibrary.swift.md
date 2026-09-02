@@ -31,10 +31,15 @@ uses an injectable capacity policy so large-import confirmation, reserve-space,
 and dedup charging remain deterministic under test.
 
 Removal sends only exclusively owned content-addressed containers to macOS
-Trash or an iOS private rollback staging directory, keeps shared bytes, and
-never deletes the selected original. iOS discards staged bytes only after the
-metadata commit succeeds. A failed metadata commit attempts to restore already
-moved containers. The metadata transaction
+Trash or an iOS persistent rollback journal, keeps shared bytes, and never
+deletes the selected original. Each iOS record stores root-relative original
+and staged paths before the same-volume move. iOS discards staged bytes only
+after the metadata commit succeeds. A failed metadata commit restores already
+moved containers; if that immediate restore fails, the record remains under
+`.RemovalRecovery/` and the next actor initialization restores it for an active
+Source. A record whose Source is already removed is finalized. Invalid UUIDs,
+root-relative paths, record-directory symlinks, or manifests fail initialization
+closed. The metadata transaction
 also clears Source-bound reader state and invalidates affected Agent sessions;
 the returned durable generations synchronize the in-memory runtime before its
 revision barrier is released.

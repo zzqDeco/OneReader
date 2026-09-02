@@ -36,8 +36,10 @@ replace the book overview as the initial reading surface.
 
 A failed item stays visible with its error and can be dismissed. Source removal
 requires an explicit confirmation. An exclusive managed copy moves to macOS
-Trash or a transaction-safe iOS removal staging area; the original selected
-item is never modified. The
+Trash or a persistent transaction-safe iOS removal journal; the original
+selected item is never modified. Failed iOS restoration is retried during the
+next Library initialization rather than being abandoned in a temporary
+directory. The
 database transaction also detaches the Source, removes its annotations and
 history, invalidates graphs/frozen routes, clears their unit/plan progress, and
 cancels active Agent runs for every affected Space. If that transaction fails,
@@ -112,7 +114,10 @@ and reading history independently. Opening a search result, annotation, graph
 unit, or evidence citation resolves its Locator before presentation. Text and
 Markdown surfaces select and scroll to the quote (using prefix/suffix context
 to disambiguate repeats), WebKit scrolls to a validated DOM/quote anchor, and
-PDFKit navigates to the recorded page.
+PDFKit navigates to the recorded page and prefers its clipped selection rectangle
+before quote-only fallback. A rect-derived selection is shown only when it
+matches the stored exact quote, but the rect still determines the reading
+position when repeated page text would make the first quote match ambiguous.
 
 Each presentation emits a throttled current-position Locator. Reopening a Space
 restores its most recent Source position, and the Route view exposes unit
@@ -152,3 +157,8 @@ toolbar and preserve hardware-keyboard shortcuts where the platform supports
 them. Controls and search results have explicit accessibility labels, text is
 selectable, and animation honors Reduce Motion. Reader theme, font size, line
 width, line spacing, and PDF scale persist across launches.
+
+The Open Original control is capability honest. macOS can hand its saved local
+origin to Finder; iOS/iPadOS show the control only for explicit HTTP(S) origins.
+An expired local document-provider URL is never displayed as usable. Managed
+Snapshots remain readable and refresh requests exact native reauthorization.

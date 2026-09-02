@@ -53,6 +53,35 @@ enabled, and Developer Disk Image services were available.
   slots, and successful generic iPhone/iPad SDK compilation. A regular-width
   physical iPad walkthrough remains explicitly unrecorded.
 
+On 2026-09-02, four representative inputs were then exercised through the
+installed iPhone application's Open In URL path: a generated Markdown file, a
+generated sanitized-HTML fixture, a public research PDF, and a generated RTF
+file for the unknown-file fallback. Device-container inspection after the app
+finished each import proved four immutable managed payloads and four committed
+Source/Snapshot/AdapterPlan triples:
+
+- Markdown selected `onereader.markdown` at confidence 0.98 and published two
+  search documents;
+- HTML selected `onereader.html` at confidence 0.98 and published one search
+  document;
+- PDF selected `onereader.pdf` at confidence 1.0 and published nine page search
+  documents;
+- RTF selected `onereader.quicklook` at confidence 0.1 and deliberately
+  published no Observation or search document.
+
+The final branch head was rebuilt, signed, installed over that Library, and
+launched again on the same connected iPhone. The exact commit is captured in
+the local handoff and Sol max review dispatch; no source file or Team identifier
+is used as mutable evidence. The four persisted Sources remained in the
+managed Library after replacement installation. Four Reading History rows and
+four durable source-position records carry Markdown heading, sanitized DOM,
+PDF page, and Quick Look Locators respectively, proving each import progressed
+through presentation selection and position publication. This is device
+evidence for import, managed snapshots, deterministic routing, indexing
+capability gates, presentation entry, application replacement, relaunch, and
+persistence. Screen-level PDF/text pixels, selection and annotation gestures,
+compact-layout pixels, and physical iPad behavior remain unclaimed.
+
 ## Fixture and contract coverage
 
 Generated, non-copyrighted fixtures exercise PDF, EPUB, Markdown, text, code,
@@ -80,9 +109,11 @@ cancellation is Run-ID scoped, and an interrupted Run can be abandoned.
 Persistence and workspace tests cover atomic import, digest deduplication,
 legacy backup, FTS rebuild and Chinese substring fallback, annotation and
 progress round trips, Quick Look capability gating, preferences, index-job
-deduplication, durable position restore, Source refresh relocation, security-
-platform import-purpose selection, scoped bookmark lifecycle, pending frozen-plan adoption, Space generation
-isolation, and crash-safe Agent state.
+deduplication, durable position restore, Source refresh relocation, platform
+import-purpose selection, injected security-scope balancing, the macOS bookmark
+database/renewal contract, pending frozen-plan adoption, Space generation
+isolation, and crash-safe Agent state. They do not claim a document-provider
+bookmark lifecycle walkthrough on physical iOS hardware.
 Schema-v9 tests prove ordinary evidence Observations remain outside search,
 late superseded-plan publication loses the active-plan CAS, directory indexes
 expand every PDF page and EPUB spine item, repeated Markdown text maps to exact
@@ -96,6 +127,13 @@ discarded wholesale; left/right cross-leaf selections prove adjacent mapped
 spaces cannot become partial Locators. AppModel coverage proves a Provider
 mutation immediately removes an invalidated interrupted Run from Inspector state;
 nested HTML fixtures prove sanitizer and presentation use one Snapshot resource root.
+Removal recovery coverage forces both the metadata transaction and immediate
+restore to fail, then proves the next Library initialization restores the
+managed container from a durable journal. PDF anchor coverage rejects malformed
+rectangles, clips valid geometry to the page, and gives a recorded page rectangle
+priority over ambiguous quote-only fallback. Mobile source-action coverage
+exposes explicit HTTP(S) origins but never presents a stale document-provider
+file URL as an openable original.
 
 ## macOS v0.2 baseline record
 

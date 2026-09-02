@@ -19,6 +19,11 @@ iOS/iPadOS publishes a typed `PlatformFileImportPurpose` consumed by the root
 `fileImporter`. Both paths rejoin at `importLocalURLs`; reauthorization is
 single-selection and imports can be multi-selection.
 
+`OriginalSourceOpenPolicy` keeps the external-source action honest: macOS may
+open a local or remote origin, while iOS/iPadOS expose only HTTP(S) origins.
+Expired document-provider file URLs never reach `UIApplication`; local reading
+continues against the immutable managed Snapshot.
+
 The app creates no demo Source and performs no background example-network call.
 Import always commits through `ManagedLibrary`; format-specific presentation
 begins only after a committed Snapshot exists. Opening a Source while its

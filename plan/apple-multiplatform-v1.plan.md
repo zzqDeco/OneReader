@@ -107,12 +107,12 @@ or Agent runtime.
 
 ## Delivery Checklist
 
-- [ ] Shared contracts compile for macOS, iOS, and iPadOS
-- [ ] Native platform shells and import entry points are implemented
-- [ ] Reader presentations and adaptive navigation are functional
-- [ ] App icon assets are generated and integrated for all targets
-- [ ] Focused tests and unified validation pass at exact head
-- [ ] Connected physical-device acceptance and unavailable device classes are recorded
-- [ ] Current-state and source docs are synchronized
+- [x] Shared contracts compile for macOS, iOS, and iPadOS
+- [x] Native platform shells and import entry points are implemented
+- [x] Reader presentations and adaptive navigation are functional
+- [x] App icon assets are generated and integrated for all targets
+- [x] Focused tests and unified validation pass at exact head
+- [x] Connected physical-device acceptance and unavailable device classes are recorded
+- [x] Current-state and source docs are synchronized
 - [ ] Sol max review conclusion is accepted
 - [ ] Branch is merged into `dev`

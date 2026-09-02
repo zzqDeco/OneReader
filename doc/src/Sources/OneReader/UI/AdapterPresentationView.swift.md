@@ -18,8 +18,11 @@ The system theme follows the current platform color scheme.
 
 Locator changes do not merely reopen the containing document. Native text and
 Markdown select/scroll to the quote with prefix/suffix disambiguation, PDFKit
-goes to the recorded page, and the host-owned WebKit bridge scrolls to a safely
-escaped DOM/quote anchor while suppressing synthetic selection callbacks.
+goes to the recorded page and prefers a validated, page-clipped rect anchor,
+and the host-owned WebKit bridge scrolls to a safely escaped DOM/quote anchor
+while suppressing synthetic selection callbacks. The shared
+`PDFPageRectAnchor` parser rejects malformed, non-finite, empty, and out-of-page
+geometry before either platform bridge uses it.
 All readable surfaces also emit position Locators; PDFKit observes page changes
 and applies an incoming page/quote anchor only once rather than snapping the
 reader back after later scrolling.
