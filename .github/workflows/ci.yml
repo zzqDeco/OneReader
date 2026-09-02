@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-validation:
+    name: Native validation
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Prepare pinned XcodeGen
+        shell: bash
+        run: |
+          xcodegen_bin="$(scripts/install-xcodegen.sh "$RUNNER_TEMP")"
+          "$xcodegen_bin/xcodegen" --version
+          echo "$xcodegen_bin" >> "$GITHUB_PATH"
+
+      - name: Run authoritative native validation
+        run: scripts/validate-native.sh
+
+      - name: Archive app
+        run: ditto -c -k --sequesterRsrc --keepParent dist/OneReader.app dist/OneReader-macos-developer-preview.zip
+
+      - name: Archive iPhone and iPad Simulator app
+        run: |
+          ditto -c -k --keepParent \
+            .onereader/DerivedData-iOS/Build/Products/Debug-iphonesimulator/OneReader.app \
+            dist/OneReader-ios-simulator.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OneReader-macos-developer-preview
+          if-no-files-found: error
+          retention-days: 7
+          path: dist/OneReader-macos-developer-preview.zip
+
+      - name: Upload iPhone and iPad Simulator artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OneReader-ios-simulator
+          if-no-files-found: error
+          retention-days: 7
+          path: dist/OneReader-ios-simulator.zip

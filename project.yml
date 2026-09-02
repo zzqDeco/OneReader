@@ -1,0 +1,155 @@
+name: OneReader
+
+options:
+  bundleIdPrefix: io.github.zzqDeco
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.1"
+    macOS: "26.1"
+  minimumXcodeGenVersion: 2.45.3
+  xcodeVersion: "26.6"
+
+packages:
+  OneReaderPackage:
+    path: .
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 3
+    MARKETING_VERSION: 0.3.0
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_VERSION: 6.0
+
+targets:
+  OneReader-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.1"
+    sources:
+      - path: Apps/OneReaderApp
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      - package: OneReaderPackage
+        product: OneReader
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleDisplayName: OneReader
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Readable material
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+              - org.idpf.epub-container
+              - net.daringfireball.markdown
+              - public.plain-text
+              - public.html
+              - public.source-code
+              - public.data
+              - public.folder
+              - public.directory
+        CFBundleExecutable: OneReader
+        CFBundleIconFile: AppIcon
+        CFBundleIdentifier: io.github.zzqDeco.OneReader
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: OneReader
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "3"
+        LSMinimumSystemVersion: "26.1"
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Resources/OneReader.entitlements
+        ENABLE_APP_SANDBOX: true
+        ENABLE_HARDENED_RUNTIME: true
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader
+        PRODUCT_MODULE_NAME: OneReaderMacApp
+        PRODUCT_NAME: OneReader
+
+  OneReader-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.1"
+    sources:
+      - path: Apps/OneReaderApp
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+    dependencies:
+      - package: OneReaderPackage
+        product: OneReader
+    info:
+      path: Resources/Info-iOS.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleDisplayName: OneReader
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Readable material
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+              - org.idpf.epub-container
+              - net.daringfireball.markdown
+              - public.plain-text
+              - public.html
+              - public.source-code
+              - public.data
+        CFBundleExecutable: OneReader
+        CFBundleIdentifier: io.github.zzqDeco.OneReader
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: OneReader
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "3"
+        LSRequiresIPhoneOS: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: OneReader 仅在你配置 Ollama 等本地模型服务时访问局域网端点。
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Resources/OneReader-iOS.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader
+        PRODUCT_MODULE_NAME: OneReaderMobileApp
+        PRODUCT_NAME: OneReader
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+schemes:
+  OneReader-macOS:
+    build:
+      targets:
+        OneReader-macOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
+  OneReader-iOS:
+    build:
+      targets:
+        OneReader-iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release

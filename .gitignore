@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/
+.onereader/
+dist/
+DerivedData/
+xcuserdata/
+*.xcodeproj/
+!OneReader.xcodeproj/
+!OneReader.xcodeproj/**
+OneReader.xcodeproj/xcuserdata/
+OneReader.xcodeproj/project.xcworkspace/xcuserdata/
