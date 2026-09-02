@@ -113,9 +113,13 @@ recreates the project in a temporary same-named root and rejects drift.
 `scripts/check-apple-platform-metadata.py` verifies platform declarations,
 bundle/version metadata, and every icon slot.
 
-`scripts/build-ios-simulator.sh` produces an unsigned universal iPhone/iPad
+`scripts/build-ios-simulator.sh` defaults to an unsigned universal iPhone/iPad
 Simulator build with dependency versions constrained by `Package.resolved`.
-The authoritative `scripts/validate-native.sh` additionally runs all shared
-tests, a SwiftPM Release build, macOS Sandbox packaging, signature/entitlement
-checks, documentation gates, and lock-digest checks. CI uses the same script;
-real Provider credentials are never present.
+Physical-first local validation can instead set
+`ONEREADER_IOS_DESTINATION=generic/platform=iOS`; this compiles the same
+universal target against the device SDK without creating or booting a Simulator
+device. The authoritative `scripts/validate-native.sh` additionally runs all
+shared tests, a SwiftPM Release build, macOS Sandbox packaging,
+signature/entitlement checks, documentation gates, and lock-digest checks. CI
+uses the default Simulator destination and the same script; real Provider
+credentials are never present.

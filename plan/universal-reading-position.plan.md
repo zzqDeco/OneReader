@@ -89,12 +89,16 @@ Max running iOS 27.0 beta. The device imported the public
 Locator, text granularity, label, quote, range, and normalized fraction, then
 restored and republished that position after a terminated-process relaunch.
 
-The stable Xcode 26.6 validation path passed dependency-lock, documentation,
-project-drift, release-fixture, entitlement, 204-test, release-build, Sandbox
-package, codesign, and generic universal-target compilation gates. The generic
-target compilation created or booted no Simulator device, and the Simulator
-device list remained empty. No physical iPad was connected, so physical iPadOS
-gesture and regular-width layout evidence remains unavailable.
+The stable Xcode 26.6 path passed dependency-lock, documentation, project-drift,
+release-fixture, entitlement, 204-test, release-build, Sandbox package, and
+codesign gates. Its local default Simulator compile was intentionally not
+enabled because no current Simulator runtime is installed. Xcode 27 beta 6 then
+passed the complete native validation path with
+`ONEREADER_IOS_DESTINATION=generic/platform=iOS`. That device-SDK compilation
+created or booted no Simulator device, and the Simulator device list remained
+empty. Hosted CI/release remains pinned to Xcode 26.6 and its default unsigned
+Simulator target. No physical iPad was connected, so physical iPadOS gesture
+and regular-width layout evidence remains unavailable.
 
 The final Sol max reviewer returned `APPROVE` with no P0, P1, P2, or P3 finding
 and no delivery blocker.

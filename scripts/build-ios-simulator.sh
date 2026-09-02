@@ -22,4 +22,4 @@ xcodebuild \
   ARCHS=arm64 \
   build
 
-echo "Universal iPhone/iPad Simulator build passed."
+echo "Universal iPhone/iPad build passed for $destination."

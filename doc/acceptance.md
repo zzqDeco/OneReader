@@ -126,9 +126,14 @@ regular-width layout acceptance remains unrecorded.
 The exact implementation commit passed 204 tests. The final Sol max reviewer
 returned `APPROVE` with no P0, P1, P2, or P3 finding and confirmed no new
 concurrency, persistence, refresh-recovery, or reading-position regression.
-The final metadata-only head also passed the stable Xcode 26.6 native validation
-path. No Simulator device was created or booted; the Simulator device list was
-empty after validation.
+The final metadata-only head passed the complete native validation path with
+Xcode 27 beta 6 and `ONEREADER_IOS_DESTINATION=generic/platform=iOS`. Xcode
+26.6 separately passed every stable gate through macOS packaging, codesign, and
+Sandbox entitlement validation; its local default Simulator stage was not
+available because no current Simulator runtime is installed, and none was
+downloaded. Hosted CI/release remains pinned to Xcode 26.6 and its default
+unsigned Simulator target. No Simulator device was created or booted; the
+Simulator device list was empty after validation.
 
 ## Fixture and contract coverage
 
