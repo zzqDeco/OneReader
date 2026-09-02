@@ -57,6 +57,7 @@ enum OriginalSourceOpenPolicy {
 private struct PendingReadingPosition {
     let id: UUID
     let spaceID: String
+    let presentationToken: UUID
     let update: ReadingPositionUpdate
 }
 
@@ -241,6 +242,10 @@ final class AppModel: ObservableObject {
     var currentProgress: ReadingProgress {
         guard let selectedSpaceID else { return .empty }
         return progressBySpace[selectedSpaceID] ?? .empty
+    }
+
+    var currentPresentationToken: UUID {
+        contentGeneration
     }
 
     var currentPositionDescription: String? {
@@ -678,12 +683,23 @@ final class AppModel: ObservableObject {
     }
 
     func updateReadingPosition(_ locator: Locator) {
-        updateReadingPosition(Self.inferredPositionUpdate(for: locator))
+        updateReadingPosition(
+            Self.inferredPositionUpdate(for: locator),
+            presentationToken: currentPresentationToken
+        )
     }
 
     func updateReadingPosition(_ update: ReadingPositionUpdate) {
+        updateReadingPosition(update, presentationToken: currentPresentationToken)
+    }
+
+    func updateReadingPosition(
+        _ update: ReadingPositionUpdate,
+        presentationToken: UUID
+    ) {
         let locator = update.locator
-        guard let spaceID = selectedSpaceID,
+        guard presentationToken == contentGeneration,
+              let spaceID = selectedSpaceID,
               let source = selectedSource,
               source.id == locator.sourceID,
               source.latestSnapshotID == locator.snapshotID else { return }
@@ -691,6 +707,7 @@ final class AppModel: ObservableObject {
         pendingPositionUpdate = PendingReadingPosition(
             id: saveID,
             spaceID: spaceID,
+            presentationToken: presentationToken,
             update: update
         )
         currentPositionLocator = locator
@@ -704,6 +721,7 @@ final class AppModel: ObservableObject {
             }
             guard let self,
                   generation == workspaceGeneration,
+                  presentationToken == contentGeneration,
                   selectedSpaceID == spaceID,
                   selectedSourceID == locator.sourceID,
                   pendingPositionUpdate?.id == saveID else { return }
@@ -718,6 +736,13 @@ final class AppModel: ObservableObject {
         positionSaveTask = nil
         guard let pendingPositionUpdate else { return }
         self.pendingPositionUpdate = nil
+        let locator = pendingPositionUpdate.update.locator
+        guard pendingPositionUpdate.presentationToken == contentGeneration,
+              selectedSpaceID == pendingPositionUpdate.spaceID,
+              selectedSourceID == locator.sourceID,
+              source(id: locator.sourceID)?.latestSnapshotID == locator.snapshotID else {
+            return
+        }
         persistSourcePosition(
             pendingPositionUpdate.update,
             spaceID: pendingPositionUpdate.spaceID
@@ -1708,18 +1733,18 @@ final class AppModel: ObservableObject {
         guard let database, let spaceID = selectedSpaceID else { return }
         currentPositionLocator = locator
         let existing = currentProgress.sourcePositions[locator.sourceID]
-        let update: ReadingPositionUpdate
-        if let existing, existing.locator == locator {
-            update = ReadingPositionUpdate(
-                locator: locator,
-                progressFraction: existing.progressFraction,
-                granularity: existing.resolvedGranularity,
-                displayLabel: existing.displayLabel
-            )
+        if var existing, existing.locator == locator {
+            // The exact position is already durable. In particular, a relocated
+            // position intentionally has no fraction or label until the new
+            // presentation measures the revised content.
+            existing.updatedAt = .now
+            persistSourcePosition(existing, spaceID: spaceID)
         } else {
-            update = Self.inferredPositionUpdate(for: locator)
+            persistSourcePosition(
+                Self.inferredPositionUpdate(for: locator),
+                spaceID: spaceID
+            )
         }
-        persistSourcePosition(update, spaceID: spaceID)
         let entry = ReadingHistoryEntry(
             spaceID: spaceID,
             sourceID: locator.sourceID,
@@ -1735,17 +1760,24 @@ final class AppModel: ObservableObject {
     }
 
     private func persistSourcePosition(_ update: ReadingPositionUpdate, spaceID: String) {
+        let locator = update.locator
+        persistSourcePosition(
+            SourcePosition(
+                sourceID: locator.sourceID,
+                locator: locator,
+                updatedAt: .now,
+                progressFraction: update.progressFraction,
+                granularity: update.granularity,
+                displayLabel: update.displayLabel
+            ),
+            spaceID: spaceID
+        )
+    }
+
+    private func persistSourcePosition(_ position: SourcePosition, spaceID: String) {
         guard let database else { return }
         var progress = progressBySpace[spaceID] ?? .empty
-        let locator = update.locator
-        progress.sourcePositions[locator.sourceID] = SourcePosition(
-            sourceID: locator.sourceID,
-            locator: locator,
-            updatedAt: .now,
-            progressFraction: update.progressFraction,
-            granularity: update.granularity,
-            displayLabel: update.displayLabel
-        )
+        progress.sourcePositions[position.sourceID] = position
         progress.lastActiveAt = .now
         do {
             try database.saveReadingProgress(progress, spaceID: spaceID)
@@ -2066,8 +2098,15 @@ final class AppModel: ObservableObject {
         indexGenerations[sourceID] = UUID()
         finishPendingIndexImports(sourceID: sourceID)
         if selectedSourceID == sourceID {
+            flushReadingPosition()
             contentGeneration = UUID()
             contentTask?.cancel()
+            presentationState = .loading
+            currentObservation = nil
+            currentSelection = nil
+            currentPositionLocator = nil
+            contentNodes = []
+            adapterPlan = nil
         }
     }
 
@@ -2113,10 +2152,7 @@ final class AppModel: ObservableObject {
                 SourcePositionRevisionMigration(
                     spaceID: spaceID,
                     sourceID: candidate.source.id,
-                    resolvedLocator: resolution?.resolved,
-                    progressFraction: position.progressFraction,
-                    granularity: position.granularity,
-                    displayLabel: position.displayLabel
+                    resolvedLocator: resolution?.resolved
                 )
             )
         }

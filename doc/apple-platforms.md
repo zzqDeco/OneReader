@@ -84,6 +84,11 @@ and iPad rather than implemented as platform-specific persistence. Quick Look
 publishes only document granularity because neither platform exposes a stable
 public API for the system preview's internal page or scroll state.
 
+The host supplies a presentation-generation token to every bridge callback and
+remounts the presentation when it changes. This applies even when the Source ID
+is unchanged, such as directory child navigation or EPUB spine navigation, and
+prevents a delayed callback from a retired surface from becoming current.
+
 Platform branches must remain below the presentation and application-shell
 boundary. A platform-specific adapter ID, Locator schema, graph, progress model,
 Provider protocol, or Agent tool would violate the shared-product contract.

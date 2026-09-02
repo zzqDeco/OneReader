@@ -37,9 +37,10 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
 - New optional fields decode from existing schema-v1 progress JSON without a
   database schema migration; invalid fractions or oversized labels fail closed
   on persistence.
-- Source revision relocation preserves position metadata only when the Locator
-  resolves to the new immutable Snapshot. Failed resolution removes the current
-  position instead of presenting a stale anchor as current.
+- Source revision relocation preserves only an anchor that resolves to the new
+  immutable Snapshot. Its old fraction, granularity, and label are cleared until
+  the revised presentation measures them again; failed resolution removes the
+  current position instead of presenting a stale anchor as current.
 - Source-position progress, graph-unit completion, frozen-plan step, and reading
   history remain independent facts.
 
@@ -52,6 +53,9 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
 - Keep the 350 ms write debounce during continuous scrolling, but retain a
   pending update and synchronously flush it before Source/Space transitions and
   whenever the SwiftUI scene leaves the active phase.
+- Bind every callback and pending write to a host-owned presentation token.
+  Child navigation and Source refresh replace that token, so late callbacks can
+  never overwrite the current child or a newer immutable Snapshot.
 - Restore WebKit by structural/quote anchor first and normalized scroll fraction
   second. Preserve existing exact text and PDF page restoration behavior.
 - Show the current saved label in the reader footer and the latest resume target
@@ -61,8 +65,9 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
 ## Test Plan
 
 - Cover rich position round trips, existing metadata-free decoding, validation,
-  explicit lifecycle flush, immediate Source switch, restart restoration,
-  refresh relocation, and no-Provider Library progress.
+  explicit lifecycle flush, immediate Source switch, same-Source child callback
+  rejection, restart restoration, refresh/debounce interleaving, historical
+  Snapshot rejection, refresh relocation, and no-Provider Library progress.
 - Compile both native presentation implementations and exercise the complete
   shared test suite and release validation.
 - Keep Simulator device instances empty and rebuild, sign, install, and launch

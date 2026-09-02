@@ -43,9 +43,12 @@ active/waiting/interrupted runs, supersedes candidates, records events, and incr
 durable generations.
 
 When a Source position resolves against the staged Snapshot, the transaction
-rebinds its Locator and preserves the normalized fraction, granularity, and
-display label. An unresolved position is cleared, while the old Snapshot and
-historical Locators remain immutable.
+rebinds its Locator but clears the old normalized fraction, granularity, and
+display label until the new presentation measures the revised content. An
+unresolved position is cleared, while the old Snapshot and historical Locators
+remain immutable. Normal progress saves accept only the Source's current
+`latest_snapshot_id`, providing a final compare-and-set boundary against late
+historical callbacks.
 
 Schema v8 adds Source-keyed security-scoped bookmark storage. Import can insert
 the bookmark in the same transaction as Source/Snapshot/Space identity; Source

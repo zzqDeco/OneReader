@@ -44,6 +44,11 @@ plan progress remain independent. Opening the same Locator preserves its
 fraction/granularity metadata instead of replacing it with a bare document
 position.
 
+Each mounted presentation receives the current host-owned generation token.
+Navigation to another child within the same Source and Source revision refresh
+both replace that token and remount the surface; callbacks and pending debounce
+writes must still match it before they can update progress.
+
 Space transitions cancel search, position, content, and Agent work, then require
 both the captured Space ID and workspace generation before any result can be
 published. Opening a Space restores its most recent persisted position.
@@ -63,8 +68,10 @@ loaded as pending while the reader remains on a frozen plan; adoption and valid
 progress migration require an explicit user action. Source refresh stages and
 probes new bytes under the existing Source identity, resolves annotation and
 position anchors, and commits the new Snapshot plus migration states atomically.
-Resolved position migrations retain fraction, granularity, and display label;
-unresolved positions are removed rather than rebound to stale bytes.
+Resolved position migrations retain the relocated Locator but clear fraction,
+granularity, and display label until the revised presentation emits fresh
+measurements; unresolved positions are removed rather than rebound to stale
+bytes.
 
 Bootstrap also enumerates every active searchable AdapterPlan that lacks a
 completed schema-v9 projection and schedules background indexing without

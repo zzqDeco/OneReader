@@ -205,10 +205,17 @@ extension LibraryDatabase {
                 }
                 guard try Self.rowExists(
                     db,
-                    sql: "SELECT EXISTS(SELECT 1 FROM snapshots WHERE id = ? AND source_id = ?)",
-                    arguments: [position.locator.snapshotID, position.sourceID]
+                    sql: """
+                        SELECT EXISTS(
+                            SELECT 1 FROM sources
+                            WHERE id = ?
+                              AND latest_snapshot_id = ?
+                              AND managed_state = 'ready'
+                        )
+                        """,
+                    arguments: [position.sourceID, position.locator.snapshotID]
                 ) else {
-                    throw ReaderPersistenceError.invalidProgress("来源位置引用了不存在的 Snapshot")
+                    throw ReaderPersistenceError.invalidProgress("来源位置未绑定当前 Snapshot")
                 }
             }
             try db.execute(

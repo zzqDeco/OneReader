@@ -179,6 +179,75 @@ final class ReaderPersistenceTests: XCTestCase {
         )
     }
 
+    func testProgressRejectsHistoricalSnapshotAfterSourceRefresh() async throws {
+        let fixture = try await makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let nodes = try await fixture.coordinator.list(plan: fixture.plan)
+        let oldLocator = try XCTUnwrap(nodes.first?.locator)
+        let newSnapshot = SourceSnapshot(
+            id: "refreshed-\(UUID().uuidString)",
+            sourceID: fixture.imported.source.id,
+            revision: "revision-2",
+            revisionKind: .contentDigest,
+            digest: "digest-2",
+            observedAt: .now,
+            origin: fixture.imported.snapshot.origin,
+            managedRelativePath: fixture.imported.snapshot.managedRelativePath,
+            byteCount: fixture.imported.snapshot.byteCount
+        )
+        let currentLocator = Locator(
+            sourceID: oldLocator.sourceID,
+            snapshotID: newSnapshot.id,
+            adapterID: oldLocator.adapterID,
+            payload: oldLocator.payload,
+            structuralPath: oldLocator.structuralPath,
+            textQuote: oldLocator.textQuote,
+            fingerprint: oldLocator.fingerprint
+        )
+        try fixture.database.commitSnapshotRefreshForTesting(
+            newSnapshot,
+            migrations: SourceRevisionMigrationBatch(
+                annotations: [],
+                positions: [
+                    SourcePositionRevisionMigration(
+                        spaceID: fixture.imported.space.id,
+                        sourceID: fixture.imported.source.id,
+                        resolvedLocator: currentLocator
+                    )
+                ]
+            )
+        )
+
+        var staleProgress = ReadingProgress.empty
+        staleProgress.sourcePositions[oldLocator.sourceID] = SourcePosition(
+            sourceID: oldLocator.sourceID,
+            locator: oldLocator,
+            updatedAt: .now,
+            progressFraction: 0.8,
+            granularity: .text,
+            displayLabel: "旧版本位置"
+        )
+        XCTAssertThrowsError(
+            try fixture.database.saveReadingProgress(
+                staleProgress,
+                spaceID: fixture.imported.space.id
+            )
+        )
+
+        var currentProgress = ReadingProgress.empty
+        currentProgress.sourcePositions[currentLocator.sourceID] = SourcePosition(
+            sourceID: currentLocator.sourceID,
+            locator: currentLocator,
+            updatedAt: .now
+        )
+        XCTAssertNoThrow(
+            try fixture.database.saveReadingProgress(
+                currentProgress,
+                spaceID: fixture.imported.space.id
+            )
+        )
+    }
+
     func testLegacySourcePositionWithoutMetadataStillDecodes() throws {
         let locator = Locator(
             sourceID: "legacy-source",

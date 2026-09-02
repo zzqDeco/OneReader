@@ -103,20 +103,26 @@ struct ReaderSurfaceView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .ready(let document):
+            let presentationToken = model.currentPresentationToken
             AdapterPresentationView(
                 document: document,
                 preferences: model.preferences,
                 onSelectionChange: { selection in
                     Task { @MainActor in
+                        guard model.currentPresentationToken == presentationToken else { return }
                         model.currentSelection = selection
                     }
                 },
                 onPositionChange: { update in
                     Task { @MainActor in
-                        model.updateReadingPosition(update)
+                        model.updateReadingPosition(
+                            update,
+                            presentationToken: presentationToken
+                        )
                     }
                 }
             )
+            .id(presentationToken)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

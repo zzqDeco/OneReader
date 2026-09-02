@@ -292,6 +292,82 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testLatePositionFromPreviousChildCannotOverwriteCurrentChild() async throws {
+        let root = temporaryRoot("PositionChildGeneration")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directoryURL = root.appendingPathComponent("Book", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try Data("first child\nold position".utf8).write(
+            to: directoryURL.appendingPathComponent("first.txt")
+        )
+        try Data("second child\ncurrent position".utf8).write(
+            to: directoryURL.appendingPathComponent("second.txt")
+        )
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+        )
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library"),
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([directoryURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.contentNodes.contains { $0.locator.relativePath == "first.txt" }
+                && model.contentNodes.contains { $0.locator.relativePath == "second.txt" }
+        }
+
+        let firstNode = try XCTUnwrap(
+            model.contentNodes.first { $0.locator.relativePath == "first.txt" }
+        )
+        let secondNode = try XCTUnwrap(
+            model.contentNodes.first { $0.locator.relativePath == "second.txt" }
+        )
+        model.openNode(firstNode)
+        try await waitUntil { model.presentationDocument?.locator.relativePath == "first.txt" }
+        let firstToken = model.currentPresentationToken
+        let firstLocator = try XCTUnwrap(model.presentationDocument?.locator)
+
+        model.openNode(secondNode)
+        try await waitUntil { model.presentationDocument?.locator.relativePath == "second.txt" }
+        let secondToken = model.currentPresentationToken
+        let secondLocator = try XCTUnwrap(model.presentationDocument?.locator)
+        XCTAssertNotEqual(firstToken, secondToken)
+
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: firstLocator,
+                progressFraction: 0.91,
+                granularity: .text,
+                displayLabel: "first.txt · 第 2 行 · 91%"
+            ),
+            presentationToken: firstToken
+        )
+        model.flushReadingPosition()
+        XCTAssertEqual(
+            model.currentProgress.sourcePositions[secondLocator.sourceID]?.locator.relativePath,
+            "second.txt"
+        )
+
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: secondLocator,
+                progressFraction: 0.24,
+                granularity: .text,
+                displayLabel: "second.txt · 第 1 行 · 24%"
+            ),
+            presentationToken: secondToken
+        )
+        model.flushReadingPosition()
+        let stored = try XCTUnwrap(
+            model.currentProgress.sourcePositions[secondLocator.sourceID]
+        )
+        XCTAssertEqual(stored.locator.relativePath, "second.txt")
+        XCTAssertEqual(try XCTUnwrap(stored.progressFraction), 0.24, accuracy: 0.000_001)
+        XCTAssertEqual(stored.displayLabel, "second.txt · 第 1 行 · 24%")
+    }
+
     func testExplicitPositionFlushPersistsWithoutWaitingForDebounce() async throws {
         let root = temporaryRoot("PositionLifecycleFlush")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -454,18 +530,26 @@ final class AppModelLibraryTests: XCTestCase {
                 displayLabel: "第 3 行 · 42%"
             )
         )
-        try await waitUntil {
-            model.currentProgress.sourcePositions[sourceID]?.locator == stable
-        }
         XCTAssertEqual(model.annotations.count, 2)
 
         let revised = "Introduction\n\nThe stable quote moved into a revised paragraph.\n"
         try Data(revised.utf8).write(to: sourceURL, options: .atomic)
+        let oldPresentationToken = model.currentPresentationToken
         model.refreshSource(sourceID)
         try await waitUntil(timeout: .seconds(8)) {
             !model.refreshingSourceIDs.contains(sourceID)
                 && model.selectedSnapshot?.id != oldSnapshotID
         }
+        model.updateReadingPosition(
+            ReadingPositionUpdate(
+                locator: stable,
+                progressFraction: 0.99,
+                granularity: .text,
+                displayLabel: "迟到的旧版本位置"
+            ),
+            presentationToken: oldPresentationToken
+        )
+        try await Task.sleep(for: .milliseconds(450))
 
         let newSnapshotID = try XCTUnwrap(model.selectedSnapshot?.id)
         XCTAssertNotEqual(newSnapshotID, oldSnapshotID)
@@ -485,13 +569,9 @@ final class AppModelLibraryTests: XCTestCase {
             model.currentProgress.sourcePositions[sourceID]?.locator.snapshotID,
             newSnapshotID
         )
-        XCTAssertEqual(
-            try XCTUnwrap(model.currentProgress.sourcePositions[sourceID]?.progressFraction),
-            0.42,
-            accuracy: 0.000_001
-        )
-        XCTAssertEqual(model.currentProgress.sourcePositions[sourceID]?.granularity, .text)
-        XCTAssertEqual(model.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 3 行 · 42%")
+        XCTAssertNil(model.currentProgress.sourcePositions[sourceID]?.progressFraction)
+        XCTAssertNil(model.currentProgress.sourcePositions[sourceID]?.granularity)
+        XCTAssertNil(model.currentProgress.sourcePositions[sourceID]?.displayLabel)
     }
 
     func testNewFrozenPlanRemainsPendingUntilExplicitProgressMigration() async throws {
