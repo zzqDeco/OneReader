@@ -50,6 +50,14 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     }
 
     private func apply(to textView: UITextView, coordinator: Coordinator) {
+        let measuredWidth = textView.bounds.width
+            - textView.textContainerInset.left
+            - textView.textContainerInset.right
+        let fallbackWidth = (textView.window?.windowScene?.screen.bounds.width ?? 430) - 44
+        let maximumImageWidth = min(
+            ReaderTheme.proseMaxWidth,
+            max(220, measuredWidth > 0 ? measuredWidth : fallbackWidth)
+        )
         let signature = [
             kind.rawValue,
             contentIdentity,
@@ -57,6 +65,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             String(preferences.lineSpacing),
             preferences.theme.rawValue,
             resourceRootURL?.standardizedFileURL.path ?? "",
+            String(Int(maximumImageWidth.rounded())),
         ].joined(separator: ":")
         if coordinator.renderSignature != signature {
             coordinator.renderSignature = signature
@@ -75,7 +84,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                     fontSize: font.pointSize,
                     lineSpacing: preferences.lineSpacing,
                     resourceRootURL: resourceRootURL,
-                    maximumImageWidth: max(220, UIScreen.main.bounds.width - 44)
+                    maximumImageWidth: maximumImageWidth
                 )
                 textView.attributedText = renderer.render(content)
             } else {
