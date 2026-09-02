@@ -895,6 +895,7 @@ final class AppModel: ObservableObject {
             var candidate: ManagedRefreshCandidate?
             var revisionLease: SourceRevisionRefreshLease?
             var committed = false
+            var recoveryLocator: Locator?
             do {
                 appendActivityForSource(
                     sourceID: sourceID,
@@ -919,7 +920,7 @@ final class AppModel: ObservableObject {
                     return
                 }
 
-                cancelIndexingForRevision(sourceID: sourceID)
+                recoveryLocator = cancelIndexingForRevision(sourceID: sourceID)
                 revisionLease = try await agentRuntime.beginSourceRevisionRefresh(
                     sourceID: sourceID
                 )
@@ -972,6 +973,12 @@ final class AppModel: ObservableObject {
                 if let candidate, !committed {
                     try? await managedLibrary.discardRefreshCandidate(candidate)
                 }
+                restorePresentationAfterRefreshFailure(
+                    sourceID: sourceID,
+                    previousLocator: recoveryLocator,
+                    committed: committed,
+                    message: "来源刷新已取消；已恢复可用版本。"
+                )
             } catch {
                 if let revisionLease {
                     await agentRuntime.abortSourceRevisionRefresh(lease: revisionLease)
@@ -979,6 +986,14 @@ final class AppModel: ObservableObject {
                 if let candidate, !committed {
                     try? await managedLibrary.discardRefreshCandidate(candidate)
                 }
+                restorePresentationAfterRefreshFailure(
+                    sourceID: sourceID,
+                    previousLocator: recoveryLocator,
+                    committed: committed,
+                    message: committed
+                        ? "新 Snapshot 已提交，但暂时无法呈现。"
+                        : "刷新失败；已恢复上一个可用 Snapshot。"
+                )
                 appendActivityForSource(
                     sourceID: sourceID,
                     phase: "刷新来源",
@@ -2090,7 +2105,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func cancelIndexingForRevision(sourceID: String) {
+    private func cancelIndexingForRevision(sourceID: String) -> Locator? {
         indexTasks[sourceID]?.cancel()
         indexTasks[sourceID] = nil
         indexSnapshotIDs[sourceID] = nil
@@ -2099,6 +2114,9 @@ final class AppModel: ObservableObject {
         finishPendingIndexImports(sourceID: sourceID)
         if selectedSourceID == sourceID {
             flushReadingPosition()
+            let recoveryLocator = currentProgress.sourcePositions[sourceID]?.locator
+                ?? currentPositionLocator
+                ?? presentationDocument?.locator
             contentGeneration = UUID()
             contentTask?.cancel()
             presentationState = .loading
@@ -2107,6 +2125,32 @@ final class AppModel: ObservableObject {
             currentPositionLocator = nil
             contentNodes = []
             adapterPlan = nil
+            return recoveryLocator
+        }
+        return nil
+    }
+
+    private func restorePresentationAfterRefreshFailure(
+        sourceID: String,
+        previousLocator: Locator?,
+        committed: Bool,
+        message: String
+    ) {
+        guard selectedSourceID == sourceID else { return }
+        presentationState = .unavailable(message)
+        if committed {
+            do {
+                try reloadLibraryState(preservingSelection: true)
+                if let spaceID = selectedSpaceID {
+                    try loadSpaceState(spaceID: spaceID)
+                }
+                guard source(id: sourceID)?.latestSnapshotID != nil else { return }
+                openSource(sourceID)
+            } catch {
+                presentationState = .unavailable(message)
+            }
+        } else if source(id: sourceID)?.latestSnapshotID != nil {
+            openSource(sourceID, locator: previousLocator)
         }
     }
 

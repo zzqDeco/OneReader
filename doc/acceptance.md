@@ -121,7 +121,8 @@ progress round trips, metadata-free progress decoding, invalid position
 fraction rejection, Quick Look capability gating, preferences, index-job
 deduplication, rich position restore, immediate Source-switch and lifecycle
 flush, same-Source child generation rejection, Source refresh/debounce
-interleaving with metadata remeasurement, historical Snapshot rejection, platform
+interleaving with metadata remeasurement, historical Snapshot rejection,
+refresh failure recovery on both sides of the commit boundary, platform
 import-purpose selection, injected security-scope balancing, the macOS bookmark
 database/renewal contract, pending frozen-plan adoption, Space generation
 isolation, and crash-safe Agent state. They do not claim a document-provider

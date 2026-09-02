@@ -73,6 +73,12 @@ granularity, and display label until the revised presentation emits fresh
 measurements; unresolved positions are removed rather than rebound to stale
 bytes.
 
+Refresh invalidates the mounted presentation before the revision transaction.
+If failure occurs before commit, the previous Locator is reopened against the
+still-current Snapshot. If commit succeeds but preparing the new presentation
+fails, Library state is reloaded and the new Snapshot is retried; a repeated
+failure becomes an explicit unavailable surface rather than indefinite loading.
+
 Bootstrap also enumerates every active searchable AdapterPlan that lacks a
 completed schema-v9 projection and schedules background indexing without
 opening its Space.

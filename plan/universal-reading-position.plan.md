@@ -68,6 +68,10 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
   explicit lifecycle flush, immediate Source switch, same-Source child callback
   rejection, restart restoration, refresh/debounce interleaving, historical
   Snapshot rejection, refresh relocation, and no-Provider Library progress.
+- Inject failures on both sides of the refresh commit boundary: pre-commit
+  failure must reopen the old readable Snapshot, while a committed but
+  unrenderable revision must end in an explicit unavailable state, never an
+  indefinite loading surface.
 - Compile both native presentation implementations and exercise the complete
   shared test suite and release validation.
 - Keep Simulator device instances empty and rebuild, sign, install, and launch

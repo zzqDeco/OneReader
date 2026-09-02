@@ -574,6 +574,113 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertNil(model.currentProgress.sourcePositions[sourceID]?.displayLabel)
     }
 
+    func testRefreshCommitFailureRestoresPreviousReadableSnapshot() async throws {
+        let root = temporaryRoot("RefreshCommitRecovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sourceURL = root.appendingPathComponent("recover.txt")
+        try Data("readable before refresh".utf8).write(to: sourceURL)
+        let libraryRoot = root.appendingPathComponent("Library")
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+        )
+        let model = AppModel(
+            libraryRootURL: libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([sourceURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activePendingImportCount == 0
+        }
+        let sourceID = try XCTUnwrap(model.selectedSourceID)
+        let oldSnapshotID = try XCTUnwrap(model.selectedSnapshot?.id)
+        let database = try LibraryDatabase(rootURL: libraryRoot)
+        try await database.pool.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER reject_test_snapshot_refresh
+                    BEFORE INSERT ON snapshots
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected refresh commit failure');
+                    END
+                    """
+            )
+        }
+
+        try Data("changed bytes that cannot commit".utf8).write(to: sourceURL, options: .atomic)
+        model.refreshSource(sourceID)
+        try await waitUntil(timeout: .seconds(8)) {
+            !model.refreshingSourceIDs.contains(sourceID)
+                && model.presentationDocument?.locator.snapshotID == oldSnapshotID
+        }
+
+        XCTAssertEqual(model.selectedSnapshot?.id, oldSnapshotID)
+        XCTAssertEqual(model.presentationDocument?.locator.snapshotID, oldSnapshotID)
+        if case .loading = model.presentationState {
+            XCTFail("A failed pre-commit refresh must not strand the reader in loading")
+        }
+    }
+
+    func testRefreshPresentationFailureLeavesExplicitUnavailableState() async throws {
+        let root = temporaryRoot("RefreshPresentationRecovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sourceURL = root.appendingPathComponent("unavailable.txt")
+        try Data("readable before refresh".utf8).write(to: sourceURL)
+        let libraryRoot = root.appendingPathComponent("Library")
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+        )
+        let model = AppModel(
+            libraryRootURL: libraryRoot,
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([sourceURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activePendingImportCount == 0
+        }
+        let sourceID = try XCTUnwrap(model.selectedSourceID)
+        let oldSnapshotID = try XCTUnwrap(model.selectedSnapshot?.id)
+        let database = try LibraryDatabase(rootURL: libraryRoot)
+        try await database.pool.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER corrupt_test_snapshot_after_commit
+                    AFTER INSERT ON snapshots
+                    BEGIN
+                        UPDATE snapshots
+                        SET managed_relative_path = 'Sources/missing-refresh-presentation.txt'
+                        WHERE id = NEW.id;
+                    END
+                    """
+            )
+        }
+
+        try Data("committed bytes with missing presentation".utf8)
+            .write(to: sourceURL, options: .atomic)
+        model.refreshSource(sourceID)
+        try await waitUntil(timeout: .seconds(8)) {
+            guard !model.refreshingSourceIDs.contains(sourceID),
+                  model.selectedSnapshot?.id != oldSnapshotID else { return false }
+            if case .unavailable = model.presentationState { return true }
+            return false
+        }
+
+        XCTAssertNotEqual(model.selectedSnapshot?.id, oldSnapshotID)
+        if case .loading = model.presentationState {
+            XCTFail("A failed post-commit presentation must not remain in loading")
+        }
+        if case .unavailable = model.presentationState {
+            // Expected explicit recovery boundary.
+        } else {
+            XCTFail("Expected an explicit unavailable presentation after recovery fails")
+        }
+    }
+
     func testNewFrozenPlanRemainsPendingUntilExplicitProgressMigration() async throws {
         let root = temporaryRoot("FrozenPlan")
         defer { try? FileManager.default.removeItem(at: root) }
