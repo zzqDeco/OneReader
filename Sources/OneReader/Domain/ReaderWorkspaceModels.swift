@@ -64,10 +64,10 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .annotations: "标注"
-        case .evidence: "证据"
-        case .activity: "活动"
-        case .ask: "问答"
+        case .annotations: "笔记"
+        case .evidence: "引用"
+        case .activity: "运行"
+        case .ask: "助手"
         }
     }
 

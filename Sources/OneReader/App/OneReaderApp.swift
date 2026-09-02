@@ -29,7 +29,7 @@ public struct OneReaderScene: Scene {
                 .keyboardShortcut("l", modifiers: [.command])
 
                 if model.isReadingWorkspaceOpen {
-                    Button("加入当前 Reading Space…") {
+                    Button("加入当前阅读空间…") {
                         model.presentLocalSourceImporter(destination: .currentSpace)
                     }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -61,7 +61,7 @@ public struct OneReaderScene: Scene {
 
                 Divider()
 
-                Button("搜索 Reading Space") {
+                Button("搜索阅读空间") {
                     model.navigationTab = .search
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])

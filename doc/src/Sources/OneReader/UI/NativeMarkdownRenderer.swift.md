@@ -5,8 +5,13 @@ Converts the pinned `swift-markdown` AST into a selectable
 emphasis, strong text, strike-through, inline/code blocks, lists, quotes,
 thematic breaks, and tables.
 
-Raw HTML is omitted. Images become alt-text placeholders and no image URL is
-fetched. Only explicit HTTP(S) destinations receive link attributes. The
+Raw HTML is omitted. Remote image URLs are never fetched. Relative images are
+resolved through `ReadOnlyContentResourceLoader` under the presentation's
+Snapshot resource root, so path traversal, symlinks, unsupported media, and
+oversized payloads fail closed to alt text. A rendered attachment carries an
+unavailable-map sentinel and cannot become a fabricated text Locator. Tables
+render as readable pipe-delimited rows with preserved cell source mapping rather
+than tabs. Only explicit HTTP(S) destinations receive link attributes. The
 renderer carries source UTF-16 attributes on emitted leaf text. The surrounding
 `NSTextView` coordinator maps ranges in both directions, derives source quote
 context and fingerprints, distinguishes repeated heading/emphasis/list text,

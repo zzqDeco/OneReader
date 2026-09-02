@@ -90,7 +90,7 @@ struct WorkspaceView: View {
         }
         .sheet(isPresented: $isMobileNavigationPresented) {
             NavigationStack {
-                ReaderNavigationSidebar()
+                ReaderNavigationSidebar(showsLibraryBackButton: false)
                     .environmentObject(model)
                     .navigationTitle("阅读导航")
                     .toolbar {
@@ -122,7 +122,7 @@ struct WorkspaceView: View {
             NavigationStack {
                 ReaderInspectorView()
                     .environmentObject(model)
-                    .navigationTitle("Inspector")
+                    .navigationTitle("阅读辅助")
             }
             .presentationDetents([.medium, .large])
         }
@@ -136,9 +136,17 @@ struct WorkspaceView: View {
             NavigationStack {
                 LibraryHomeView()
                     .toolbar { toolbar }
+                    .navigationBarTitleDisplayMode(.inline)
                     .navigationDestination(isPresented: compactReaderBinding) {
-                        ReaderSurfaceView()
+                        ReaderSurfaceView(
+                            onShowNavigation: { isMobileNavigationPresented = true },
+                            onShowAssistance: {
+                                model.inspectorTab = .annotations
+                                model.isInspectorPresented = true
+                            }
+                        )
                             .toolbar { toolbar }
+                            .navigationBarTitleDisplayMode(.inline)
                     }
             }
         } else {
@@ -151,8 +159,13 @@ struct WorkspaceView: View {
 
     private var splitWorkspace: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebarView()
-                .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
+            if model.isReadingWorkspaceOpen {
+                ReaderNavigationSidebar()
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            } else {
+                LibrarySidebarView()
+                    .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
+            }
         } detail: {
             detail
         }
@@ -169,12 +182,9 @@ struct WorkspaceView: View {
                     }
             } else {
                 GeometryReader { geometry in
-                    let compact = geometry.size.width < 920
+                    let compact = geometry.size.width < 760
                     ZStack(alignment: .trailing) {
                         HStack(spacing: 0) {
-                            ReaderNavigationSidebar()
-                                .frame(width: compact ? 210 : 245)
-                            Divider()
                             ReaderSurfaceView()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .layoutPriority(1)
@@ -215,24 +225,6 @@ struct WorkspaceView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            if model.isReadingWorkspaceOpen, let snapshot = model.selectedSnapshot {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(ReaderTheme.teal)
-                        .frame(width: 7, height: 7)
-                    Text(String(snapshot.revision.prefix(9)))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(.thinMaterial, in: Capsule())
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("当前 Snapshot \(String(snapshot.revision.prefix(9)))")
-            }
-        }
-
         ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
             if usesCompactReader, !model.isReadingWorkspaceOpen {
@@ -250,58 +242,72 @@ struct WorkspaceView: View {
             }
 #endif
 
-            if model.isReadingWorkspaceOpen, usesCompactReader {
-                Button {
-                    isMobileNavigationPresented = true
-                } label: {
-                    Label("阅读导航", systemImage: "list.bullet")
-                }
-            }
-
-            Menu {
-                Button("选择文件或目录…", systemImage: "folder") {
-                    model.presentLocalSourceImporter()
-                }
-                Button("粘贴 URL…", systemImage: "link") {
-                    model.isImportSheetPresented = true
-                }
-                if model.isReadingWorkspaceOpen {
-                    Divider()
-                    Button("加入当前 Reading Space…", systemImage: "rectangle.stack.badge.plus") {
-                        model.presentLocalSourceImporter(destination: .currentSpace)
+            if !model.isReadingWorkspaceOpen || !usesCompactReader {
+                Menu {
+                    Button("选择文件或目录…", systemImage: "folder") {
+                        model.presentLocalSourceImporter()
                     }
+                    Button("粘贴 URL…", systemImage: "link") {
+                        model.isImportSheetPresented = true
+                    }
+                    if model.isReadingWorkspaceOpen {
+                        Divider()
+                        Button("加入当前阅读空间…", systemImage: "rectangle.stack.badge.plus") {
+                            model.presentLocalSourceImporter(destination: .currentSpace)
+                        }
+                    }
+                } label: {
+                    Label("添加材料", systemImage: "plus")
                 }
-            } label: {
-                Label("添加材料", systemImage: "plus")
+                .help("添加任意支持的来源")
             }
-            .help("添加任意支持的来源")
 
-            if model.isReadingWorkspaceOpen {
+            if model.isReadingWorkspaceOpen, !usesCompactReader {
                 Button {
                     model.navigationTab = .search
-                    if usesCompactReader {
-                        isMobileNavigationPresented = true
-                    }
                 } label: {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
-                .help("搜索 Reading Space")
+                .help("搜索阅读空间")
 
                 Button {
                     model.isInspectorPresented.toggle()
                 } label: {
-                    Label("Inspector", systemImage: "sidebar.trailing")
+                    Label("阅读辅助", systemImage: "sidebar.trailing")
                 }
-                .help(model.isInspectorPresented ? "隐藏 Inspector" : "显示 Inspector")
+                .help(model.isInspectorPresented ? "隐藏阅读辅助" : "显示阅读辅助")
             }
 
 #if os(iOS)
-            Button {
-                isSettingsPresented = true
-            } label: {
-                Label("设置", systemImage: "gearshape")
+            if !model.isReadingWorkspaceOpen {
+                Button {
+                    isSettingsPresented = true
+                } label: {
+                    Label("设置", systemImage: "gearshape")
+                }
+                .help("阅读与模型设置")
+            } else if usesCompactReader {
+                Menu {
+                    Button("加入当前阅读空间", systemImage: "plus") {
+                        model.presentLocalSourceImporter(destination: .currentSpace)
+                    }
+                    Button("搜索正文", systemImage: "magnifyingglass") {
+                        model.navigationTab = .search
+                        isMobileNavigationPresented = true
+                    }
+                    if model.canOpenOriginalSource {
+                        Button("打开原始来源", systemImage: "arrow.up.right.square") {
+                            model.openOriginalSource()
+                        }
+                    }
+                    Divider()
+                    Button("设置", systemImage: "gearshape") {
+                        isSettingsPresented = true
+                    }
+                } label: {
+                    Label("更多", systemImage: "ellipsis.circle")
+                }
             }
-            .help("阅读与模型设置")
 #endif
         }
     }

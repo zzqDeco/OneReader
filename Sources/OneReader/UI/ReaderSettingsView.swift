@@ -37,8 +37,15 @@ private struct ReadingAppearanceSettings: View {
                 LabeledContent("字号 \(Int(model.preferences.fontSize)) pt") {
                     Slider(value: $model.preferences.fontSize, in: 12...30, step: 1)
                 }
-                LabeledContent("行宽 \(Int(model.preferences.lineWidth)) pt") {
-                    Slider(value: $model.preferences.lineWidth, in: 480...1100, step: 20)
+                LabeledContent("行宽 \(Int(min(model.preferences.lineWidth, ReaderTheme.proseMaxWidth))) pt") {
+                    Slider(
+                        value: Binding(
+                            get: { min(model.preferences.lineWidth, ReaderTheme.proseMaxWidth) },
+                            set: { model.preferences.lineWidth = $0 }
+                        ),
+                        in: 480...ReaderTheme.proseMaxWidth,
+                        step: 20
+                    )
                 }
                 LabeledContent("行距 \(Int(model.preferences.lineSpacing)) pt") {
                     Slider(value: $model.preferences.lineSpacing, in: 0...18, step: 1)
@@ -109,7 +116,7 @@ private struct ProviderSettings: View {
             Button {
                 resetDraft()
             } label: {
-                Label("新建 Provider", systemImage: "plus")
+                Label("新建模型配置", systemImage: "plus")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
             }
@@ -120,26 +127,26 @@ private struct ProviderSettings: View {
     private var providerForm: some View {
         Form {
 #if os(iOS)
-                Section("Provider") {
+                Section("模型配置") {
                     Picker("配置", selection: $selectionID) {
-                        Text("新建 Provider").tag(String?.none)
+                        Text("新建模型配置").tag(String?.none)
                         ForEach(model.providerProfiles) { profile in
                             Text(profile.displayName).tag(String?.some(profile.id))
                         }
                     }
-                    Button("新建 Provider", systemImage: "plus") { resetDraft() }
+                    Button("新建模型配置", systemImage: "plus") { resetDraft() }
                 }
 #endif
-                Section("Provider Profile") {
+                Section("模型服务") {
                     TextField("名称", text: $displayName)
                     Picker("类型", selection: $kind) {
                         ForEach(ProviderKind.allCases, id: \.self) { kind in
                             Text(kind.displayName).tag(kind)
                         }
                     }
-                    TextField("Model ID", text: $modelID)
+                    TextField("模型 ID", text: $modelID)
                     if kind != .appleOnDevice {
-                        TextField("Endpoint（留空使用默认值）", text: $endpoint)
+                        TextField("服务地址（留空使用默认值）", text: $endpoint)
                     }
                     if kind.requiresSecret {
                         SecureField(existingProfile?.keychainReference == nil
@@ -193,7 +200,7 @@ private struct ProviderSettings: View {
                 }
 
                 Section {
-                    Text("API Key 只写入设备 Keychain。数据库与日志只保存引用；真实模型调用不会出现在 CI 中。")
+                    Text("API Key 只写入设备钥匙串。数据库与日志只保存引用；自动测试不会调用真实模型。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

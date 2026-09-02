@@ -321,6 +321,79 @@ final class NativeMarkdownRendererTests: XCTestCase {
         ), "Reverse mapping must also reject a range crossing an unavailable leaf")
     }
 
+    func testRendererPresentsMarkdownTableAsReadableRowsWithoutTabs() throws {
+        let source = """
+            | 章节 | 状态 |
+            | --- | --- |
+            | 开始 | 已读 |
+            """
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let rendered = renderer.render(source)
+
+        XCTAssertTrue(rendered.string.contains("│ 章节 │ 状态 │"))
+        XCTAssertTrue(rendered.string.contains("│ 开始 │ 已读 │"))
+        XCTAssertFalse(rendered.string.contains("\t"))
+
+        let sourceRange = (source as NSString).range(of: "开始")
+        let renderedRange = try XCTUnwrap(
+            MarkdownSourceMap.renderedRange(forSourceRange: sourceRange, in: rendered)
+        )
+        XCTAssertEqual((rendered.string as NSString).substring(with: renderedRange), "开始")
+    }
+
+    func testRendererLoadsOnlyContainedLocalMarkdownImages() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageDirectory = root.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = NSImage(size: NSSize(width: 40, height: 20))
+        image.lockFocus()
+        NSColor.systemTeal.setFill()
+        NSRect(x: 0, y: 0, width: 40, height: 20).fill()
+        image.unlockFocus()
+        let tiff = try XCTUnwrap(image.tiffRepresentation)
+        let representation = try XCTUnwrap(NSBitmapImageRep(data: tiff))
+        let png = try XCTUnwrap(representation.representation(using: .png, properties: [:]))
+        try png.write(to: imageDirectory.appendingPathComponent("cover.png"))
+
+        var renderer = NativeMarkdownRenderer(
+            fontSize: 17,
+            lineSpacing: 5,
+            resourceRootURL: root,
+            maximumImageWidth: 20
+        )
+        let rendered = renderer.render("![封面](images/cover.png)")
+        let attachmentRange = (rendered.string as NSString).range(of: "\u{FFFC}")
+        XCTAssertNotEqual(attachmentRange.location, NSNotFound)
+        let attachment = try XCTUnwrap(
+            rendered.attribute(.attachment, at: attachmentRange.location, effectiveRange: nil)
+                as? NSTextAttachment
+        )
+        XCTAssertEqual(attachment.bounds.width, 20, accuracy: 0.1)
+        XCTAssertNil(
+            MarkdownSourceMap.sourceRange(
+                forRenderedRange: attachmentRange,
+                in: rendered
+            ),
+            "Rendered images must not fabricate a text locator"
+        )
+
+        var unsafeRenderer = NativeMarkdownRenderer(
+            fontSize: 17,
+            lineSpacing: 5,
+            resourceRootURL: root
+        )
+        let traversal = unsafeRenderer.render("![越界](../cover.png)")
+        XCTAssertTrue(traversal.string.contains("越界"))
+        XCTAssertEqual((traversal.string as NSString).range(of: "\u{FFFC}").location, NSNotFound)
+
+        let remote = unsafeRenderer.render("![远程](https://example.com/cover.png)")
+        XCTAssertTrue(remote.string.contains("远程"))
+        XCTAssertEqual((remote.string as NSString).range(of: "\u{FFFC}").location, NSNotFound)
+    }
+
     private func ranges(of needle: String, in value: NSString) -> [NSRange] {
         var result: [NSRange] = []
         var cursor = 0

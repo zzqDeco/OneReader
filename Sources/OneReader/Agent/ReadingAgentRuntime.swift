@@ -140,7 +140,7 @@ struct ReadingTurnLoop: Sendable {
             try await recorder.emit(
                 .phase,
                 phase: "session",
-                message: "Reading Agent Run 已开始。",
+                message: "阅读辅助任务已开始。",
                 metadata: ["task": request.task.rawValue]
             )
 
@@ -172,7 +172,7 @@ struct ReadingTurnLoop: Sendable {
                     errorCategory: "disclosure-required",
                     kind: .waitingForUser,
                     phase: "privacy",
-                    message: "远程 Provider 首次读取该 Reading Space 前需要确认数据外发说明。"
+                    message: "远程模型首次读取该阅读空间前需要确认数据外发说明。"
                 ) else { throw ReadingAgentError.runNotCurrent }
                 try await recorder.publishPersisted(event)
                 await recorder.finish()
@@ -292,7 +292,7 @@ struct ReadingTurnLoop: Sendable {
                 outputDisposition: "cancelled",
                 kind: .cancelled,
                 phase: "session",
-                message: "Reading Agent Run 已取消。"
+                message: "阅读辅助任务已取消。"
             ) {
                 try? await recorder.publishPersisted(event)
             }
@@ -310,8 +310,8 @@ struct ReadingTurnLoop: Sendable {
                 kind: state == .cancelled ? .cancelled : .failed,
                 phase: "session",
                 message: state == .cancelled
-                    ? "Reading Agent Run 已被更新的任务取代。"
-                    : "Reading Agent Run 失败，基础阅读不受影响。"
+                    ? "阅读辅助任务已被更新的任务取代。"
+                    : "阅读辅助任务失败，基础阅读不受影响。"
             )
             if let event = transitionedEvent {
                 try? await recorder.publishPersisted(event)
@@ -554,7 +554,7 @@ actor ReadingAgentSession {
             runID: runID,
             kind: .completed,
             phase: "confirm",
-            message: "用户确认了低置信度适配器候选；当前 Snapshot 已重新验证。"
+            message: "用户确认了候选阅读方式；当前阅读版本已重新验证。"
         )
         try database.finalizeAgentRun(
             runID: runID,
@@ -607,7 +607,7 @@ actor ReadingAgentSession {
             outputDisposition: "userAbandoned",
             kind: .cancelled,
             phase: "recovery",
-            message: "用户放弃了已中断的 Reading Agent Run。"
+            message: "用户放弃了已中断的阅读辅助任务。"
         ) != nil else { throw ReadingAgentError.runNotCurrent }
     }
 
@@ -615,7 +615,7 @@ actor ReadingAgentSession {
         await cancelIfActive(
             runID: runID,
             errorCategory: "cancelled",
-            message: "Reading Agent Run 已取消。"
+            message: "阅读辅助任务已取消。"
         )
     }
 
@@ -798,7 +798,7 @@ actor ReadingAgentSession {
     private func cancelIfActive(
         runID: String,
         errorCategory: String = "consumer-terminated",
-        message: String = "Reading Agent Run 的阅读界面已离开，当前 Run 已取消。"
+        message: String = "阅读界面已离开，当前阅读辅助任务已取消。"
     ) async {
         guard activeRunID == runID,
               let generation = activeGeneration else { return }
@@ -856,7 +856,7 @@ actor ReadingAgentSession {
             outputDisposition: "superseded",
             kind: .cancelled,
             phase: "session",
-            message: "Reading Agent Run 已被新的任务取代。"
+            message: "阅读辅助任务已被新的任务取代。"
         )
         task?.cancel()
         if let event {
@@ -881,13 +881,13 @@ actor ReadingAgentSession {
         let message: String
         if isCallerCancellation {
             category = "cancelled-before-install"
-            message = "Reading Agent Run 在启动完成前被调用方取消。"
+            message = "阅读辅助任务在启动完成前被调用方取消。"
         } else if isSuperseded {
             category = "superseded-before-install"
-            message = "Reading Agent Run 在启动完成前被新的操作取代。"
+            message = "阅读辅助任务在启动完成前被新的操作取代。"
         } else {
             category = "startup-\(AgentRedactor.category(for: error))"
-            message = "Reading Agent Run 未能完成启动，基础阅读不受影响。"
+            message = "阅读辅助任务未能完成启动，基础阅读不受影响。"
         }
         _ = try? database.transitionAgentRunIfActive(
             runID: run.id,

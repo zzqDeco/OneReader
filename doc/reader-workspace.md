@@ -10,11 +10,13 @@ the optional Reading Agent may later propose additional structure.
 
 The primary workspace contains:
 
-- All Spaces, Recent, Processing, Favorites, and Space navigation;
-- Outline, Sources, Route, and Search navigation for the open Space;
+- All Spaces, Recent, Processing, Favorites, and Space navigation while the
+  Library is active;
+- Outline, Sources, Route, and Search navigation in the same leading column
+  after a Space opens;
 - one central native reading surface;
-- a trailing Inspector for annotations, evidence, factual Agent Activity, and
-  evidence-grounded questions.
+- optional trailing Reading Assistance for notes, citations, factual run
+  activity, and evidence-grounded questions.
 
 The Agent never replaces the reading surface and basic reading never waits for
 a Provider.
@@ -62,8 +64,13 @@ Locator are retained and are never rewritten to look current.
 | HTML/EPUB/web snapshot | controlled WKWebView | app-served sanitized bytes and explicit external-link handoff |
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
 
-Native Markdown drops raw HTML, never loads Markdown image URLs, and exposes a
-readable alt-text placeholder. Leaf text carries deterministic source UTF-16
+Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
+Relative images are resolved only through the same read-only Snapshot-root
+loader used by controlled WebKit, including path/symlink containment, MIME, and
+32 MiB limits; unavailable or remote images keep a readable alt-text
+placeholder. Rendered image attachments are deliberately unlocatable text, so
+selection cannot fabricate an anchor. Tables use readable bordered rows rather
+than tab-separated fallback text. Leaf text carries deterministic source UTF-16
 attributes through heading, emphasis, list, and code styling. Mapping begins
 from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
 fenced-code delimiter/language lines are then removed before alignment. UTF-8
@@ -134,10 +141,13 @@ All presentation surfaces emit one normalized position stream:
 | directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
 | Quick Look fallback | Source/Snapshot document-level last-open position only |
 
-Continuous scroll updates use a 350 ms persistence debounce. The latest pending
-update is flushed before any Source or Space switch and whenever the scene
-becomes inactive or enters the background, so the debounce cannot discard the
-last position. Reopening a Space restores its most recently updated Source.
+Native text bridges first coalesce 150 ms of live-scroll callbacks so text
+layout, quote extraction, observable-model mutation, and storage scheduling do
+not run on every display frame. The normalized position stream then uses a 350
+ms persistence debounce. The latest pending update is flushed before any Source
+or Space switch and whenever the scene becomes inactive or enters the
+background, so the debounce cannot discard the last position. Reopening a Space
+restores its most recently updated Source.
 The reader footer shows the saved label, and Library cards show the latest
 resume target plus aggregate Source reading fraction even when no Provider or
 Reading Graph exists. Graph-unit completion remains a separate route fact and
@@ -161,20 +171,35 @@ Activity rows preserve redacted Source, Snapshot, Adapter, Locator digest, and
 outbound byte-range metadata so the disclosure describes what was actually
 sent without storing body text, paths, or notes.
 
+## Native editorial hierarchy
+
+The Library uses a quiet grouped background, one bounded continuation card,
+and a scannable shelf of stable solid-color covers. It does not use decorative
+gradients or dashboard-style metric cards. System sans-serif type belongs to
+application chrome; Markdown/text prose uses the platform serif design; code
+remains monospaced. Prose measure is capped at 720 points across native and
+controlled-Web surfaces.
+
+Opening a Space replaces Library navigation with its reading navigation rather
+than nesting another column. Reading Assistance is collapsed by default and is
+opened deliberately. User-facing chrome says 阅读空间、阅读辅助、引用 and 版本;
+adapter names, digests, and identifiers live only in explicit run or citation
+detail disclosures.
+
 ## Responsive and accessible behavior
 
-macOS uses a 338-point trailing Inspector at wide sizes and a dismissible drawer
-below a 920-point detail width, preserving the reader at the 900 x 650 minimum.
-Regular-width iPad keeps Library, reading navigation, content, and an optional
-Inspector in the adaptive split workspace. Compact-width iPhone lets the system
-collapse Library navigation, keeps the reader full width, and presents
-Outline/Sources/Route/Search and Inspector in separate medium/large sheets. The
-iPhone footer becomes a horizontally scrollable icon control row rather than
-compressing actions below their usable size.
+macOS uses a 338-point trailing Reading Assistance panel at wide sizes and a
+dismissible drawer below a 760-point detail width, preserving the reader at the
+900 x 650 minimum. Regular-width iPad uses the same adaptive split workspace.
+Compact-width iPhone keeps the reader full width and presents
+Outline/Sources/Route/Search and Reading Assistance in separate medium/large
+sheets. It has one system inline navigation title and one stable bottom bar
+with four minimum-44-point actions: directory, previous item, next item, and
+notes. There is no second custom title bar or horizontally scrolling toolbar.
 
 macOS commands expose import, Space import, search, previous/next content,
 bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and
-iPad expose import, reading navigation, search, Inspector, and Settings in the
+iPad expose import, reading navigation, search, Reading Assistance, and Settings in the
 toolbar and preserve hardware-keyboard shortcuts where the platform supports
 them. Controls and search results have explicit accessibility labels, text is
 selectable, and animation honors Reduce Motion. Reader theme, font size, line

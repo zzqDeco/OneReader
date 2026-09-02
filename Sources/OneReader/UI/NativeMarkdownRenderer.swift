@@ -64,11 +64,20 @@ struct NativeMarkdownRenderer: MarkupVisitor {
 
     let fontSize: CGFloat
     let lineSpacing: CGFloat
+    let resourceRootURL: URL?
+    let maximumImageWidth: CGFloat
     private var sourceIndex: MarkdownUTF16SourceIndex?
 
-    init(fontSize: CGFloat, lineSpacing: CGFloat) {
+    init(
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        resourceRootURL: URL? = nil,
+        maximumImageWidth: CGFloat = 680
+    ) {
         self.fontSize = fontSize
         self.lineSpacing = lineSpacing
+        self.resourceRootURL = resourceRootURL
+        self.maximumImageWidth = maximumImageWidth
     }
 
     mutating func render(_ source: String) -> NSAttributedString {
@@ -108,7 +117,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         }
         result.addAttributes(
             [
-                .font: PlatformFont.systemFont(
+                .font: readerSerifFont(
                     ofSize: fontSize * scale,
                     weight: heading.level <= 2 ? .bold : .semibold
                 ),
@@ -257,8 +266,28 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     mutating func visitImage(_ image: Image) -> NSMutableAttributedString {
         let alt = renderChildren(of: image)
         trimTrailingNewlines(alt)
+        if let attachment = imageAttachment(for: image.source) {
+            let result = NSMutableAttributedString(attachment: attachment)
+            if !alt.string.isEmpty {
+                let caption = attributed("\n\(alt.string)\n")
+                caption.addAttributes(
+                    [
+                        .font: PlatformFont.systemFont(ofSize: max(11, fontSize - 2)),
+                        .foregroundColor: PlatformColor.readerSecondaryLabel,
+                        .paragraphStyle: paragraphStyle(paragraphSpacing: 10),
+                    ],
+                    range: caption.fullRange
+                )
+                result.append(caption)
+            }
+            markSourceMappingUnavailable(
+                result,
+                sourceRange: sourceIndex?.utf16Range(for: image.range)
+            )
+            return result
+        }
         let result = attributed("［")
-        result.append(alt.string.isEmpty ? attributed("图片") : alt)
+        result.append(alt.string.isEmpty ? attributed("图片暂不可用") : alt)
         result.append(attributed("］"))
         result.addAttributes(
             [
@@ -267,6 +296,16 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             ],
             range: result.fullRange
         )
+        return result
+    }
+
+    mutating func visitTable(_ table: Table) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        result.append(renderTableRow(Array(table.head.cells), isHeader: true))
+        for row in table.body.rows {
+            result.append(renderTableRow(Array(row.cells), isHeader: false))
+        }
+        result.append(attributed("\n"))
         return result
     }
 
@@ -310,9 +349,89 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitTableCell(_ tableCell: Table.Cell) -> NSMutableAttributedString {
-        let result = renderChildren(of: tableCell)
-        result.append(attributed("\t"))
-        return result
+        renderChildren(of: tableCell)
+    }
+
+    private mutating func renderTableRow(
+        _ cells: [Table.Cell],
+        isHeader: Bool
+    ) -> NSMutableAttributedString {
+        let row = attributed("│ ")
+        for (index, cell) in cells.enumerated() {
+            var body = renderChildren(of: cell)
+            trimTrailingNewlines(body)
+            if isHeader { body = applyingFontTrait(.bold, to: body) }
+            row.append(body)
+            row.append(attributed(index == cells.count - 1 ? " │\n" : " │ "))
+        }
+        row.addAttributes(
+            [
+                .backgroundColor: PlatformColor.readerQuaternaryLabel,
+                .paragraphStyle: paragraphStyle(
+                    paragraphSpacing: isHeader ? 2 : 0,
+                    firstLineHeadIndent: 8,
+                    headIndent: 8,
+                    tailIndent: -8
+                ),
+            ],
+            range: row.fullRange
+        )
+        return row
+    }
+
+    private func imageAttachment(for source: String?) -> NSTextAttachment? {
+        guard let source,
+              let resourceRootURL,
+              !source.hasPrefix("/"),
+              !source.hasPrefix("~"),
+              !source.contains("://") else { return nil }
+        let path = source
+            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            .split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        guard let decoded = String(path).removingPercentEncoding else { return nil }
+        let components = decoded.split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { $0 != "." }
+        guard !components.isEmpty,
+              !components.contains(".."),
+              !components.contains(where: { $0.contains("\\") }) else { return nil }
+
+        var request = URLComponents()
+        request.scheme = "onereader-content"
+        request.host = "local"
+        request.path = "/" + components.joined(separator: "/")
+        guard let requestURL = request.url,
+              let resource = try? ReadOnlyContentResourceLoader(rootURL: resourceRootURL)
+                .resolve(requestURL: requestURL),
+              resource.mediaType.hasPrefix("image/") else { return nil }
+#if os(macOS)
+        guard let image = NSImage(contentsOf: resource.fileURL), image.size.width > 0 else {
+            return nil
+        }
+        let scale = min(1, maximumImageWidth / image.size.width)
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: image.size.width * scale,
+            height: image.size.height * scale
+        )
+#else
+        guard let image = UIImage(contentsOfFile: resource.fileURL.path), image.size.width > 0 else {
+            return nil
+        }
+        let scale = min(1, maximumImageWidth / image.size.width)
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: image.size.width * scale,
+            height: image.size.height * scale
+        )
+#endif
+        return attachment
     }
 
     private mutating func renderChildren(
@@ -359,7 +478,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         NSMutableAttributedString(
             string: string,
             attributes: [
-                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .font: readerSerifFont(ofSize: fontSize),
                 .foregroundColor: PlatformColor.readerLabel,
             ]
         )
@@ -390,7 +509,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let result = NSMutableAttributedString(
             string: string,
             attributes: attributes ?? [
-                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .font: readerSerifFont(ofSize: fontSize),
                 .foregroundColor: PlatformColor.readerLabel,
             ]
         )
@@ -484,6 +603,21 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             result.addAttribute(.font, value: converted, range: range)
         }
         return result
+    }
+
+    private func readerSerifFont(
+        ofSize size: CGFloat,
+        weight: PlatformFont.Weight = .regular
+    ) -> PlatformFont {
+        let system = PlatformFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = system.fontDescriptor.withDesign(.serif) else {
+            return system
+        }
+#if os(macOS)
+        return PlatformFont(descriptor: descriptor, size: size) ?? system
+#else
+        return PlatformFont(descriptor: descriptor, size: size)
+#endif
     }
 
     private func trimTrailingNewlines(_ value: NSMutableAttributedString) {

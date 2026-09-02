@@ -37,7 +37,7 @@ struct LibrarySidebarView: View {
                 }
 
                 if !model.spaces.isEmpty {
-                    Section("Reading Spaces") {
+                    Section("阅读空间") {
                         ForEach(model.spaces) { space in
                             Button {
                                 model.openSpace(space.id)
@@ -79,14 +79,14 @@ struct LibrarySidebarView: View {
             .accessibilityHint("打开统一来源导入器")
         }
         .navigationTitle("OneReader")
-        .background(.ultraThinMaterial)
+        .background(ReaderTheme.window)
     }
 
     private var brandHeader: some View {
         HStack(spacing: 11) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(ReaderTheme.teal.gradient)
+                    .fill(ReaderTheme.accent)
                 Image(systemName: "books.vertical.fill")
                     .foregroundStyle(.white)
                     .font(.system(size: 18, weight: .semibold))
@@ -96,7 +96,7 @@ struct LibrarySidebarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("OneReader")
                     .font(.headline)
-                Text("All-in-One Reading Library")
+                Text("你的统一阅读资料库")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

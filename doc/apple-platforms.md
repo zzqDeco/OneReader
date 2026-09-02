@@ -24,10 +24,12 @@ mobile product mode.
 ## Adaptive application shell
 
 The root is one `NavigationSplitView` on every platform. macOS and regular-width
-iPad keep Library navigation beside a content-first reader workspace. iPhone
+iPad replace Library navigation with contextual reading navigation when a Space
+opens, leaving a content-first reader plus optional Reading Assistance. iPhone
 uses the system compact split-view collapse, presents Outline/Sources/Route/
-Search in a navigation sheet, and presents annotations, evidence, Activity,
-and questions in a separate Inspector sheet. The reading content remains the
+Search in a navigation sheet, and presents notes, citations, activity, and
+questions in a separate Reading Assistance sheet. Its reader uses one inline
+system title and a stable four-action bottom bar. The reading content remains the
 primary surface in every size class.
 
 macOS alone owns menu commands, Settings scene, window presets, `NSOpenPanel`,

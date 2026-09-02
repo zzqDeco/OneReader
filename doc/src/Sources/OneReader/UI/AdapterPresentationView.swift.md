@@ -31,6 +31,13 @@ fallback. Directory/repository and EPUB child `path`/`href` identity stays in
 the Locator. Incoming anchors are applied only once rather than snapping the
 reader back after later scrolling.
 
+The AppKit text bridge coalesces live-scroll position sampling for 150 ms. It
+therefore keeps the universal reading-position contract without doing text
+layout, quote extraction, observable-model mutation, and SQLite scheduling on
+every display frame. Render identity comes from the immutable presentation ID
+instead of re-hashing the complete chapter whenever SwiftUI updates, and
+non-contiguous TextKit layout remains enabled for long chapters.
+
 The presentation descriptor makes Quick Look limitations machine-readable so
 the workspace does not expose unsupported search or structured highlight UI.
 Quick Look emits only a document-granular last-open update.

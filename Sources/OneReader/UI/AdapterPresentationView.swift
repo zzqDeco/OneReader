@@ -96,7 +96,7 @@ struct AdapterPresentationView: View {
                         onPositionChange: onPositionChange
                     )
                 } else {
-                    unavailable("PDF Snapshot 不可用")
+                    unavailable("PDF 内容不可用")
                 }
             case .nativeMarkdown:
                 nativePresentation(kind: .markdown)
@@ -129,7 +129,7 @@ struct AdapterPresentationView: View {
                             )
                         }
                 } else {
-                    unavailable("Quick Look Snapshot 不可用")
+                    unavailable("系统预览内容不可用")
                 }
             }
         }
@@ -151,14 +151,9 @@ struct AdapterPresentationView: View {
 
     private var backgroundColor: Color {
         switch preferences.theme {
-        case .system:
-#if os(macOS)
-            Color(nsColor: .textBackgroundColor)
-#else
-            Color(uiColor: .systemBackground)
-#endif
-        case .paper: Color(red: 0.97, green: 0.95, blue: 0.90)
-        case .dark: Color(red: 0.08, green: 0.09, blue: 0.10)
+        case .system: ReaderTheme.paper
+        case .paper: Color(red: 0.985, green: 0.976, blue: 0.940)
+        case .dark: Color(red: 0.086, green: 0.090, blue: 0.094)
         }
     }
 
@@ -174,8 +169,10 @@ struct AdapterPresentationView: View {
     private func nativePresentation(kind: NativeTextPresentationKind) -> some View {
         let presentation = NativeSelectableTextPresentation(
             content: document.content ?? "",
+            contentIdentity: document.id,
             locator: document.locator,
             kind: kind,
+            resourceRootURL: document.baseURL,
             preferences: preferences,
             onSelectionChange: onSelectionChange,
             onPositionChange: onPositionChange
@@ -187,7 +184,10 @@ struct AdapterPresentationView: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 presentation
-                    .frame(maxWidth: preferences.lineWidth + 56, maxHeight: .infinity)
+                    .frame(
+                        maxWidth: min(preferences.lineWidth, ReaderTheme.proseMaxWidth) + 48,
+                        maxHeight: .infinity
+                    )
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -234,8 +234,10 @@ struct PDFPageRectAnchor: Equatable, Sendable {
 #if os(macOS)
 private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let content: String
+    let contentIdentity: String
     let locator: Locator
     let kind: NativeTextPresentationKind
+    let resourceRootURL: URL?
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
@@ -253,7 +255,9 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let initialWidth = isCode ? 900 : preferences.lineWidth + 56
+        let initialWidth = isCode
+            ? 900
+            : min(preferences.lineWidth, ReaderTheme.proseMaxWidth) + 48
         let textView = ReaderTextView(
             frame: NSRect(x: 0, y: 0, width: initialWidth, height: 1)
         )
@@ -262,9 +266,10 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         textView.isRichText = kind == .markdown
         textView.importsGraphics = false
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 28, height: 24)
+        textView.textContainerInset = NSSize(width: 24, height: 28)
         textView.textContainer?.widthTracksTextView = !isCode
         textView.textContainer?.heightTracksTextView = false
+        textView.layoutManager?.allowsNonContiguousLayout = true
         textView.isHorizontallyResizable = isCode
         textView.isVerticallyResizable = true
         textView.minSize = NSSize(width: 0, height: 0)
@@ -289,17 +294,18 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
     private func apply(to textView: ReaderTextView) {
         let signature = [
             kind.rawValue,
-            AdapterUtilities.sha256(content),
+            contentIdentity,
             String(preferences.fontSize),
             String(preferences.lineSpacing),
             preferences.theme.rawValue,
+            resourceRootURL?.standardizedFileURL.path ?? "",
         ].joined(separator: ":")
         if textView.renderSignature != signature {
             textView.renderSignature = signature
 
             let font = isCode
                 ? NSFont.monospacedSystemFont(ofSize: preferences.fontSize - 2, weight: .regular)
-                : NSFont.systemFont(ofSize: preferences.fontSize)
+                : readerSerifFont(ofSize: preferences.fontSize)
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = preferences.lineSpacing
             paragraph.maximumLineHeight = font.pointSize + preferences.lineSpacing + 4
@@ -307,7 +313,9 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             if kind == .markdown {
                 var renderer = NativeMarkdownRenderer(
                     fontSize: preferences.fontSize,
-                    lineSpacing: preferences.lineSpacing
+                    lineSpacing: preferences.lineSpacing,
+                    resourceRootURL: resourceRootURL,
+                    maximumImageWidth: min(preferences.lineWidth, ReaderTheme.proseMaxWidth)
                 )
                 rendered = renderer.render(content)
             } else {
@@ -330,6 +338,12 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             textView.anchorSignature = nil
         }
         applyAnchor(to: textView)
+    }
+
+    private func readerSerifFont(ofSize size: CGFloat) -> NSFont {
+        let system = NSFont.systemFont(ofSize: size)
+        guard let descriptor = system.fontDescriptor.withDesign(.serif) else { return system }
+        return NSFont(descriptor: descriptor, size: size) ?? system
     }
 
     private func applyAnchor(to textView: ReaderTextView) {
@@ -421,12 +435,14 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         var parent: NativeSelectableTextPresentation
         private weak var observedTextView: ReaderTextView?
         private var lastPositionSignature: String?
+        private var positionPublishTask: Task<Void, Never>?
 
         init(parent: NativeSelectableTextPresentation) {
             self.parent = parent
         }
 
         deinit {
+            positionPublishTask?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
 
@@ -456,7 +472,21 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         @objc private func visibleBoundsDidChange(_ notification: Notification) {
             guard let textView = observedTextView,
                   !textView.isApplyingAnchor else { return }
-            publishPosition(from: textView)
+            schedulePositionPublish(from: textView)
+        }
+
+        private func schedulePositionPublish(from textView: ReaderTextView) {
+            positionPublishTask?.cancel()
+            positionPublishTask = Task { @MainActor [weak self, weak textView] in
+                do {
+                    try await Task.sleep(for: .milliseconds(150))
+                } catch {
+                    return
+                }
+                guard let self, let textView, !textView.isApplyingAnchor else { return }
+                positionPublishTask = nil
+                publishPosition(from: textView)
+            }
         }
 
         private func publishSelection(from textView: NSTextView) {
@@ -935,16 +965,30 @@ private struct ControlledWebPresentation: NSViewRepresentable {
 
     private var styledHTML: String {
         let isDark = colorScheme == .dark
-        let foreground = isDark ? "#e8e6e3" : "#25231f"
-        let background = isDark ? "#141619" : "#f8f3e8"
+        let foreground = isDark ? "#E8E6E1" : "#22211E"
+        let secondary = isDark ? "#AAA7A0" : "#66625B"
+        let border = isDark ? "#3A3B3C" : "#D8D2C7"
+        let muted = isDark ? "#202224" : "#F1EEE6"
+        let background = isDark ? "#161719" : "#FBFAF6"
         let style = """
             <style id="onereader-reader-theme">
             :root { color-scheme: \(isDark ? "dark" : "light"); }
-            body { color: \(foreground); background: \(background); font: \(preferences.fontSize)px/\(1.45 + preferences.lineSpacing / 30) ui-serif, Georgia, serif; max-width: \(preferences.lineWidth)px; margin: 0 auto; padding: 32px 34px 80px; }
-            img, svg, video { max-width: 100%; height: auto; }
+            * { box-sizing: border-box; }
+            body { color: \(foreground); background: \(background); font: \(preferences.fontSize)px/\(1.52 + preferences.lineSpacing / 32) ui-serif, Georgia, serif; max-width: \(min(preferences.lineWidth, ReaderTheme.proseMaxWidth))px; margin: 0 auto; padding: 42px 40px 96px; overflow-wrap: anywhere; }
+            h1, h2, h3 { line-height: 1.22; letter-spacing: -0.015em; margin: 1.55em 0 .55em; }
+            h1:first-child, h2:first-child { margin-top: 0; }
+            p, ul, ol { margin: 0 0 1em; }
+            img, svg, video { display: block; max-width: 100%; height: auto; margin: 1.5em auto; border-radius: 8px; }
+            pre { overflow-x: auto; padding: 16px; border: 1px solid \(border); border-radius: 8px; background: \(muted); }
             pre, code { font-family: ui-monospace, SFMono-Regular, monospace; }
-            a { color: #087f8c; }
-            ::selection { background: rgba(239, 168, 68, .34); }
+            code { font-size: .9em; }
+            blockquote { color: \(secondary); margin: 1.35em 0; padding: .1em 0 .1em 1.1em; border-left: 3px solid #0F766E; }
+            table { width: 100%; border-collapse: collapse; margin: 1.4em 0; font-size: .92em; }
+            th, td { padding: .65em .75em; border-bottom: 1px solid \(border); text-align: left; }
+            th { background: \(muted); font-weight: 600; }
+            hr { border: 0; border-top: 1px solid \(border); margin: 2em 0; }
+            a { color: #0F766E; text-underline-offset: .16em; }
+            ::selection { background: rgba(177, 125, 56, .30); }
             </style>
             """
         let html = document.content ?? ""

@@ -19,7 +19,7 @@ struct ImportSourceSheet: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("添加阅读材料")
                             .font(.title2.weight(.semibold))
-                        Text("无需先判断类型。OneReader 会创建不可变快照，并让基础适配器立即提供可读界面。")
+                        Text("无需先判断类型。OneReader 会保留独立副本，并自动选择合适的阅读方式。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -29,7 +29,7 @@ struct ImportSourceSheet: View {
 
                 if model.selectedSpace != nil {
                     Picker("添加方式", selection: $destination) {
-                        Text("创建新的 Reading Space").tag(ImportDestination.newSpace)
+                        Text("创建新的阅读空间").tag(ImportDestination.newSpace)
                         Text("加入“\(model.selectedSpace?.title ?? "当前空间")”")
                             .tag(ImportDestination.currentSpace)
                     }
@@ -75,7 +75,7 @@ struct ImportSourceSheet: View {
                         }
                     }
 #endif
-                    Text("网页会保存受控离线快照；GitHub 仓库固定到 exact commit SHA。仅支持 HTTPS 和公开仓库。")
+                    Text("网页会保存离线副本；GitHub 仓库会固定到导入时的准确版本。仅支持 HTTPS 和公开仓库。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -133,9 +133,9 @@ struct ImportSourceSheet: View {
 
     private var storageDescription: String {
 #if os(macOS)
-        "原始内容存放在 ~/Library/Application Support/OneReader。模型未配置、断网或 Agent 失败时，阅读、目录、搜索、标注和进度仍可使用。"
+        "原始内容存放在 ~/Library/Application Support/OneReader。模型未配置、断网或智能整理失败时，阅读、目录、搜索、标注和进度仍可使用。"
 #else
-        "材料会复制到 OneReader 的设备内 App 沙盒。模型未配置、断网或 Agent 失败时，阅读、目录、搜索、标注和进度仍可使用。"
+        "材料会复制到 OneReader 的设备内 App 沙盒。模型未配置、断网或智能整理失败时，阅读、目录、搜索、标注和进度仍可使用。"
 #endif
     }
 

@@ -80,11 +80,7 @@ final class AppModel: ObservableObject {
     @Published var isReadingWorkspaceOpen = false
     @Published var navigationTab: WorkspaceNavigationTab = .outline
     @Published var inspectorTab: ReaderInspectorTab = .annotations
-#if os(macOS)
-    @Published var isInspectorPresented = true
-#else
     @Published var isInspectorPresented = false
-#endif
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -411,7 +407,7 @@ final class AppModel: ObservableObject {
             try reloadLibraryState(preservingSelection: true)
             try loadSpaceState(spaceID: spaceID)
         } catch {
-            notice = AppNotice(title: "无法打开 Reading Space", message: error.localizedDescription)
+            notice = AppNotice(title: "无法打开阅读空间", message: error.localizedDescription)
         }
         let progress = progressBySpace[spaceID] ?? .empty
         let mostRecentPositionSourceID = progress.sourcePositions.values
@@ -643,7 +639,7 @@ final class AppModel: ObservableObject {
                 appendActivity(
                     spaceID: spaceID,
                     phase: "选择适配器",
-                    message: "已使用 \(plan.primaryAdapterID) 提供可读界面。",
+                    message: "基础阅读界面已准备好。",
                     state: .completed
                 )
                 startIndexing(plan: plan, spaceID: spaceID)
@@ -900,7 +896,7 @@ final class AppModel: ObservableObject {
                 appendActivityForSource(
                     sourceID: sourceID,
                     phase: "刷新来源",
-                    message: "正在创建新的不可变 Snapshot。",
+                    message: "正在保存新的阅读版本。",
                     state: .running
                 )
                 switch source.originKind {
@@ -914,7 +910,7 @@ final class AppModel: ObservableObject {
                     appendActivityForSource(
                         sourceID: sourceID,
                         phase: "刷新来源",
-                        message: "来源内容没有变化，继续使用当前 Snapshot。",
+                        message: "来源内容没有变化，继续使用当前阅读版本。",
                         state: .completed
                     )
                     return
@@ -959,7 +955,7 @@ final class AppModel: ObservableObject {
                 appendActivityForSource(
                     sourceID: sourceID,
                     phase: "刷新来源",
-                    message: "新 Snapshot 已提交；旧引用已标记为 relocated 或 orphaned。",
+                    message: "新阅读版本已保存；旧引用已重新定位或标记为待确认。",
                     state: .completed
                 )
                 if activeProvider != nil,
@@ -991,8 +987,8 @@ final class AppModel: ObservableObject {
                     previousLocator: recoveryLocator,
                     committed: committed,
                     message: committed
-                        ? "新 Snapshot 已提交，但暂时无法呈现。"
-                        : "刷新失败；已恢复上一个可用 Snapshot。"
+                        ? "新阅读版本已保存，但暂时无法呈现。"
+                        : "刷新失败；已恢复上一个可用阅读版本。"
                 )
                 appendActivityForSource(
                     sourceID: sourceID,
@@ -1185,7 +1181,7 @@ final class AppModel: ObservableObject {
         guard spaceSupportsAgentEvidence else {
             notice = AppNotice(
                 title: "当前空间没有可引用正文",
-                message: "Quick Look 兜底来源只支持来源级书签和笔记，不能生成虚构的 Reading Graph。"
+                message: "系统预览材料只支持整份材料的书签和笔记，暂时不能生成阅读结构。"
             )
             return
         }
@@ -1194,7 +1190,7 @@ final class AppModel: ObservableObject {
             isInspectorPresented = true
             notice = AppNotice(
                 title: "尚未配置模型",
-                message: "基础阅读不需要模型；若要生成 Reading Graph 与路线，请先在设置中配置并测试 Provider。"
+                message: "基础阅读不需要模型；若要生成阅读结构与路线，请先在设置中配置并测试模型服务。"
             )
             return
         }
@@ -1212,12 +1208,12 @@ final class AppModel: ObservableObject {
         guard spaceSupportsAgentEvidence else {
             notice = AppNotice(
                 title: "当前空间不支持证据问答",
-                message: "至少需要一个可读取正文并生成 Locator 的来源。"
+                message: "至少需要一份能够读取正文并保存精确位置的材料。"
             )
             return
         }
         guard activeProvider != nil else {
-            notice = AppNotice(title: "尚未配置模型", message: "请先在设置中配置 Provider。")
+            notice = AppNotice(title: "尚未配置模型", message: "请先在设置中配置模型服务。")
             return
         }
         evidenceAnswer = nil
@@ -1296,7 +1292,7 @@ final class AppModel: ObservableObject {
                 )
             } catch {
                 if selectedSpaceID == run.spaceID {
-                    notice = AppNotice(title: "无法继续 Agent Run", message: error.localizedDescription)
+                    notice = AppNotice(title: "无法继续阅读辅助任务", message: error.localizedDescription)
                 }
             }
         }
@@ -1340,7 +1336,7 @@ final class AppModel: ObservableObject {
                 loadAgentActivity(spaceID: run.spaceID)
             } catch {
                 if selectedSpaceID == run.spaceID {
-                    notice = AppNotice(title: "无法放弃 Agent Run", message: error.localizedDescription)
+                    notice = AppNotice(title: "无法放弃阅读辅助任务", message: error.localizedDescription)
                 }
             }
         }
@@ -1366,7 +1362,7 @@ final class AppModel: ObservableObject {
                 providerProfiles = try database.fetchProviderProfiles()
                 refreshSelectedAgentActivityAfterProviderMutation()
             } catch {
-                notice = AppNotice(title: "无法保存 Provider", message: error.localizedDescription)
+                notice = AppNotice(title: "无法保存模型服务", message: error.localizedDescription)
             }
         }
     }
@@ -1411,7 +1407,7 @@ final class AppModel: ObservableObject {
             try database.setProviderOverride(profileID: profileID, forSpaceID: spaceID)
             refreshSelectedAgentActivityAfterProviderMutation(affecting: spaceID)
         } catch {
-            notice = AppNotice(title: "无法切换 Provider", message: error.localizedDescription)
+            notice = AppNotice(title: "无法切换模型服务", message: error.localizedDescription)
         }
     }
 
@@ -1620,7 +1616,7 @@ final class AppModel: ObservableObject {
         case .current, .relocated:
             return resolution.resolved
         case .orphaned:
-            throw AdapterError.invalidLocator("旧引用在当前 Snapshot 中无法恢复")
+            throw AdapterError.invalidLocator("旧引用在当前阅读版本中无法恢复")
         }
     }
 
@@ -1846,7 +1842,7 @@ final class AppModel: ObservableObject {
             manifest = try database.currentSnapshotManifest(spaceID: spaceID)
         } catch {
             if selectedSpaceID == spaceID, workspaceGeneration == generation {
-                notice = AppNotice(title: "Agent 管线无法启动", message: error.localizedDescription)
+                notice = AppNotice(title: "阅读辅助无法启动", message: error.localizedDescription)
             }
             return
         }
@@ -2006,7 +2002,7 @@ final class AppModel: ObservableObject {
             if !(error is ReadingAgentError),
                selectedSpaceID == spaceID,
                workspaceGeneration == uiGeneration {
-                notice = AppNotice(title: "Agent Run 失败", message: error.localizedDescription)
+                notice = AppNotice(title: "阅读辅助任务失败", message: error.localizedDescription)
             }
             return nil
         }
