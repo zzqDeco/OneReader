@@ -23,8 +23,9 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+    func makeUIView(context: Context) -> ReaderTextViewportView {
+        let viewport = ReaderTextViewportView()
+        let textView = viewport.textView
         textView.delegate = context.coordinator
         textView.isEditable = false
         textView.isSelectable = true
@@ -39,21 +40,35 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             right: ReaderTheme.compactInset
         )
         textView.textContainer.widthTracksTextView = !isCode
+        textView.textContainer.heightTracksTextView = false
         textView.textContainer.lineBreakMode = isCode ? .byClipping : .byWordWrapping
+        textView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         textView.adjustsFontForContentSizeCategory = true
         textView.accessibilityLabel = isCode ? "代码阅读内容" : "文本阅读内容"
         context.coordinator.observeCaptureRequests(for: textView)
         apply(to: textView, coordinator: context.coordinator)
-        return textView
+        return viewport
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
+    func updateUIView(_ viewport: ReaderTextViewportView, context: Context) {
         context.coordinator.parent = self
-        apply(to: textView, coordinator: context.coordinator)
+        apply(to: viewport.textView, coordinator: context.coordinator)
     }
 
-    static func dismantleUIView(_ textView: UITextView, coordinator: Coordinator) {
-        coordinator.publishPositionImmediately(from: textView)
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: ReaderTextViewportView,
+        context: Context
+    ) -> CGSize? {
+        ReaderViewportSizing.finiteSize(
+            width: proposal.width,
+            height: proposal.height
+        )
+    }
+
+    static func dismantleUIView(_ viewport: ReaderTextViewportView, coordinator: Coordinator) {
+        coordinator.publishPositionImmediately(from: viewport.textView)
         coordinator.stopObservingCaptureRequests()
     }
 
@@ -454,6 +469,36 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             )
             return value.substring(with: range)
         }
+    }
+}
+
+final class ReaderTextViewportView: UIView {
+    let textView = UITextView(frame: .zero)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        clipsToBounds = true
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: UIView.noIntrinsicMetric,
+            height: UIView.noIntrinsicMetric
+        )
     }
 }
 

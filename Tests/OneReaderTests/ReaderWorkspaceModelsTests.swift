@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class ReaderWorkspaceModelsTests: XCTestCase {
+    func testReaderViewportSizingAcceptsOnlyFiniteTwoDimensionalViewport() {
+        XCTAssertEqual(
+            ReaderViewportSizing.finiteSize(width: 390, height: 720),
+            CGSize(width: 390, height: 720)
+        )
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: nil, height: 720))
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: 390, height: nil))
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: .infinity, height: 720))
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: 390, height: .infinity))
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: 0, height: 720))
+        XCTAssertNil(ReaderViewportSizing.finiteSize(width: 390, height: 0))
+    }
+
     func testReaderNavigationKeepsReadableDocumentsInsideAssetDirectories() {
         let readme = node(
             path: "assets/README.md",

@@ -181,6 +181,34 @@ struct AdapterPresentationView: View {
             onSelectionChange: onSelectionChange,
             onPositionChange: onPositionChange
         )
+#if os(iOS)
+        GeometryReader { geometry in
+            let viewportSize = ReaderViewportSizing.finiteSize(
+                width: geometry.size.width,
+                height: geometry.size.height
+            ) ?? geometry.size
+            let maximumProseWidth = min(
+                preferences.lineWidth,
+                ReaderTheme.proseMaxWidth
+            ) + 48
+            let presentationWidth = kind == .code
+                ? viewportSize.width
+                : min(viewportSize.width, maximumProseWidth)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                presentation
+                    .frame(
+                        width: presentationWidth,
+                        height: viewportSize.height
+                    )
+                Spacer(minLength: 0)
+            }
+            .frame(
+                width: viewportSize.width,
+                height: viewportSize.height
+            )
+        }
+#else
         if kind == .code {
             presentation
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,6 +224,7 @@ struct AdapterPresentationView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+#endif
     }
 }
 
@@ -203,6 +232,18 @@ enum NativeTextPresentationKind: String {
     case markdown
     case text
     case code
+}
+
+enum ReaderViewportSizing {
+    static func finiteSize(width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let width,
+              let height,
+              width.isFinite,
+              height.isFinite,
+              width > 0,
+              height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
 }
 
 struct PDFPageRectAnchor: Equatable, Sendable {
