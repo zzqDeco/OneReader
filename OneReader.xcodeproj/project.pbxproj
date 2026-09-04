@@ -13,16 +13,29 @@
 		ADC23702128832AA7CC40F4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71F828313B2491EBEE250316 /* Assets.xcassets */; };
 		B4FFED676BC2F2DA3238BA66 /* OneReaderAppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */; };
 		C848FDB4DCDF402114E25962 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71F828313B2491EBEE250316 /* Assets.xcassets */; };
+		CC528FF16A933B19B7822CC5 /* ReaderTextViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A9FBF0456879F944C03B40 /* ReaderTextViewportTests.swift */; };
 		E8E5F4F02580EF77ACC1EAE5 /* OneReader in Frameworks */ = {isa = PBXBuildFile; productRef = 8DDA45D8EA2E9B9BE89EEF72 /* OneReader */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		C5EE8BC7AF64794C6D0AD3B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FCE2A9BCA1762BA7B07E18AF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 503611D33A85C40C2ECE6455;
+			remoteInfo = "OneReader-iOS";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		23D7D8E77561E14CD57C434F /* OneReader-iOSLayoutTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "OneReader-iOSLayoutTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		37A507F39580BA6B365C546C /* OneReader-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OneReader-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		71F828313B2491EBEE250316 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AC35A80D4A1FB8234BB3609C /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneReaderAppMain.swift; sourceTree = "<group>"; };
 		DBEF1849163B46570CEA9A4D /* OneReader-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "OneReader-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3E0827D8ED8AB0013796B4E /* OneReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OneReader; path = .; sourceTree = SOURCE_ROOT; };
+		F2A9FBF0456879F944C03B40 /* ReaderTextViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTextViewportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +62,7 @@
 			isa = PBXGroup;
 			children = (
 				DBEF1849163B46570CEA9A4D /* OneReader-iOS.app */,
+				23D7D8E77561E14CD57C434F /* OneReader-iOSLayoutTests.xctest */,
 				37A507F39580BA6B365C546C /* OneReader-macOS.app */,
 			);
 			name = Products;
@@ -79,6 +93,14 @@
 			path = Apps;
 			sourceTree = "<group>";
 		};
+		98A210E8751BFFDCEB10E00C /* OneReaderiOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				F2A9FBF0456879F944C03B40 /* ReaderTextViewportTests.swift */,
+			);
+			path = OneReaderiOSTests;
+			sourceTree = "<group>";
+		};
 		9EFA17771F19E0607621DDBA /* Packages */ = {
 			isa = PBXGroup;
 			children = (
@@ -87,12 +109,21 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
+		EDA843FA9A7FE2F0E8392EAC /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				98A210E8751BFFDCEB10E00C /* OneReaderiOSTests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		FD8CD49BB9DB53C57DCD0754 = {
 			isa = PBXGroup;
 			children = (
 				40CD9439FA58A8DD94A75EE2 /* Apps */,
 				9EFA17771F19E0607621DDBA /* Packages */,
 				40018F42727E6BC7201D84B9 /* Resources */,
+				EDA843FA9A7FE2F0E8392EAC /* Tests */,
 				26494A9FA94341852D9BA8B0 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -140,6 +171,24 @@
 			productReference = DBEF1849163B46570CEA9A4D /* OneReader-iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		6384B369E7EE7A1A0C564375 /* OneReader-iOSLayoutTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0C57DB1E5562A11650A96DA2 /* Build configuration list for PBXNativeTarget "OneReader-iOSLayoutTests" */;
+			buildPhases = (
+				F5941665D1C850ED19F84098 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5ECCBD2DC870348E01CB7580 /* PBXTargetDependency */,
+			);
+			name = "OneReader-iOSLayoutTests";
+			packageProductDependencies = (
+			);
+			productName = "OneReader-iOSLayoutTests";
+			productReference = 23D7D8E77561E14CD57C434F /* OneReader-iOSLayoutTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -169,6 +218,7 @@
 			projectRoot = "";
 			targets = (
 				503611D33A85C40C2ECE6455 /* OneReader-iOS */,
+				6384B369E7EE7A1A0C564375 /* OneReader-iOSLayoutTests */,
 				3EB87B60C1D94393A0FF2F80 /* OneReader-macOS */,
 			);
 		};
@@ -211,7 +261,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F5941665D1C850ED19F84098 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC528FF16A933B19B7822CC5 /* ReaderTextViewportTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5ECCBD2DC870348E01CB7580 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 503611D33A85C40C2ECE6455 /* OneReader-iOS */;
+			targetProxy = C5EE8BC7AF64794C6D0AD3B7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0D8CBC8E5AD384202591C6F5 /* Debug */ = {
@@ -256,6 +322,25 @@
 			};
 			name = Release;
 		};
+		45C17BBF6E91EE056892E75B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.zzqDeco.OneReader.LayoutTests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneReader.app/OneReader";
+			};
+			name = Release;
+		};
 		5AACDA83A730E3C9351ACA58 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -274,6 +359,25 @@
 				PRODUCT_MODULE_NAME = OneReaderMacApp;
 				PRODUCT_NAME = OneReader;
 				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		926CB0F26FE59C5681CA7C7F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.zzqDeco.OneReader.LayoutTests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneReader.app/OneReader";
 			};
 			name = Debug;
 		};
@@ -426,6 +530,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0C57DB1E5562A11650A96DA2 /* Build configuration list for PBXNativeTarget "OneReader-iOSLayoutTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				926CB0F26FE59C5681CA7C7F /* Debug */,
+				45C17BBF6E91EE056892E75B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		2A5B5A20F80BD2E85B3DA86E /* Build configuration list for PBXProject "OneReader" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -135,6 +135,23 @@ targets:
         SUPPORTS_MACCATALYST: false
         TARGETED_DEVICE_FAMILY: "1,2"
 
+  OneReader-iOSLayoutTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.1"
+    sources:
+      - path: Tests/OneReaderiOSTests
+    dependencies:
+      - target: OneReader-iOS
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader.LayoutTests
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OneReader.app/OneReader"
+
 schemes:
   OneReader-macOS:
     build:
@@ -149,6 +166,11 @@ schemes:
     build:
       targets:
         OneReader-iOS: all
+        OneReader-iOSLayoutTests: [test]
+    test:
+      config: Debug
+      targets:
+        - OneReader-iOSLayoutTests
     run:
       config: Debug
     archive:

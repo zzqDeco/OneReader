@@ -26,12 +26,16 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     func makeUIView(context: Context) -> ReaderTextViewportView {
         let viewport = ReaderTextViewportView()
         let textView = viewport.textView
+        viewport.displaysCode = isCode
         textView.delegate = context.coordinator
         textView.isEditable = false
         textView.isSelectable = true
+        textView.isUserInteractionEnabled = true
         textView.isScrollEnabled = true
         textView.alwaysBounceVertical = true
         textView.alwaysBounceHorizontal = isCode
+        textView.transfersVerticalScrollingToParent = false
+        textView.transfersHorizontalScrollingToParent = !isCode
         textView.backgroundColor = .clear
         textView.textContainerInset = UIEdgeInsets(
             top: 26,
@@ -53,7 +57,9 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
 
     func updateUIView(_ viewport: ReaderTextViewportView, context: Context) {
         context.coordinator.parent = self
+        viewport.displaysCode = isCode
         apply(to: viewport.textView, coordinator: context.coordinator)
+        viewport.setNeedsLayout()
     }
 
     func sizeThatFits(
@@ -123,6 +129,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                 )
             }
             coordinator.anchorSignature = nil
+            (textView.superview as? ReaderTextViewportView)?.invalidateTextLayoutMetrics()
         }
         applyAnchor(to: textView, coordinator: coordinator)
     }
@@ -474,6 +481,14 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
 
 final class ReaderTextViewportView: UIView {
     let textView = UITextView(frame: .zero)
+    private var cachedCodeContentWidth: CGFloat?
+    private var cachedCodeMinimumWidth: CGFloat?
+    var displaysCode = false {
+        didSet {
+            guard displaysCode != oldValue else { return }
+            invalidateTextLayoutMetrics()
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -499,6 +514,87 @@ final class ReaderTextViewportView: UIView {
             width: UIView.noIntrinsicMetric,
             height: UIView.noIntrinsicMetric
         )
+    }
+
+    func invalidateTextLayoutMetrics() {
+        cachedCodeContentWidth = nil
+        cachedCodeMinimumWidth = nil
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        if displaysCode {
+            let availableWidth = max(
+                1,
+                textView.bounds.width
+                    - textView.textContainerInset.left
+                    - textView.textContainerInset.right
+            )
+            let measuredWidth: CGFloat
+            if cachedCodeMinimumWidth == availableWidth,
+               let cachedCodeContentWidth {
+                measuredWidth = cachedCodeContentWidth
+            } else {
+                measuredWidth = ReaderTextLayoutMetrics.codeContentWidth(
+                    for: textView.attributedText,
+                    minimum: availableWidth,
+                    lineFragmentPadding: textView.textContainer.lineFragmentPadding
+                )
+                cachedCodeContentWidth = measuredWidth
+                cachedCodeMinimumWidth = availableWidth
+            }
+            if abs(textView.textContainer.size.width - measuredWidth) > 0.5 {
+                textView.textContainer.size = CGSize(
+                    width: measuredWidth,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+            }
+        } else {
+            textView.textContainer.widthTracksTextView = true
+        }
+
+        textView.layoutManager.ensureLayout(for: textView.textContainer)
+        let usedRect = textView.layoutManager.usedRect(for: textView.textContainer)
+        let contentWidth = ceil(
+            usedRect.width
+                + textView.textContainerInset.left
+                + textView.textContainerInset.right
+        )
+        let contentHeight = ceil(
+            usedRect.height
+                + textView.textContainerInset.top
+                + textView.textContainerInset.bottom
+        )
+        let requiredSize = CGSize(
+            width: displaysCode ? max(textView.bounds.width, contentWidth) : textView.bounds.width,
+            height: max(textView.bounds.height, contentHeight)
+        )
+        if abs(textView.contentSize.width - requiredSize.width) > 0.5
+            || abs(textView.contentSize.height - requiredSize.height) > 0.5 {
+            textView.contentSize = requiredSize
+        }
+    }
+}
+
+enum ReaderTextLayoutMetrics {
+    static func codeContentWidth(
+        for attributedText: NSAttributedString,
+        minimum: CGFloat,
+        lineFragmentPadding: CGFloat
+    ) -> CGFloat {
+        guard attributedText.length > 0 else { return minimum }
+        let measured = attributedText.boundingRect(
+            with: CGSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        ).width
+        return max(minimum, ceil(measured + (lineFragmentPadding * 2)))
     }
 }
 

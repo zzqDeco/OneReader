@@ -97,6 +97,11 @@ struct WorkspaceView: View {
                 }
             }
         }
+#if os(macOS)
+        // A window-sized drop destination installs a drag interaction over every
+        // descendant. That is useful on macOS, but on iPhone it competes with
+        // the vertical pan recognizers owned by Library and reader scroll views.
+        // iOS keeps the document picker / Open In entry points instead.
         .dropDestination(for: URL.self) { urls, _ in
             model.importLocalURLs(urls)
             return !urls.isEmpty
@@ -105,6 +110,7 @@ struct WorkspaceView: View {
                 isDropTargeted = isTargeted
             }
         }
+#endif
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 18)
