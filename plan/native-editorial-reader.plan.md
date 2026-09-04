@@ -98,10 +98,10 @@ Runtime implementation commit
 `e3440e91cf25d186477dc196bf6bc41646fad5e6` is version 0.3.1 (4). Local Xcode 27
 beta 6 `scripts/validate-native.sh` passes 227 tests plus release build, Sandbox
 package, codesign/entitlement, project/documentation/release gates, and generic
-iPhone/iPad SDK compilation. Hosted Xcode 26.6 baseline run
-[`33618325465`](https://github.com/zzqDeco/OneReader/actions/runs/33618325465)
-passes predecessor `f043198` through the same authoritative native validation;
-hosted exact-head evidence for `e3440e9` is pending the feature-branch push.
+iPhone/iPad SDK compilation. Hosted Xcode 26.6 exact-head run
+[`33836235962`](https://github.com/zzqDeco/OneReader/actions/runs/33836235962)
+passes branch head `c6dc636` through the same authoritative native validation
+with 227 tests.
 
 Visual and performance evidence is local-only under `.onereader/acceptance/`:
 
@@ -116,15 +116,50 @@ Visual and performance evidence is local-only under `.onereader/acceptance/`:
   `saveReadingProgress`, or attributed-string replacement after the responsive
   scroll change;
 - `ui-redesign-iphone-exact-83e52fc.png` records the valid connected-iPhone
-  Library state at the named ancestor. The predecessor `f043198` build is signed
-  and installed on the same iPhone 13 Pro Max with Xcode 27 beta 6; an exact
-  `e3440e9` device build/install/launch remains open while the device is locked.
+  Library state at the named ancestor;
+- `ui-redesign-iphone-exact-c6dc636.png` is a 1,284 x 2,778 physical-device
+  screenshot captured directly by Xcode 27 after the exact branch head was
+  Apple Development signed, installed, launched, and observed alive on the same
+  paired iPhone 13 Pro Max. Version 0.3.1 (4), Team `92ULR275Z5`, and the arm64
+  iPhoneOS signature were independently inspected.
 
 The real `WKWebView` tests cover exact capture/reload/restore, a delayed outgoing
 capture across a Space switch, and exclusive capture by one of two mounted Web
 views. Markdown tests cover image-range position fallback and parent-relative
 book assets confined to the Snapshot. No Simulator device was created or booted.
-Final physical launch and Sol max conclusion remain delivery gates.
+Sol max's final conclusion for `c6dc636` is `APPROVE`. The physical
+reader-state and restart-position gate that remained open at this commit is
+closed by the touch-scroll correction evidence below.
+
+Touch-scroll correction commit
+`f05eaf8e707e6b9f1e6a3ece08b86310129268cf` makes the iOS native text view the
+actual SwiftUI presentation surface, supplies cancellable off-main layout-bound
+estimation, permits width and height bounds to shrink after reflow, and adds a
+physical XCUITest target. The deterministic suite covers Library vertical,
+plain-text vertical, Markdown vertical, and code vertical plus horizontal real
+swipes. An optional existing-Library case additionally requires a later stored
+Locator, nonzero restored offset, and a later independently derived visible
+source anchor after process termination and relaunch.
+
+Local Xcode 27 beta 6 gates pass 228 shared tests, the complete native
+validation script, generic iOS-device `build-for-testing`, and an arm64 Release
+device-SDK build. Hosted Xcode 26.6 exact-head run
+[`33857965037`](https://github.com/zzqDeco/OneReader/actions/runs/33857965037)
+passes the same 228 tests and complete native validation gate.
+
+On the paired iPhone 13 Pro Max running iOS 27.0 beta (`24A5424a`), Xcode 27
+beta 6 passes all 9 native-layout tests and all 5 real-touch UI tests with no
+failures, skips, expected failures, or runtime warnings. The UI run proves
+Library, plain text, Markdown, and code scrolling with real gestures, including
+both axes for code. Its existing-Library case swipes the managed README,
+terminates and relaunches the App, and proves a later stored Locator, nonzero
+restored offset, and later independently derived visible source anchor. Exact
+result bundles are retained as
+`.onereader/acceptance/iphone-layout-exact-f05eaf8.xcresult` and
+`.onereader/acceptance/iphone-touch-exact-f05eaf8.xcresult`. The normal App was
+relaunched afterward; only the rebuildable OneReader XCUITest runner was
+removed. Sol max's final review conclusion for the implementation source tree
+is `APPROVE`.
 
 ## Non-goals
 
@@ -144,6 +179,6 @@ new icon, or notarized/App Store distribution.
 - [x] Focused and unified validation passes
 - [ ] Exact-head Mac and physical-iPhone acceptance recorded
 - [x] Current-state and source docs synchronized
-- [ ] Sol max final review passes
+- [x] Sol max final review passes
 - [ ] Branch merged into `dev`
 - [ ] Status changed to Delivered

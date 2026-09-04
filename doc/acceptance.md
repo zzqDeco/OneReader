@@ -56,13 +56,12 @@ Exact-head evidence:
   two-Web-view target-exclusivity case; the same run passed release compilation,
   Sandbox packaging, codesign/entitlement checks, generated-project drift,
   documentation/release gates, and generic iPhone/iPad SDK compilation;
-- hosted Xcode 26.6 baseline
-  [`Native validation`](https://github.com/zzqDeco/OneReader/actions/runs/33618325465)
-  passed on predecessor `f0431986562901d9048b1a7b821200b4f3510d46` with 224
-  tests, release compilation,
+- hosted Xcode 26.6
+  [`Native validation`](https://github.com/zzqDeco/OneReader/actions/runs/33836235962)
+  passed on exact branch head `c6dc636df44f077e48d71528b870dd7fafcdbc77`
+  with 227 tests, release compilation,
   Sandbox packaging, codesign/entitlement checks, generated-project drift,
-  documentation/release gates, and generic iPhone/iPad SDK compilation. Hosted
-  exact-head evidence for `e3440e9` is pending its feature-branch push;
+  documentation/release gates, and generic iPhone/iPad SDK compilation;
 - `.onereader/acceptance/ui-redesign-macos-library-exact-f043198.png` records
   the latest exact 900-pixel-wide macOS Library layout at predecessor `f043198`.
   The current commit changes capture identity and Markdown position/resource
@@ -79,6 +78,62 @@ Exact-head evidence:
 
 No Simulator device was created or booted. Generic Simulator SDK compilation is
 a build gate only and does not substitute for the physical-device record.
+
+On 2026-09-04, branch head `c6dc636` was built for `generic/platform=iOS` with
+Xcode 27 beta 6 as a thin arm64 iPhoneOS application. Version 0.3.1 (4) passed
+strict on-disk signature verification with Apple Development identity
+`FPLS2UYBK7` and Team `92ULR275Z5`. It was installed over the existing
+`io.github.zzqDeco.OneReader` application on the paired iPhone 13 Pro Max,
+launched successfully, and its process remained present on a later device
+process query. Xcode 27 `devicectl device capture screenshot` then produced the
+1,284 x 2,778 physical-device Library image
+`.onereader/acceptance/ui-redesign-iphone-exact-c6dc636.png`, which was visually
+inspected. The final Sol max review conclusion for this head was `APPROVE`.
+
+### iPhone native-reader touch-scroll correction
+
+Runtime implementation commit
+`f05eaf8e707e6b9f1e6a3ece08b86310129268cf` replaces the nested iOS text
+viewport wrapper with the native `UITextView` as SwiftUI's represented view.
+Plain text, rendered Markdown, and code now own their touch gesture surface and
+maintain explicit vertical and, for code, horizontal scroll ranges. Large-file
+height and code-width bounds are scanned off the main actor; the real worker is
+cancellable, stale generations cannot publish, and reduced bounds reset the
+corresponding `contentSize` axis after rotation, reflow, or font changes.
+
+The branch adds physical-device-only layout and XCUITest gates. Deterministic
+Library, text, Markdown, and code fixtures use real swipe gestures and assert
+stable offsets instead of screenshot differences. The optional existing-
+Library case swipes a real managed Markdown Source, terminates the process,
+relaunches it, and independently checks the restored scroll offset plus the
+currently visible source anchor; reading the stored Locator alone is not
+treated as restoration evidence.
+
+At this implementation commit, local Xcode 27 beta 6 validation passes 228
+shared tests, release compilation, Sandbox packaging and entitlement checks,
+project/document/release gates, and generic Simulator SDK compilation without
+creating or booting a Simulator. Generic iOS-device `build-for-testing`
+compiles the App, nine layout tests, and five UI tests; the arm64 Release
+device-SDK build also passes. Hosted Xcode 26.6 run
+[`33857965037`](https://github.com/zzqDeco/OneReader/actions/runs/33857965037)
+passes the exact implementation SHA with the same 228 tests and complete native
+validation gate.
+
+The same implementation source was then exercised on the paired physical
+iPhone 13 Pro Max running iOS 27.0 beta (build `24A5424a`) with Xcode 27 beta 6.
+The native-layout target passed 9/9 tests and the real-touch target passed 5/5
+tests, with zero failures, skips, expected failures, or runtime warnings. The
+touch run covered Library vertical scrolling, native text and Markdown
+vertical scrolling, code vertical and horizontal scrolling, and the existing
+managed README Space. The README case performed a real swipe, terminated and
+relaunched the App, then proved that the stored semantic anchor advanced, the
+restored visual offset was nonzero, and the independently derived visible
+source anchor advanced. The exact result bundles are retained locally as
+`.onereader/acceptance/iphone-layout-exact-f05eaf8.xcresult` and
+`.onereader/acceptance/iphone-touch-exact-f05eaf8.xcresult`. After acceptance,
+the normal OneReader App was relaunched, the rebuildable XCUITest runner was
+removed, and the main App plus Library data were preserved. Sol max's final
+review conclusion for this source tree is `APPROVE`.
 
 ## iPhone physical-device record
 
