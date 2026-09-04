@@ -1774,11 +1774,12 @@ private final class DeferredPositionCaptureProbe: NSObject {
         guard let request = notification.object as? ReadingPositionCaptureRequest else {
             return
         }
-        request.claim()
         let update = update
+        let targetID = request.targetID
+        guard request.claim(targetID: targetID, locator: update.locator) else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(40))
-            request.finish(with: update)
+            request.finish(with: update, targetID: targetID)
         }
     }
 }
@@ -1796,8 +1797,9 @@ private final class SynchronousPositionCaptureProbe: NSObject {
         guard let request = notification.object as? ReadingPositionCaptureRequest else {
             return
         }
-        request.claim()
-        request.finish(with: update)
+        let targetID = request.targetID
+        guard request.claim(targetID: targetID, locator: update.locator) else { return }
+        request.finish(with: update, targetID: targetID)
     }
 }
 

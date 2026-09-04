@@ -44,6 +44,12 @@ plan progress remain independent. Opening the same Locator preserves its
 fraction/granularity metadata instead of replacing it with a bare document
 position.
 
+The model tracks the key window's presentation target. A boundary capture is
+addressed to that target and carries the outgoing Source/Snapshot identity;
+only an exclusive matching claim can complete it. Position and selection
+callbacks from another mounted window are ignored until that window becomes
+key.
+
 Each mounted presentation receives the current host-owned generation token.
 Navigation to another child within the same Source and Source revision refresh
 both replace that token and remount the surface; callbacks and pending debounce

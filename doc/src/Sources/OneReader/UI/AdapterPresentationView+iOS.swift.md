@@ -19,8 +19,10 @@ heading path.
 Live `UITextView` scrolling uses one 150 ms coalescer per scroll burst and
 flushes immediately when dragging or deceleration ends. It also answers the
 same synchronous host capture signal as AppKit before navigation or lifecycle
-flushes. Presentation IDs, rather than full-content hashing during view
-updates, guard expensive Markdown rendering. Markdown image width comes from
+flushes, but only after an exclusive target and Source/Snapshot match. Image or
+unmappable-leaf viewports use a real source-range/nearest-run position fallback
+without weakening selection anchors. Presentation IDs, rather than full-content
+hashing during view updates, guard expensive Markdown rendering. Markdown image width comes from
 the active text container/window scene and is re-rendered when that width
 changes; it never depends on a process-global screen singleton.
 

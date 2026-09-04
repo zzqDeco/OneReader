@@ -3,6 +3,7 @@ import SwiftUI
 struct ReaderSurfaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.readingPositionCaptureTargetID) private var captureTargetID
 
     let onShowNavigation: (() -> Void)?
     let onShowAssistance: (() -> Void)?
@@ -123,12 +124,19 @@ struct ReaderSurfaceView: View {
             let presentationToken = model.currentPresentationToken
             AdapterPresentationView(
                 document: document,
+                captureTargetID: captureTargetID,
                 preferences: model.preferences,
                 onSelectionChange: { selection in
-                    guard model.currentPresentationToken == presentationToken else { return }
+                    guard model.currentPresentationToken == presentationToken,
+                          model.isActiveReadingPositionCaptureTarget(captureTargetID) else {
+                        return
+                    }
                     model.currentSelection = selection
                 },
                 onPositionChange: { update in
+                    guard model.isActiveReadingPositionCaptureTarget(captureTargetID) else {
+                        return
+                    }
                     model.updateReadingPosition(
                         update,
                         presentationToken: presentationToken

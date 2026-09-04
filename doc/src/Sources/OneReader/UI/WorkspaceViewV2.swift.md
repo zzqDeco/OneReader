@@ -19,3 +19,8 @@ disabled when Reduce Motion is active. Search requests travel through a
 host-owned reveal token: a hidden regular-width leading column is reopened, and
 compact iPhone presents the navigation sheet, so toolbar and keyboard search
 never change an invisible tab.
+
+Each mounted workspace owns a stable reading-capture target. A narrow native
+window observer activates that target only when its `NSWindow` or `UIWindow`
+becomes key, keeping shared-model capture requests tied to the window the user
+is actually reading.

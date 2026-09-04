@@ -1,5 +1,21 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+private struct ReadingPositionCaptureTargetKey: EnvironmentKey {
+    static let defaultValue = UUID()
+}
+
+extension EnvironmentValues {
+    var readingPositionCaptureTargetID: UUID {
+        get { self[ReadingPositionCaptureTargetKey.self] }
+        set { self[ReadingPositionCaptureTargetKey.self] = newValue }
+    }
+}
 
 struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
@@ -10,9 +26,22 @@ struct WorkspaceView: View {
     @State private var isDropTargeted = false
     @State private var isMobileNavigationPresented = false
     @State private var isSettingsPresented = false
+    @State private var readingPositionCaptureTargetID = UUID()
 
     var body: some View {
         rootWorkspace
+        .environment(
+            \.readingPositionCaptureTargetID,
+            readingPositionCaptureTargetID
+        )
+        .background {
+            ReadingPositionCaptureWindowObserver {
+                model.activateReadingPositionCaptureTarget(
+                    readingPositionCaptureTargetID
+                )
+            }
+            .frame(width: 0, height: 0)
+        }
         .sheet(isPresented: $model.isImportSheetPresented) {
             ImportSourceSheet()
                 .environmentObject(model)
@@ -356,3 +385,119 @@ struct WorkspaceView: View {
 #endif
     }
 }
+
+#if os(macOS)
+private struct ReadingPositionCaptureWindowObserver: NSViewRepresentable {
+    let onBecomeKey: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> KeyWindowObserverView {
+        KeyWindowObserverView(onBecomeKey: onBecomeKey)
+    }
+
+    func updateNSView(_ view: KeyWindowObserverView, context: Context) {
+        view.onBecomeKey = onBecomeKey
+        view.activateIfKey()
+    }
+
+    final class KeyWindowObserverView: NSView {
+        var onBecomeKey: @MainActor () -> Void
+
+        init(onBecomeKey: @escaping @MainActor () -> Void) {
+            self.onBecomeKey = onBecomeKey
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didBecomeKeyNotification,
+                object: nil
+            )
+            guard let window else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidBecomeKey(_:)),
+                name: NSWindow.didBecomeKeyNotification,
+                object: window
+            )
+            activateIfKey()
+        }
+
+        func activateIfKey() {
+            guard window?.isKeyWindow == true else { return }
+            onBecomeKey()
+        }
+
+        @objc private func windowDidBecomeKey(_ notification: Notification) {
+            onBecomeKey()
+        }
+    }
+}
+#else
+private struct ReadingPositionCaptureWindowObserver: UIViewRepresentable {
+    let onBecomeKey: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> KeyWindowObserverView {
+        KeyWindowObserverView(onBecomeKey: onBecomeKey)
+    }
+
+    func updateUIView(_ view: KeyWindowObserverView, context: Context) {
+        view.onBecomeKey = onBecomeKey
+        view.activateIfKey()
+    }
+
+    final class KeyWindowObserverView: UIView {
+        var onBecomeKey: @MainActor () -> Void
+
+        init(onBecomeKey: @escaping @MainActor () -> Void) {
+            self.onBecomeKey = onBecomeKey
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIWindow.didBecomeKeyNotification,
+                object: nil
+            )
+            guard let window else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidBecomeKey(_:)),
+                name: UIWindow.didBecomeKeyNotification,
+                object: window
+            )
+            activateIfKey()
+        }
+
+        func activateIfKey() {
+            guard window?.isKeyWindow == true else { return }
+            onBecomeKey()
+        }
+
+        @objc private func windowDidBecomeKey(_ notification: Notification) {
+            onBecomeKey()
+        }
+    }
+}
+#endif

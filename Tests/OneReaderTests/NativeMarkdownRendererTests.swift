@@ -364,7 +364,8 @@ final class NativeMarkdownRendererTests: XCTestCase {
             resourceRootURL: root,
             maximumImageWidth: 20
         )
-        let rendered = renderer.render("![封面](images/cover.png)")
+        let markdown = "![封面](images/cover.png)"
+        let rendered = renderer.render(markdown)
         let attachmentRange = (rendered.string as NSString).range(of: "\u{FFFC}")
         XCTAssertNotEqual(attachmentRange.location, NSNotFound)
         let attachment = try XCTUnwrap(
@@ -378,6 +379,40 @@ final class NativeMarkdownRendererTests: XCTestCase {
                 in: rendered
             ),
             "Rendered images must not fabricate a text locator"
+        )
+        let positionRange = NSRange(
+            location: attachmentRange.location,
+            length: min(96, rendered.length - attachmentRange.location)
+        )
+        let positionAnchor = try XCTUnwrap(
+            MarkdownSourceMap.positionAnchor(
+                forRenderedRange: positionRange,
+                in: rendered
+            )
+        )
+        XCTAssertEqual(
+            (markdown as NSString).substring(with: positionAnchor.sourceRange),
+            markdown
+        )
+        XCTAssertEqual(positionAnchor.renderedLocation, attachmentRange.location)
+
+        let documentDirectory = root.appendingPathComponent("chapters", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: documentDirectory,
+            withIntermediateDirectories: true
+        )
+        var parentRelativeRenderer = NativeMarkdownRenderer(
+            fontSize: 17,
+            lineSpacing: 5,
+            resourceRootURL: root,
+            documentBaseURL: documentDirectory
+        )
+        let parentRelative = parentRelativeRenderer.render(
+            "![父级资源](../images/cover.png)"
+        )
+        XCTAssertNotEqual(
+            (parentRelative.string as NSString).range(of: "\u{FFFC}").location,
+            NSNotFound
         )
 
         var unsafeRenderer = NativeMarkdownRenderer(

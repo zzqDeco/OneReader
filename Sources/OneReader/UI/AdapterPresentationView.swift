@@ -78,6 +78,7 @@ struct AdapterPresentationView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let document: PresentationDocument
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
@@ -107,6 +108,7 @@ struct AdapterPresentationView: View {
             case .sanitizedWeb:
                 ControlledWebPresentation(
                     document: document,
+                    captureTargetID: captureTargetID,
                     preferences: preferences,
                     colorScheme: resolvedColorScheme,
                     onSelectionChange: onSelectionChange,
@@ -173,6 +175,8 @@ struct AdapterPresentationView: View {
             locator: document.locator,
             kind: kind,
             resourceRootURL: document.baseURL,
+            documentBaseURL: document.contentURL?.deletingLastPathComponent(),
+            captureTargetID: captureTargetID,
             preferences: preferences,
             onSelectionChange: onSelectionChange,
             onPositionChange: onPositionChange
@@ -238,6 +242,8 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let locator: Locator
     let kind: NativeTextPresentationKind
     let resourceRootURL: URL?
+    let documentBaseURL: URL?
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
@@ -306,6 +312,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             String(preferences.lineSpacing),
             preferences.theme.rawValue,
             resourceRootURL?.standardizedFileURL.path ?? "",
+            documentBaseURL?.standardizedFileURL.path ?? "",
         ].joined(separator: ":")
         if textView.renderSignature != signature {
             textView.renderSignature = signature
@@ -322,6 +329,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                     fontSize: preferences.fontSize,
                     lineSpacing: preferences.lineSpacing,
                     resourceRootURL: resourceRootURL,
+                    documentBaseURL: documentBaseURL,
                     maximumImageWidth: min(preferences.lineWidth, ReaderTheme.proseMaxWidth)
                 )
                 rendered = renderer.render(content)
@@ -539,6 +547,15 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         @objc private func positionCaptureRequested(_ notification: Notification) {
             guard let textView = observedTextView,
                   !textView.isApplyingAnchor else { return }
+            if let request = notification.object as? ReadingPositionCaptureRequest {
+                let targetID = parent.captureTargetID
+                guard request.claim(targetID: targetID, locator: parent.locator) else {
+                    return
+                }
+                publishPositionImmediately(from: textView)
+                request.finish(with: nil, targetID: targetID)
+                return
+            }
             publishPositionImmediately(from: textView)
         }
 
@@ -681,10 +698,11 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             let locatorFingerprint: String
             if parent.kind == .markdown {
                 guard let storage = textView.textStorage,
-                      let sourceRange = MarkdownSourceMap.sourceRange(
+                      let anchor = MarkdownSourceMap.positionAnchor(
                           forRenderedRange: exactRange,
                           in: storage
                       ) else { return }
+                let sourceRange = anchor.sourceRange
                 let source = parent.content as NSString
                 guard NSMaxRange(sourceRange) <= source.length else { return }
                 let sourceExact = source.substring(with: sourceRange)
@@ -702,7 +720,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                     in: source,
                     range: NSRange(location: sourceSuffixStart, length: sourceSuffixLength)
                 )
-                payload["renderedStartUTF16"] = String(exactRange.location)
+                payload["renderedStartUTF16"] = String(anchor.renderedLocation)
                 payload["startUTF16"] = String(sourceRange.location)
                 payload["endUTF16"] = String(NSMaxRange(sourceRange))
                 let textBefore = source.substring(to: sourceRange.location)
@@ -1000,6 +1018,7 @@ private struct ManagedQuickLookPresentation: NSViewRepresentable {
 
 struct ControlledWebPresentation: NSViewRepresentable {
     let document: PresentationDocument
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let colorScheme: ColorScheme
     let onSelectionChange: (ReaderSelection?) -> Void
@@ -1336,9 +1355,13 @@ struct ControlledWebPresentation: NSViewRepresentable {
         private func positionCaptureRequested(_ notification: Notification) {
             guard let observedWebView else { return }
             if let request = notification.object as? ReadingPositionCaptureRequest {
-                request.claim()
+                let targetID = parent.captureTargetID
+                guard request.claim(
+                    targetID: targetID,
+                    locator: parent.document.locator
+                ) else { return }
                 captureCurrentPosition(from: observedWebView) { update in
-                    request.finish(with: update)
+                    request.finish(with: update, targetID: targetID)
                 }
                 return
             }

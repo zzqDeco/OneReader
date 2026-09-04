@@ -303,6 +303,42 @@ final class ReaderWorkspaceModelsTests: XCTestCase {
         XCTAssertEqual(update.locator.payload["scrollFraction"], "0.820000")
     }
 
+    func testReadingPositionCaptureClaimIsExclusiveAndTargetBound() {
+        let targetID = UUID()
+        let locator = Locator(
+            sourceID: "source",
+            snapshotID: "snapshot",
+            adapterID: "onereader.html",
+            payload: ["path": "chapter.html"],
+            structuralPath: "chapter.html"
+        )
+        var didFinish = false
+        let request = ReadingPositionCaptureRequest(
+            targetID: targetID,
+            sourceID: locator.sourceID,
+            snapshotID: locator.snapshotID
+        ) { _ in
+            didFinish = true
+        }
+        let wrongLocator = Locator(
+            sourceID: "another-source",
+            snapshotID: locator.snapshotID,
+            adapterID: locator.adapterID,
+            payload: locator.payload,
+            structuralPath: locator.structuralPath
+        )
+
+        XCTAssertFalse(request.claim(targetID: UUID(), locator: locator))
+        XCTAssertFalse(request.claim(targetID: targetID, locator: wrongLocator))
+        XCTAssertTrue(request.claim(targetID: targetID, locator: locator))
+        XCTAssertFalse(request.claim(targetID: targetID, locator: locator))
+
+        request.finish(with: nil, targetID: UUID())
+        XCTAssertFalse(didFinish)
+        request.finish(with: nil, targetID: targetID)
+        XCTAssertTrue(didFinish)
+    }
+
     private func node(
         path: String,
         mediaType: String,

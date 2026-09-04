@@ -111,6 +111,109 @@ final class WebReadingPositionCaptureTests: XCTestCase {
         )
     }
 
+    func testCaptureNotificationTargetsOnlyTheRequestedWindowPresentation() async throws {
+        func makeWebView() -> (WKWebView, WebNavigationProbe) {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: ControlledWebPresentation.Coordinator.positionBridge,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
+            let webView = WKWebView(
+                frame: NSRect(x: 0, y: 0, width: 640, height: 420),
+                configuration: configuration
+            )
+            let navigation = WebNavigationProbe()
+            webView.navigationDelegate = navigation
+            webView.loadHTMLString(Self.longHTML, baseURL: nil)
+            return (webView, navigation)
+        }
+
+        let (firstWebView, firstNavigation) = makeWebView()
+        let (secondWebView, secondNavigation) = makeWebView()
+        try await waitUntil(timeout: .seconds(5)) {
+            firstNavigation.didFinish && secondNavigation.didFinish
+        }
+        _ = try await firstWebView.evaluateJavaScript(
+            "window.scrollTo(0, (document.scrollingElement.scrollHeight - window.innerHeight) * 0.18); true;"
+        )
+        _ = try await secondWebView.evaluateJavaScript(
+            "window.scrollTo(0, (document.scrollingElement.scrollHeight - window.innerHeight) * 0.82); true;"
+        )
+
+        let locator = Locator(
+            sourceID: "multi-window-source",
+            snapshotID: "multi-window-snapshot",
+            adapterID: HTMLAdapter.id,
+            payload: ["path": "chapter.html"],
+            structuralPath: "chapter.html"
+        )
+        let document = PresentationDocument(
+            id: "multi-window-presentation",
+            surface: .sanitizedWeb,
+            locator: locator,
+            title: "Chapter",
+            mediaType: "text/html",
+            content: Self.longHTML,
+            contentURL: nil,
+            baseURL: nil,
+            limitations: []
+        )
+        let firstTargetID = UUID()
+        let secondTargetID = UUID()
+        let firstCoordinator = ControlledWebPresentation.Coordinator(
+            parent: ControlledWebPresentation(
+                document: document,
+                captureTargetID: firstTargetID,
+                preferences: ReaderPreferences(),
+                colorScheme: .light,
+                onSelectionChange: { _ in },
+                onPositionChange: { _ in }
+            )
+        )
+        let secondCoordinator = ControlledWebPresentation.Coordinator(
+            parent: ControlledWebPresentation(
+                document: document,
+                captureTargetID: secondTargetID,
+                preferences: ReaderPreferences(),
+                colorScheme: .light,
+                onSelectionChange: { _ in },
+                onPositionChange: { _ in }
+            )
+        )
+        firstCoordinator.observeCaptureRequests(for: firstWebView)
+        secondCoordinator.observeCaptureRequests(for: secondWebView)
+        defer {
+            firstCoordinator.stopObservingCaptureRequests()
+            secondCoordinator.stopObservingCaptureRequests()
+        }
+
+        var captured: ReadingPositionUpdate?
+        let request = ReadingPositionCaptureRequest(
+            targetID: secondTargetID,
+            sourceID: locator.sourceID,
+            snapshotID: locator.snapshotID
+        ) { update in
+            captured = update
+        }
+        NotificationCenter.default.post(
+            name: ReadingPositionCaptureSignal.requested,
+            object: request
+        )
+        try await waitUntil(timeout: .seconds(5)) { captured != nil }
+
+        XCTAssertTrue(request.isClaimed)
+        XCTAssertEqual(
+            try XCTUnwrap(captured?.progressFraction),
+            0.82,
+            accuracy: 0.03
+        )
+    }
+
     func testDelayedRealWebCaptureDuringSpaceSwitchPersistsOnlyOldSpace() async throws {
         let root = temporaryRoot("DeferredRealWebSpaceSwitch")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -262,15 +365,16 @@ private final class DeferredRealWebCaptureProbe: NSObject {
             return
         }
         requestCount += 1
-        request.claim()
         let base = base
+        let targetID = request.targetID
+        guard request.claim(targetID: targetID, locator: base) else { return }
         Task { @MainActor [weak self, weak webView] in
             try? await Task.sleep(for: .milliseconds(40))
             guard let self, let webView,
                   let body = try? await webView.evaluateJavaScript(
                     WebReadingPositionCapture.currentPositionJavaScript
                   ) as? [String: Any] else {
-                request.finish(with: nil)
+                request.finish(with: nil, targetID: targetID)
                 return
             }
             let update = WebReadingPositionCapture.capturedUpdate(
@@ -281,7 +385,7 @@ private final class DeferredRealWebCaptureProbe: NSObject {
                 fraction: (body["fraction"] as? NSNumber)?.doubleValue
             )
             completedCount += 1
-            request.finish(with: update)
+            request.finish(with: update, targetID: targetID)
         }
     }
 }

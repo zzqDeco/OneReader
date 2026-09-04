@@ -142,6 +142,7 @@ final class AppModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var positionSaveTask: Task<Void, Never>?
     private var pendingPositionUpdate: PendingReadingPosition?
+    private var activeReadingPositionCaptureTargetID = UUID()
     private var importTasks: [UUID: Task<Void, Never>] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var agentTask: Task<Void, Never>?
@@ -721,6 +722,14 @@ final class AppModel: ObservableObject {
         updateReadingPosition(update, presentationToken: currentPresentationToken)
     }
 
+    func activateReadingPositionCaptureTarget(_ targetID: UUID) {
+        activeReadingPositionCaptureTargetID = targetID
+    }
+
+    func isActiveReadingPositionCaptureTarget(_ targetID: UUID) -> Bool {
+        activeReadingPositionCaptureTargetID == targetID
+    }
+
     func updateReadingPosition(
         _ update: ReadingPositionUpdate,
         presentationToken: UUID
@@ -775,8 +784,13 @@ final class AppModel: ObservableObject {
                 requestedAt: .now
             )
         }
-        let captureRequest = ReadingPositionCaptureRequest { [weak self] update in
-            guard let self, let captureContext, let update else { return }
+        guard let captureContext else { return }
+        let captureRequest = ReadingPositionCaptureRequest(
+            targetID: activeReadingPositionCaptureTargetID,
+            sourceID: captureContext.sourceID,
+            snapshotID: captureContext.snapshotID
+        ) { [weak self] update in
+            guard let self, let update else { return }
             persistCapturedReadingPosition(update, context: captureContext)
         }
         NotificationCenter.default.post(
@@ -787,7 +801,7 @@ final class AppModel: ObservableObject {
         // callback, so commit the sample they produced during the notification.
         flushPendingReadingPosition()
         if !captureRequest.isClaimed {
-            captureRequest.finish(with: nil)
+            captureRequest.cancelIfUnclaimed()
         }
     }
 

@@ -6,9 +6,11 @@ emphasis, strong text, strike-through, inline/code blocks, lists, quotes,
 thematic breaks, and tables.
 
 Raw HTML is omitted. Remote image URLs are never fetched. Relative images are
-resolved through `ReadOnlyContentResourceLoader` under the presentation's
-Snapshot resource root, so path traversal, symlinks, unsupported media, and
-oversized payloads fail closed to alt text. ImageIO metadata is checked before
+resolved from the current Markdown document directory, normalized, and then
+passed through `ReadOnlyContentResourceLoader` under the presentation's
+Snapshot resource root. Parent-relative book assets inside the Snapshot work,
+while path traversal, symlinks, unsupported media, and oversized payloads fail
+closed to alt text. ImageIO metadata is checked before
 decode: either dimension above 16,384 pixels or more than 64 Mi pixels is
 rejected, and accepted images are downsampled to at most 4,096 pixels on their
 long edge before becoming an attachment. A rendered attachment carries an
@@ -30,3 +32,6 @@ normalization, indented fences, and indented blocks fail closed for the whole
 leaf rather than returning a partial or syntax-anchored range. The renderer
 marks such leaves with an unavailable-map sentinel; both mapping directions
 reject any selection intersecting it, including left/right cross-leaf ranges.
+Position mapping remains separate from selection: it first tries the strict
+range map, then uses an unavailable leaf's real source range or the nearest
+mapped run so an image-heavy viewport still produces a durable resume point.

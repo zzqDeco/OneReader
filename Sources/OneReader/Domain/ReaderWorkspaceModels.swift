@@ -397,21 +397,46 @@ enum ReadingPositionCaptureSignal {
 
 @MainActor
 final class ReadingPositionCaptureRequest {
+    let targetID: UUID
+    private let sourceID: String
+    private let snapshotID: String
     private(set) var isClaimed = false
     private var completion: ((ReadingPositionUpdate?) -> Void)?
 
-    init(completion: @escaping (ReadingPositionUpdate?) -> Void) {
+    init(
+        targetID: UUID,
+        sourceID: String,
+        snapshotID: String,
+        completion: @escaping (ReadingPositionUpdate?) -> Void
+    ) {
+        self.targetID = targetID
+        self.sourceID = sourceID
+        self.snapshotID = snapshotID
         self.completion = completion
     }
 
-    func claim() {
+    @discardableResult
+    func claim(targetID: UUID, locator: Locator) -> Bool {
+        guard !isClaimed,
+              completion != nil,
+              self.targetID == targetID,
+              locator.sourceID == sourceID,
+              locator.snapshotID == snapshotID else { return false }
         isClaimed = true
+        return true
     }
 
-    func finish(with update: ReadingPositionUpdate?) {
+    func finish(with update: ReadingPositionUpdate?, targetID: UUID) {
+        guard isClaimed, self.targetID == targetID else { return }
         guard let completion else { return }
         self.completion = nil
         completion(update)
+    }
+
+    func cancelIfUnclaimed() {
+        guard !isClaimed, let completion else { return }
+        self.completion = nil
+        completion(nil)
     }
 }
 

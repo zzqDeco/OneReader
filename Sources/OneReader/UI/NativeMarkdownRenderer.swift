@@ -66,6 +66,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     let fontSize: CGFloat
     let lineSpacing: CGFloat
     let resourceRootURL: URL?
+    let documentBaseURL: URL?
     let maximumImageWidth: CGFloat
     private var sourceIndex: MarkdownUTF16SourceIndex?
 
@@ -81,11 +82,13 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         resourceRootURL: URL? = nil,
+        documentBaseURL: URL? = nil,
         maximumImageWidth: CGFloat = 680
     ) {
         self.fontSize = fontSize
         self.lineSpacing = lineSpacing
         self.resourceRootURL = resourceRootURL
+        self.documentBaseURL = documentBaseURL
         self.maximumImageWidth = maximumImageWidth
     }
 
@@ -463,13 +466,25 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let path = source
             .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
             .split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
-        guard let decoded = String(path).removingPercentEncoding else { return nil }
-        let components = decoded.split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
-            .filter { $0 != "." }
-        guard !components.isEmpty,
-              !components.contains(".."),
-              !components.contains(where: { $0.contains("\\") }) else { return nil }
+        guard let decoded = String(path).removingPercentEncoding,
+              !decoded.hasPrefix("/"),
+              !decoded.hasPrefix("~"),
+              !decoded.contains("\\") else { return nil }
+        let root = resourceRootURL.standardizedFileURL.resolvingSymlinksInPath()
+        let documentBase = (documentBaseURL ?? root)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard documentBase.pathComponents.starts(with: root.pathComponents) else {
+            return nil
+        }
+        let requested = documentBase
+            .appendingPathComponent(decoded, isDirectory: false)
+            .standardizedFileURL
+        guard requested.pathComponents.starts(with: root.pathComponents) else {
+            return nil
+        }
+        let components = Array(requested.pathComponents.dropFirst(root.pathComponents.count))
+        guard !components.isEmpty else { return nil }
 
         var request = URLComponents()
         request.scheme = "onereader-content"
@@ -1079,6 +1094,111 @@ private enum MarkdownLeafSourceMapper {
 }
 
 enum MarkdownSourceMap {
+    struct PositionAnchor: Equatable {
+        let sourceRange: NSRange
+        let renderedLocation: Int
+    }
+
+    static func positionAnchor(
+        forRenderedRange renderedRange: NSRange,
+        in rendered: NSAttributedString
+    ) -> PositionAnchor? {
+        guard renderedRange.location != NSNotFound,
+              renderedRange.length > 0,
+              NSMaxRange(renderedRange) <= rendered.length else { return nil }
+        if let sourceRange = sourceRange(
+            forRenderedRange: renderedRange,
+            in: rendered
+        ) {
+            return PositionAnchor(
+                sourceRange: sourceRange,
+                renderedLocation: renderedRange.location
+            )
+        }
+
+        let preferredLocation = renderedRange.location
+        var best: (
+            distance: Int,
+            isBehind: Bool,
+            renderedRange: NSRange,
+            sourceStart: Int,
+            sourceEnd: Int,
+            mappingUnavailable: Bool
+        )?
+        rendered.enumerateAttributes(in: rendered.fullRange) { attributes, range, _ in
+            guard range.length > 0,
+                  let sourceStart = attributes[.oneReaderSourceUTF16Start] as? Int,
+                  let sourceEnd = attributes[.oneReaderSourceUTF16End] as? Int,
+                  sourceStart >= 0,
+                  sourceEnd > sourceStart else { return }
+            let renderedLocation: Int
+            let distance: Int
+            let isBehind: Bool
+            if preferredLocation >= range.location,
+               preferredLocation < NSMaxRange(range) {
+                renderedLocation = preferredLocation
+                distance = 0
+                isBehind = false
+            } else if range.location > preferredLocation {
+                renderedLocation = range.location
+                distance = range.location - preferredLocation
+                isBehind = false
+            } else {
+                renderedLocation = NSMaxRange(range) - 1
+                distance = preferredLocation - renderedLocation
+                isBehind = true
+            }
+            if let current = best {
+                if distance > current.distance { return }
+                if distance == current.distance {
+                    if isBehind && !current.isBehind { return }
+                    if isBehind == current.isBehind,
+                       range.location >= current.renderedRange.location { return }
+                }
+            }
+            best = (
+                distance,
+                isBehind,
+                range,
+                sourceStart,
+                sourceEnd,
+                attributes[.oneReaderSourceMappingUnavailable] as? Bool == true
+            )
+        }
+        guard let best else { return nil }
+        let renderedLocation: Int
+        if preferredLocation >= best.renderedRange.location,
+           preferredLocation < NSMaxRange(best.renderedRange) {
+            renderedLocation = preferredLocation
+        } else if best.renderedRange.location > preferredLocation {
+            renderedLocation = best.renderedRange.location
+        } else {
+            renderedLocation = NSMaxRange(best.renderedRange) - 1
+        }
+        let sourceRange: NSRange
+        if !best.mappingUnavailable,
+           best.sourceEnd - best.sourceStart == best.renderedRange.length {
+            let offset = renderedLocation - best.renderedRange.location
+            let sourceLocation = best.sourceStart + offset
+            sourceRange = NSRange(
+                location: sourceLocation,
+                length: max(
+                    1,
+                    min(renderedRange.length, best.sourceEnd - sourceLocation)
+                )
+            )
+        } else {
+            sourceRange = NSRange(
+                location: best.sourceStart,
+                length: best.sourceEnd - best.sourceStart
+            )
+        }
+        return PositionAnchor(
+            sourceRange: sourceRange,
+            renderedLocation: renderedLocation
+        )
+    }
+
     static func renderedRange(
         forSourceRange sourceRange: NSRange,
         in rendered: NSAttributedString

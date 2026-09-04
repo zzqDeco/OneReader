@@ -9,3 +9,8 @@ Owns reader-specific value types that do not belong to source-format identity:
 
 Preferences use an explicit defaults key and Codable schema. Quick Look
 capability limits are enforced before a structured highlight is persisted.
+
+`ReadingPositionCaptureRequest` names one window presentation target plus the
+expected Source and Snapshot. Its main-actor claim is exclusive, and completion
+must present the same target identity, so competing mounted readers cannot race
+an asynchronous WebKit result into the shared model.

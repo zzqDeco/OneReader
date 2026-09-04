@@ -65,13 +65,18 @@ Locator are retained and are never rewritten to look current.
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
 
 Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
-Relative images are resolved only through the same read-only Snapshot-root
-loader used by controlled WebKit, including path/symlink containment, MIME, and
-32 MiB limits. Image metadata is inspected before decode, source dimensions are
+Relative images are resolved from the Markdown document directory and then
+confined to the same read-only Snapshot-root loader used by controlled WebKit.
+This permits book layouts such as `docs/chapter.md -> ../assets/figure.png`
+without permitting a path/symlink escape; MIME and 32 MiB limits still apply.
+Image metadata is inspected before decode, source dimensions are
 bounded to 16,384 pixels and 64 Mi pixels, and accepted images are downsampled
 to a 4,096-pixel maximum decoded edge; unavailable or remote images keep a
 readable alt-text placeholder. Rendered image attachments are deliberately
-unlocatable text, so selection cannot fabricate an anchor. Tables use readable
+unlocatable text, so selection cannot fabricate an anchor. A position capture
+that begins on an image instead uses that image's real Markdown source range,
+or the nearest mapped text when no image range exists, so image-heavy chapters
+do not retain a stale position. Tables use readable
 bordered rows rather than tab-separated fallback text. Leaf text carries deterministic source UTF-16
 attributes through heading, emphasis, list, and code styling. Mapping begins
 from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
@@ -84,9 +89,11 @@ covered. Code-span newline normalization, indented fences, and indented code
 blocks therefore drop the whole leaf map instead of exposing a partial or
 syntax-anchored range. An explicit unavailable-map sentinel propagates that
 failure through selections crossing either edge of the leaf, so an adjacent
-mapped space cannot become a partial Locator. Selections and positions map
-rendered ranges back to exact source ranges (and fail closed when no map exists),
-so repeated text never falls back to a first/unique-match guess.
+mapped space cannot become a partial Locator. Selections map rendered ranges
+back to exact source ranges and fail closed when no map exists. Positions prefer
+the same exact mapping, but may use a real unavailable-leaf source range or
+nearest mapped source run as a non-selection resume anchor; repeated text never
+falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB
@@ -155,7 +162,10 @@ against the live document; its result remains bound to the prior Space, Source,
 Snapshot, and presentation generation, so a Source/Space transition cannot make
 the callback write into the new reading context. A Space transition issues that
 capture once before changing context; opening the selected Source does not ask
-the retired surface a second time. WebKit records the visible element as the
+the retired surface a second time. In a multi-window app session, the request is
+also bound to the key window's presentation target and expected Source/Snapshot.
+Claim is main-actor exclusive, so another mounted Web view cannot race the
+active window's asynchronous result. WebKit records the visible element as the
 restore anchor and the nearest preceding heading separately for outline
 previous/next state. On the same Snapshot, the normalized fraction preserves the
 exact viewport while DOM/quote evidence remains available for relocation. A
