@@ -8,6 +8,7 @@ private typealias PlatformFont = UIFont
 private typealias PlatformColor = UIColor
 #endif
 import Markdown
+import ImageIO
 import SwiftSoup
 
 private enum PlatformFontTrait {
@@ -64,11 +65,97 @@ struct NativeMarkdownRenderer: MarkupVisitor {
 
     let fontSize: CGFloat
     let lineSpacing: CGFloat
+    let resourceRootURL: URL?
+    let documentBaseURL: URL?
+    let maximumImageWidth: CGFloat
     private var sourceIndex: MarkdownUTF16SourceIndex?
 
-    init(fontSize: CGFloat, lineSpacing: CGFloat) {
+    static let maximumSourceImageDimension = 16_384
+    static let maximumSourceImagePixels = 64 * 1_024 * 1_024
+    static let maximumDecodedImageDimension = 4_096
+
+    struct ImageDecodePlan: Equatable {
+        let thumbnailPixelSize: Int
+    }
+
+    init(
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        resourceRootURL: URL? = nil,
+        documentBaseURL: URL? = nil,
+        maximumImageWidth: CGFloat = 680
+    ) {
         self.fontSize = fontSize
         self.lineSpacing = lineSpacing
+        self.resourceRootURL = resourceRootURL
+        self.documentBaseURL = documentBaseURL
+        self.maximumImageWidth = maximumImageWidth
+    }
+
+    static func imageDecodePlan(
+        pixelWidth: Int,
+        pixelHeight: Int,
+        maximumImageWidth: CGFloat
+    ) -> ImageDecodePlan? {
+        guard pixelWidth > 0,
+              pixelHeight > 0,
+              pixelWidth <= maximumSourceImageDimension,
+              pixelHeight <= maximumSourceImageDimension,
+              pixelWidth <= maximumSourceImagePixels / pixelHeight,
+              maximumImageWidth.isFinite,
+              maximumImageWidth > 0 else { return nil }
+        let target = Int(ceil(maximumImageWidth * 2))
+        return ImageDecodePlan(
+            thumbnailPixelSize: min(
+                maximumDecodedImageDimension,
+                max(1, target)
+            )
+        )
+    }
+
+    static func imageDisplaySize(
+        pixelWidth: CGFloat,
+        pixelHeight: CGFloat,
+        maximumImageWidth: CGFloat
+    ) -> CGSize? {
+        guard pixelWidth.isFinite,
+              pixelHeight.isFinite,
+              maximumImageWidth.isFinite,
+              pixelWidth > 0,
+              pixelHeight > 0,
+              maximumImageWidth > 0 else { return nil }
+        let scale = min(1, maximumImageWidth / pixelWidth)
+        return CGSize(width: pixelWidth * scale, height: pixelHeight * scale)
+    }
+
+    static func resizeImageAttachments(
+        in storage: NSMutableAttributedString,
+        maximumImageWidth: CGFloat
+    ) {
+        guard maximumImageWidth.isFinite, maximumImageWidth > 0 else { return }
+        var replacements: [(NSRange, NSTextAttachment)] = []
+        storage.enumerateAttribute(
+            .attachment,
+            in: storage.fullRange,
+            options: []
+        ) { value, range, _ in
+            guard let attachment = value as? NSTextAttachment,
+                  let image = attachment.image,
+                  let size = imageDisplaySize(
+                      pixelWidth: image.size.width,
+                      pixelHeight: image.size.height,
+                      maximumImageWidth: maximumImageWidth
+                  ), abs(attachment.bounds.width - size.width) >= 0.5
+                    || abs(attachment.bounds.height - size.height) >= 0.5 else { return }
+            attachment.bounds = CGRect(origin: .zero, size: size)
+            replacements.append((range, attachment))
+        }
+        guard !replacements.isEmpty else { return }
+        storage.beginEditing()
+        for (range, attachment) in replacements {
+            storage.addAttribute(.attachment, value: attachment, range: range)
+        }
+        storage.endEditing()
     }
 
     mutating func render(_ source: String) -> NSAttributedString {
@@ -108,7 +195,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         }
         result.addAttributes(
             [
-                .font: PlatformFont.systemFont(
+                .font: readerSerifFont(
                     ofSize: fontSize * scale,
                     weight: heading.level <= 2 ? .bold : .semibold
                 ),
@@ -257,8 +344,28 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     mutating func visitImage(_ image: Image) -> NSMutableAttributedString {
         let alt = renderChildren(of: image)
         trimTrailingNewlines(alt)
+        if let attachment = imageAttachment(for: image.source) {
+            let result = NSMutableAttributedString(attachment: attachment)
+            if !alt.string.isEmpty {
+                let caption = attributed("\n\(alt.string)\n")
+                caption.addAttributes(
+                    [
+                        .font: PlatformFont.systemFont(ofSize: max(11, fontSize - 2)),
+                        .foregroundColor: PlatformColor.readerSecondaryLabel,
+                        .paragraphStyle: paragraphStyle(paragraphSpacing: 10),
+                    ],
+                    range: caption.fullRange
+                )
+                result.append(caption)
+            }
+            markSourceMappingUnavailable(
+                result,
+                sourceRange: sourceIndex?.utf16Range(for: image.range)
+            )
+            return result
+        }
         let result = attributed("［")
-        result.append(alt.string.isEmpty ? attributed("图片") : alt)
+        result.append(alt.string.isEmpty ? attributed("图片暂不可用") : alt)
         result.append(attributed("］"))
         result.addAttributes(
             [
@@ -267,6 +374,16 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             ],
             range: result.fullRange
         )
+        return result
+    }
+
+    mutating func visitTable(_ table: Table) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        result.append(renderTableRow(Array(table.head.cells), isHeader: true))
+        for row in table.body.rows {
+            result.append(renderTableRow(Array(row.cells), isHeader: false))
+        }
+        result.append(attributed("\n"))
         return result
     }
 
@@ -310,9 +427,126 @@ struct NativeMarkdownRenderer: MarkupVisitor {
     }
 
     mutating func visitTableCell(_ tableCell: Table.Cell) -> NSMutableAttributedString {
-        let result = renderChildren(of: tableCell)
-        result.append(attributed("\t"))
-        return result
+        renderChildren(of: tableCell)
+    }
+
+    private mutating func renderTableRow(
+        _ cells: [Table.Cell],
+        isHeader: Bool
+    ) -> NSMutableAttributedString {
+        let row = attributed("│ ")
+        for (index, cell) in cells.enumerated() {
+            var body = renderChildren(of: cell)
+            trimTrailingNewlines(body)
+            if isHeader { body = applyingFontTrait(.bold, to: body) }
+            row.append(body)
+            row.append(attributed(index == cells.count - 1 ? " │\n" : " │ "))
+        }
+        row.addAttributes(
+            [
+                .backgroundColor: PlatformColor.readerQuaternaryLabel,
+                .paragraphStyle: paragraphStyle(
+                    paragraphSpacing: isHeader ? 2 : 0,
+                    firstLineHeadIndent: 8,
+                    headIndent: 8,
+                    tailIndent: -8
+                ),
+            ],
+            range: row.fullRange
+        )
+        return row
+    }
+
+    private func imageAttachment(for source: String?) -> NSTextAttachment? {
+        guard let source,
+              let resourceRootURL,
+              !source.hasPrefix("/"),
+              !source.hasPrefix("~"),
+              !source.contains("://") else { return nil }
+        let path = source
+            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            .split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        guard let decoded = String(path).removingPercentEncoding,
+              !decoded.hasPrefix("/"),
+              !decoded.hasPrefix("~"),
+              !decoded.contains("\\") else { return nil }
+        let root = resourceRootURL.standardizedFileURL.resolvingSymlinksInPath()
+        let documentBase = (documentBaseURL ?? root)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard documentBase.pathComponents.starts(with: root.pathComponents) else {
+            return nil
+        }
+        let requested = documentBase
+            .appendingPathComponent(decoded, isDirectory: false)
+            .standardizedFileURL
+        guard requested.pathComponents.starts(with: root.pathComponents) else {
+            return nil
+        }
+        let components = Array(requested.pathComponents.dropFirst(root.pathComponents.count))
+        guard !components.isEmpty else { return nil }
+
+        var request = URLComponents()
+        request.scheme = "onereader-content"
+        request.host = "local"
+        request.path = "/" + components.joined(separator: "/")
+        guard let requestURL = request.url,
+              let resource = try? ReadOnlyContentResourceLoader(rootURL: resourceRootURL)
+                .resolve(requestURL: requestURL),
+              resource.mediaType.hasPrefix("image/") else { return nil }
+        guard let source = CGImageSourceCreateWithURL(
+            resource.fileURL as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any],
+              let pixelWidth = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let pixelHeight = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              let plan = Self.imageDecodePlan(
+                  pixelWidth: pixelWidth,
+                  pixelHeight: pixelHeight,
+                  maximumImageWidth: maximumImageWidth
+              ),
+              let decoded = CGImageSourceCreateThumbnailAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: plan.thumbnailPixelSize,
+                      kCGImageSourceShouldCacheImmediately: true,
+                  ] as CFDictionary
+              ), decoded.width > 0, decoded.height > 0 else { return nil }
+        let decodedWidth = CGFloat(decoded.width)
+        let decodedHeight = CGFloat(decoded.height)
+        guard let displaySize = Self.imageDisplaySize(
+            pixelWidth: decodedWidth,
+            pixelHeight: decodedHeight,
+            maximumImageWidth: maximumImageWidth
+        ) else { return nil }
+#if os(macOS)
+        let image = NSImage(
+            cgImage: decoded,
+            size: NSSize(width: decodedWidth, height: decodedHeight)
+        )
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: displaySize.width,
+            height: displaySize.height
+        )
+#else
+        let attachment = NSTextAttachment()
+        attachment.image = UIImage(cgImage: decoded)
+        attachment.bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: displaySize.width,
+            height: displaySize.height
+        )
+#endif
+        return attachment
     }
 
     private mutating func renderChildren(
@@ -359,7 +593,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         NSMutableAttributedString(
             string: string,
             attributes: [
-                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .font: readerSerifFont(ofSize: fontSize),
                 .foregroundColor: PlatformColor.readerLabel,
             ]
         )
@@ -390,7 +624,7 @@ struct NativeMarkdownRenderer: MarkupVisitor {
         let result = NSMutableAttributedString(
             string: string,
             attributes: attributes ?? [
-                .font: PlatformFont.systemFont(ofSize: fontSize),
+                .font: readerSerifFont(ofSize: fontSize),
                 .foregroundColor: PlatformColor.readerLabel,
             ]
         )
@@ -484,6 +718,21 @@ struct NativeMarkdownRenderer: MarkupVisitor {
             result.addAttribute(.font, value: converted, range: range)
         }
         return result
+    }
+
+    private func readerSerifFont(
+        ofSize size: CGFloat,
+        weight: PlatformFont.Weight = .regular
+    ) -> PlatformFont {
+        let system = PlatformFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = system.fontDescriptor.withDesign(.serif) else {
+            return system
+        }
+#if os(macOS)
+        return PlatformFont(descriptor: descriptor, size: size) ?? system
+#else
+        return PlatformFont(descriptor: descriptor, size: size)
+#endif
     }
 
     private func trimTrailingNewlines(_ value: NSMutableAttributedString) {
@@ -845,6 +1094,111 @@ private enum MarkdownLeafSourceMapper {
 }
 
 enum MarkdownSourceMap {
+    struct PositionAnchor: Equatable {
+        let sourceRange: NSRange
+        let renderedLocation: Int
+    }
+
+    static func positionAnchor(
+        forRenderedRange renderedRange: NSRange,
+        in rendered: NSAttributedString
+    ) -> PositionAnchor? {
+        guard renderedRange.location != NSNotFound,
+              renderedRange.length > 0,
+              NSMaxRange(renderedRange) <= rendered.length else { return nil }
+        if let sourceRange = sourceRange(
+            forRenderedRange: renderedRange,
+            in: rendered
+        ) {
+            return PositionAnchor(
+                sourceRange: sourceRange,
+                renderedLocation: renderedRange.location
+            )
+        }
+
+        let preferredLocation = renderedRange.location
+        var best: (
+            distance: Int,
+            isBehind: Bool,
+            renderedRange: NSRange,
+            sourceStart: Int,
+            sourceEnd: Int,
+            mappingUnavailable: Bool
+        )?
+        rendered.enumerateAttributes(in: rendered.fullRange) { attributes, range, _ in
+            guard range.length > 0,
+                  let sourceStart = attributes[.oneReaderSourceUTF16Start] as? Int,
+                  let sourceEnd = attributes[.oneReaderSourceUTF16End] as? Int,
+                  sourceStart >= 0,
+                  sourceEnd > sourceStart else { return }
+            let renderedLocation: Int
+            let distance: Int
+            let isBehind: Bool
+            if preferredLocation >= range.location,
+               preferredLocation < NSMaxRange(range) {
+                renderedLocation = preferredLocation
+                distance = 0
+                isBehind = false
+            } else if range.location > preferredLocation {
+                renderedLocation = range.location
+                distance = range.location - preferredLocation
+                isBehind = false
+            } else {
+                renderedLocation = NSMaxRange(range) - 1
+                distance = preferredLocation - renderedLocation
+                isBehind = true
+            }
+            if let current = best {
+                if distance > current.distance { return }
+                if distance == current.distance {
+                    if isBehind && !current.isBehind { return }
+                    if isBehind == current.isBehind,
+                       range.location >= current.renderedRange.location { return }
+                }
+            }
+            best = (
+                distance,
+                isBehind,
+                range,
+                sourceStart,
+                sourceEnd,
+                attributes[.oneReaderSourceMappingUnavailable] as? Bool == true
+            )
+        }
+        guard let best else { return nil }
+        let renderedLocation: Int
+        if preferredLocation >= best.renderedRange.location,
+           preferredLocation < NSMaxRange(best.renderedRange) {
+            renderedLocation = preferredLocation
+        } else if best.renderedRange.location > preferredLocation {
+            renderedLocation = best.renderedRange.location
+        } else {
+            renderedLocation = NSMaxRange(best.renderedRange) - 1
+        }
+        let sourceRange: NSRange
+        if !best.mappingUnavailable,
+           best.sourceEnd - best.sourceStart == best.renderedRange.length {
+            let offset = renderedLocation - best.renderedRange.location
+            let sourceLocation = best.sourceStart + offset
+            sourceRange = NSRange(
+                location: sourceLocation,
+                length: max(
+                    1,
+                    min(renderedRange.length, best.sourceEnd - sourceLocation)
+                )
+            )
+        } else {
+            sourceRange = NSRange(
+                location: best.sourceStart,
+                length: best.sourceEnd - best.sourceStart
+            )
+        }
+        return PositionAnchor(
+            sourceRange: sourceRange,
+            renderedLocation: renderedLocation
+        )
+    }
+
     static func renderedRange(
         forSourceRange sourceRange: NSRange,
         in rendered: NSAttributedString

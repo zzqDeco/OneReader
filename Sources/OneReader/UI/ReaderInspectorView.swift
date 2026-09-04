@@ -11,13 +11,13 @@ struct ReaderInspectorView: View {
             Divider()
             inspectorContent
         }
-        .background(.ultraThinMaterial)
+        .background(ReaderTheme.window)
     }
 
     private var inspectorHeader: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack {
-                Text("Inspector")
+                Text("阅读辅助")
                     .font(.headline)
                 Spacer()
                 Button {
@@ -26,9 +26,9 @@ struct ReaderInspectorView: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭 Inspector")
+                .accessibilityLabel("关闭阅读辅助")
             }
-            Picker("Inspector 视图", selection: $model.inspectorTab) {
+            Picker("阅读辅助视图", selection: $model.inspectorTab) {
                 ForEach(model.availableInspectorTabs) { tab in
                     Image(systemName: tab.systemImage)
                         .tag(tab)
@@ -92,7 +92,7 @@ struct ReaderInspectorView: View {
                 ContentUnavailableView(
                     "还没有标注",
                     systemImage: "highlighter",
-                    description: Text("书签、带锚点高亮和笔记会保存在 Reading Space 中。")
+                    description: Text("书签、带原文位置的高亮和笔记会保存在阅读空间中。")
                 )
             } else {
                 List(model.annotations) { annotation in
@@ -117,15 +117,20 @@ struct ReaderInspectorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let observation = model.currentObservation {
-                    InspectorSection(title: "当前观察", systemImage: "doc.text.magnifyingglass") {
+                    InspectorSection(title: "当前位置", systemImage: "doc.text.magnifyingglass") {
                         VStack(alignment: .leading, spacing: 7) {
                             Text(observation.locator.conciseDescription)
                                 .font(.subheadline.weight(.medium))
-                            Text("Snapshot \(String(observation.snapshotID.prefix(9)))")
-                            Text("Digest \(String(observation.contentDigest.prefix(12)))")
-                            Text(observation.mediaType)
                             if observation.truncated {
-                                Label("当前观察已截断；完整内容仍保留在来源中", systemImage: "scissors")
+                                Label("引用只显示了节选，完整内容仍保留在来源中", systemImage: "scissors")
+                            }
+                            DisclosureGroup("引用详情") {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("版本 \(String(observation.snapshotID.prefix(9)))")
+                                    Text("内容指纹 \(String(observation.contentDigest.prefix(12)))")
+                                    Text(observation.mediaType)
+                                }
+                                .padding(.top, 4)
                             }
                         }
                         .font(.caption)
@@ -134,9 +139,9 @@ struct ReaderInspectorView: View {
                 }
 
                 if let graph = model.currentGraph {
-                    InspectorSection(title: "Reading Graph", systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                    InspectorSection(title: "阅读脉络", systemImage: "point.3.filled.connected.trianglepath.dotted") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("\(graph.units.count) 个带证据阅读单元")
+                            Text("\(graph.units.count) 个有原文依据的阅读单元")
                             ForEach(graph.units.prefix(8)) { unit in
                                 Button {
                                     model.selectReadingUnit(unit.id)
@@ -155,9 +160,9 @@ struct ReaderInspectorView: View {
                     }
                 } else {
                     ContentUnavailableView(
-                        "尚未生成 Reading Graph",
+                        "尚未生成阅读脉络",
                         systemImage: "link",
-                        description: Text("确定性目录仍可使用；AI 结论必须引用真实 Fragment。")
+                        description: Text("现有目录仍可使用；智能整理的每条结论都必须回到原文。")
                     )
                     .frame(minHeight: 250)
                 }
@@ -183,12 +188,12 @@ struct ReaderInspectorView: View {
                             Button("保留基础方案") { model.dismissWaitingAgentRun() }
                         }
                         if model.waitingAgentAttentionKind == .interrupted {
-                            Button("放弃 Run") { model.abandonInterruptedAgentRun() }
+                            Button("放弃任务") { model.abandonInterruptedAgentRun() }
                         }
                         Spacer()
                         Button(
                             model.waitingAgentAttentionKind == .interrupted
-                                ? "恢复 Run"
+                                ? "恢复任务"
                                 : "确认并继续"
                         ) { model.confirmWaitingAgentRun() }
                             .buttonStyle(.borderedProminent)
@@ -203,7 +208,7 @@ struct ReaderInspectorView: View {
                 ContentUnavailableView(
                     "还没有运行活动",
                     systemImage: "waveform.path",
-                    description: Text("这里只显示探测、工具、验证和提交事件，不显示隐藏思维过程。")
+                    description: Text("这里记录来源整理、索引、引用验证和阅读路线的执行结果。")
                 )
             } else {
                 List(model.activity) { item in
@@ -226,7 +231,7 @@ struct ReaderInspectorView: View {
                 .padding(12)
             } else {
                 Label(
-                    "Quick Look 兜底不提供正文搜索、结构化引用或 AI 问答",
+                    "系统预览只提供来源级书签和笔记，不支持正文引用或智能问答",
                     systemImage: "eye"
                 )
                 .font(.caption)
@@ -240,21 +245,21 @@ struct ReaderInspectorView: View {
         switch model.waitingAgentAttentionKind {
         case .disclosure: "需要确认数据外发"
         case .adapterCandidate: "需要确认适配器候选"
-        case .interrupted: "Agent Run 已中断"
-        case nil: "Agent Run 需要处理"
+        case .interrupted: "整理任务已中断"
+        case nil: "整理任务需要处理"
         }
     }
 
     private var attentionDescription: String {
         switch model.waitingAgentAttentionKind {
         case .disclosure:
-            "远程 Provider 将读取 Activity 中列出的 Source Fragment；确认后才会继续。"
+            "远程模型将读取运行详情中列出的原文片段；确认后才会继续。"
         case .adapterCandidate:
             "候选置信度未达到自动采用阈值，基础适配器会继续工作。"
         case .interrupted:
-            "应用重启或运行中断后不会盲目重放网络操作；请显式恢复。"
+            "应用重启或任务中断后不会自动重放网络操作；请确认是否恢复。"
         case nil:
-            "请查看 Activity 后决定是否继续。"
+            "请查看运行详情后决定是否继续。"
         }
     }
 
@@ -297,7 +302,7 @@ struct ReaderInspectorView: View {
                         ContentUnavailableView(
                             "带证据问答",
                             systemImage: "sparkles",
-                            description: Text("回答只能引用当前 Snapshot 中已验证、可跳转的证据。")
+                            description: Text("回答只会引用当前版本中已经验证、可以跳转的原文。")
                         )
                         .frame(minHeight: 300)
                     }
@@ -309,9 +314,9 @@ struct ReaderInspectorView: View {
                 TextEditor(text: $question)
                     .frame(minHeight: 58, maxHeight: 100)
                     .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.separator) }
-                    .accessibilityLabel("向 Reading Agent 提问")
+                    .accessibilityLabel("向阅读助手提问")
                 HStack {
-                    Text(model.activeProvider?.displayName ?? "未配置 Provider")
+                    Text(model.activeProvider?.displayName ?? "未配置模型")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -360,7 +365,15 @@ private struct AnnotationRow: View {
     }
 
     private var title: String {
-        annotation.selectedText ?? annotation.note ?? annotation.kind.rawValue
+        annotation.selectedText ?? annotation.note ?? kindTitle
+    }
+
+    private var kindTitle: String {
+        switch annotation.kind {
+        case .bookmark: "书签"
+        case .highlight: "高亮"
+        case .note: "笔记"
+        }
     }
 
     private var symbol: String {
@@ -391,11 +404,14 @@ private struct ActivityRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !auditSummary.isEmpty {
-                    Text(auditSummary)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.tertiary)
-                        .textSelection(.enabled)
-                        .lineLimit(4)
+                    DisclosureGroup("运行详情") {
+                        Text(auditSummary)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                            .padding(.top, 3)
+                    }
+                    .font(.caption2)
                 }
                 Text(item.date, style: .time)
                     .font(.caption2.monospacedDigit())
@@ -407,11 +423,11 @@ private struct ActivityRow: View {
 
     private var auditSummary: String {
         let labels: [(String, String)] = [
-            ("sourceID", "Source"),
-            ("snapshotID", "Snapshot"),
-            ("adapterID", "Adapter"),
-            ("locatorDigest", "Locator"),
-            ("sentByteRange", "Bytes"),
+            ("sourceID", "来源"),
+            ("snapshotID", "版本"),
+            ("adapterID", "阅读方式"),
+            ("locatorDigest", "位置"),
+            ("sentByteRange", "字节范围"),
         ]
         return labels.compactMap { key, label in
             guard let value = item.metadata[key], !value.isEmpty else { return nil }

@@ -31,6 +31,9 @@ scheme, or build the unsigned universal Simulator app with:
 scripts/build-ios-simulator.sh
 ```
 
+The shared target remains iPad-capable, but v0.3.1 release acceptance is scoped
+to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
+
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
 unused SwiftAgent transitive product whose upstream manifest requires a newer
@@ -86,3 +89,10 @@ not publish, tag, or push anything.
 
 See [the development workflow](doc/branching.md), [current documentation](doc/README.md),
 and [the plan index](plan/README.md).
+
+## License
+
+OneReader is licensed under the [Apache License 2.0](LICENSE). Dependency
+licenses and binary attribution behavior are documented in
+[third-party notices](THIRD_PARTY_NOTICES.md) and the
+[licensing contract](doc/licensing.md).

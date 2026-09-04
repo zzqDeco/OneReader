@@ -61,6 +61,14 @@ private struct PendingReadingPosition {
     let update: ReadingPositionUpdate
 }
 
+private struct ReadingPositionCaptureContext {
+    let spaceID: String
+    let sourceID: String
+    let snapshotID: String
+    let presentationToken: UUID
+    let requestedAt: Date
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
@@ -79,12 +87,9 @@ final class AppModel: ObservableObject {
     @Published var selectedSourceID: String?
     @Published var isReadingWorkspaceOpen = false
     @Published var navigationTab: WorkspaceNavigationTab = .outline
+    @Published private(set) var readerNavigationRequestID = UUID()
     @Published var inspectorTab: ReaderInspectorTab = .annotations
-#if os(macOS)
-    @Published var isInspectorPresented = true
-#else
     @Published var isInspectorPresented = false
-#endif
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -137,6 +142,7 @@ final class AppModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var positionSaveTask: Task<Void, Never>?
     private var pendingPositionUpdate: PendingReadingPosition?
+    private var activeReadingPositionCaptureTargetID = UUID()
     private var importTasks: [UUID: Task<Void, Never>] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var agentTask: Task<Void, Never>?
@@ -411,7 +417,7 @@ final class AppModel: ObservableObject {
             try reloadLibraryState(preservingSelection: true)
             try loadSpaceState(spaceID: spaceID)
         } catch {
-            notice = AppNotice(title: "无法打开 Reading Space", message: error.localizedDescription)
+            notice = AppNotice(title: "无法打开阅读空间", message: error.localizedDescription)
         }
         let progress = progressBySpace[spaceID] ?? .empty
         let mostRecentPositionSourceID = progress.sourcePositions.values
@@ -422,7 +428,11 @@ final class AppModel: ObservableObject {
             sourceIDs(in: spaceID).contains(id) ? id : nil
         } ?? mostRecentPositionSourceID ?? sourceIDs(in: spaceID).first
         if let candidate {
-            openSource(candidate, locator: progress.sourcePositions[candidate]?.locator)
+            openSource(
+                candidate,
+                locator: progress.sourcePositions[candidate]?.locator,
+                captureOutgoingPosition: false
+            )
         } else {
             selectedSourceID = nil
             currentPositionLocator = nil
@@ -562,6 +572,18 @@ final class AppModel: ObservableObject {
     }
 
     func openSource(_ sourceID: String, locator: Locator? = nil) {
+        openSource(
+            sourceID,
+            locator: locator,
+            captureOutgoingPosition: true
+        )
+    }
+
+    private func openSource(
+        _ sourceID: String,
+        locator: Locator?,
+        captureOutgoingPosition: Bool
+    ) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(sourceID),
               let source = source(id: sourceID),
@@ -569,7 +591,9 @@ final class AppModel: ObservableObject {
               let database,
               let coordinator else { return }
 
-        flushReadingPosition()
+        if captureOutgoingPosition {
+            flushReadingPosition()
+        }
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
         selectedSourceID = sourceID
         currentPositionLocator = nil
@@ -643,7 +667,7 @@ final class AppModel: ObservableObject {
                 appendActivity(
                     spaceID: spaceID,
                     phase: "选择适配器",
-                    message: "已使用 \(plan.primaryAdapterID) 提供可读界面。",
+                    message: "基础阅读界面已准备好。",
                     state: .completed
                 )
                 startIndexing(plan: plan, spaceID: spaceID)
@@ -672,6 +696,11 @@ final class AppModel: ObservableObject {
         openSource(locator.sourceID, locator: locator)
     }
 
+    func revealReaderNavigation(_ tab: WorkspaceNavigationTab) {
+        navigationTab = tab
+        readerNavigationRequestID = UUID()
+    }
+
     func openSearchHit(_ hit: ContentSearchHit) {
         if selectedSpaceID.map({ sourceIDs(in: $0).contains(hit.sourceID) }) != true,
            let targetSpaceID = spaces.first(where: {
@@ -691,6 +720,15 @@ final class AppModel: ObservableObject {
 
     func updateReadingPosition(_ update: ReadingPositionUpdate) {
         updateReadingPosition(update, presentationToken: currentPresentationToken)
+    }
+
+    func activateReadingPositionCaptureTarget(_ targetID: UUID) {
+        guard activeReadingPositionCaptureTargetID != targetID else { return }
+        activeReadingPositionCaptureTargetID = targetID
+    }
+
+    func isActiveReadingPositionCaptureTarget(_ targetID: UUID) -> Bool {
+        activeReadingPositionCaptureTargetID == targetID
     }
 
     func updateReadingPosition(
@@ -732,6 +770,43 @@ final class AppModel: ObservableObject {
     }
 
     func flushReadingPosition() {
+        // Commit the latest coalesced update before asking the presentation for
+        // an exact boundary capture. A synchronous WebKit fallback must not be
+        // overwritten by an older pending sample after the notification returns.
+        flushPendingReadingPosition()
+        let captureContext: ReadingPositionCaptureContext? = selectedSpaceID.flatMap { spaceID in
+            guard let source = selectedSource,
+                  let snapshotID = source.latestSnapshotID else { return nil }
+            return ReadingPositionCaptureContext(
+                spaceID: spaceID,
+                sourceID: source.id,
+                snapshotID: snapshotID,
+                presentationToken: contentGeneration,
+                requestedAt: .now
+            )
+        }
+        guard let captureContext else { return }
+        let captureRequest = ReadingPositionCaptureRequest(
+            targetID: activeReadingPositionCaptureTargetID,
+            sourceID: captureContext.sourceID,
+            snapshotID: captureContext.snapshotID
+        ) { [weak self] update in
+            guard let self, let update else { return }
+            persistCapturedReadingPosition(update, context: captureContext)
+        }
+        NotificationCenter.default.post(
+            name: ReadingPositionCaptureSignal.requested,
+            object: captureRequest
+        )
+        // Native text/PDF surfaces publish synchronously through their existing
+        // callback, so commit the sample they produced during the notification.
+        flushPendingReadingPosition()
+        if !captureRequest.isClaimed {
+            captureRequest.cancelIfUnclaimed()
+        }
+    }
+
+    private func flushPendingReadingPosition() {
         positionSaveTask?.cancel()
         positionSaveTask = nil
         guard let pendingPositionUpdate else { return }
@@ -749,18 +824,71 @@ final class AppModel: ObservableObject {
         )
     }
 
+    private func persistCapturedReadingPosition(
+        _ update: ReadingPositionUpdate,
+        context: ReadingPositionCaptureContext
+    ) {
+        let locator = update.locator
+        guard locator.sourceID == context.sourceID,
+              locator.snapshotID == context.snapshotID,
+              sourceIDs(in: context.spaceID).contains(context.sourceID),
+              source(id: context.sourceID)?.latestSnapshotID == context.snapshotID else {
+            return
+        }
+        if selectedSpaceID == context.spaceID,
+           selectedSourceID == context.sourceID,
+           contentGeneration != context.presentationToken {
+            return
+        }
+        if let existing = progressBySpace[context.spaceID]?
+            .sourcePositions[context.sourceID],
+           existing.updatedAt > context.requestedAt {
+            return
+        }
+        let position = SourcePosition(
+            sourceID: context.sourceID,
+            locator: locator,
+            updatedAt: .now,
+            progressFraction: update.progressFraction,
+            granularity: update.granularity,
+            displayLabel: update.displayLabel
+        )
+        persistSourcePosition(position, spaceID: context.spaceID)
+        if selectedSpaceID == context.spaceID,
+           selectedSourceID == context.sourceID,
+           contentGeneration == context.presentationToken {
+            currentPositionLocator = locator
+        }
+    }
+
     func selectPreviousNode() {
-        guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator),
+        let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
+        guard let locator = activeReadingLocator,
+              let index = ReaderContentNavigation.index(of: locator, in: nodes),
               index > 0 else { return }
-        openNode(contentNodes[index - 1])
+        openNode(nodes[index - 1])
     }
 
     func selectNextNode() {
-        guard let locator = presentationDocument?.locator,
-              let index = contentNodeIndex(for: locator),
-              index + 1 < contentNodes.count else { return }
-        openNode(contentNodes[index + 1])
+        let nodes = ReaderContentNavigation.readableNodes(from: contentNodes)
+        guard let locator = activeReadingLocator,
+              let index = ReaderContentNavigation.index(of: locator, in: nodes),
+              index + 1 < nodes.count else { return }
+        openNode(nodes[index + 1])
+    }
+
+    var canSelectPreviousNode: Bool {
+        ReaderContentNavigation.availability(
+            at: activeReadingLocator,
+            in: contentNodes
+        ).previous
+    }
+
+    var canSelectNextNode: Bool {
+        ReaderContentNavigation.availability(
+            at: activeReadingLocator,
+            in: contentNodes
+        ).next
     }
 
     func performSearch() {
@@ -900,7 +1028,7 @@ final class AppModel: ObservableObject {
                 appendActivityForSource(
                     sourceID: sourceID,
                     phase: "刷新来源",
-                    message: "正在创建新的不可变 Snapshot。",
+                    message: "正在保存新的阅读版本。",
                     state: .running
                 )
                 switch source.originKind {
@@ -914,7 +1042,7 @@ final class AppModel: ObservableObject {
                     appendActivityForSource(
                         sourceID: sourceID,
                         phase: "刷新来源",
-                        message: "来源内容没有变化，继续使用当前 Snapshot。",
+                        message: "来源内容没有变化，继续使用当前阅读版本。",
                         state: .completed
                     )
                     return
@@ -959,7 +1087,7 @@ final class AppModel: ObservableObject {
                 appendActivityForSource(
                     sourceID: sourceID,
                     phase: "刷新来源",
-                    message: "新 Snapshot 已提交；旧引用已标记为 relocated 或 orphaned。",
+                    message: "新阅读版本已保存；旧引用已重新定位或标记为待确认。",
                     state: .completed
                 )
                 if activeProvider != nil,
@@ -991,8 +1119,8 @@ final class AppModel: ObservableObject {
                     previousLocator: recoveryLocator,
                     committed: committed,
                     message: committed
-                        ? "新 Snapshot 已提交，但暂时无法呈现。"
-                        : "刷新失败；已恢复上一个可用 Snapshot。"
+                        ? "新阅读版本已保存，但暂时无法呈现。"
+                        : "刷新失败；已恢复上一个可用阅读版本。"
                 )
                 appendActivityForSource(
                     sourceID: sourceID,
@@ -1185,7 +1313,7 @@ final class AppModel: ObservableObject {
         guard spaceSupportsAgentEvidence else {
             notice = AppNotice(
                 title: "当前空间没有可引用正文",
-                message: "Quick Look 兜底来源只支持来源级书签和笔记，不能生成虚构的 Reading Graph。"
+                message: "系统预览材料只支持整份材料的书签和笔记，暂时不能生成阅读结构。"
             )
             return
         }
@@ -1194,7 +1322,7 @@ final class AppModel: ObservableObject {
             isInspectorPresented = true
             notice = AppNotice(
                 title: "尚未配置模型",
-                message: "基础阅读不需要模型；若要生成 Reading Graph 与路线，请先在设置中配置并测试 Provider。"
+                message: "基础阅读不需要模型；若要生成阅读结构与路线，请先在设置中配置并测试模型服务。"
             )
             return
         }
@@ -1212,12 +1340,12 @@ final class AppModel: ObservableObject {
         guard spaceSupportsAgentEvidence else {
             notice = AppNotice(
                 title: "当前空间不支持证据问答",
-                message: "至少需要一个可读取正文并生成 Locator 的来源。"
+                message: "至少需要一份能够读取正文并保存精确位置的材料。"
             )
             return
         }
         guard activeProvider != nil else {
-            notice = AppNotice(title: "尚未配置模型", message: "请先在设置中配置 Provider。")
+            notice = AppNotice(title: "尚未配置模型", message: "请先在设置中配置模型服务。")
             return
         }
         evidenceAnswer = nil
@@ -1296,7 +1424,7 @@ final class AppModel: ObservableObject {
                 )
             } catch {
                 if selectedSpaceID == run.spaceID {
-                    notice = AppNotice(title: "无法继续 Agent Run", message: error.localizedDescription)
+                    notice = AppNotice(title: "无法继续阅读辅助任务", message: error.localizedDescription)
                 }
             }
         }
@@ -1340,7 +1468,7 @@ final class AppModel: ObservableObject {
                 loadAgentActivity(spaceID: run.spaceID)
             } catch {
                 if selectedSpaceID == run.spaceID {
-                    notice = AppNotice(title: "无法放弃 Agent Run", message: error.localizedDescription)
+                    notice = AppNotice(title: "无法放弃阅读辅助任务", message: error.localizedDescription)
                 }
             }
         }
@@ -1366,7 +1494,7 @@ final class AppModel: ObservableObject {
                 providerProfiles = try database.fetchProviderProfiles()
                 refreshSelectedAgentActivityAfterProviderMutation()
             } catch {
-                notice = AppNotice(title: "无法保存 Provider", message: error.localizedDescription)
+                notice = AppNotice(title: "无法保存模型服务", message: error.localizedDescription)
             }
         }
     }
@@ -1411,7 +1539,7 @@ final class AppModel: ObservableObject {
             try database.setProviderOverride(profileID: profileID, forSpaceID: spaceID)
             refreshSelectedAgentActivityAfterProviderMutation(affecting: spaceID)
         } catch {
-            notice = AppNotice(title: "无法切换 Provider", message: error.localizedDescription)
+            notice = AppNotice(title: "无法切换模型服务", message: error.localizedDescription)
         }
     }
 
@@ -1587,24 +1715,6 @@ final class AppModel: ObservableObject {
         pendingImports.removeAll { ids.contains($0.id) }
     }
 
-    private func contentNodeIndex(for locator: Locator) -> Int? {
-        contentNodes.firstIndex { node in
-            let candidate = node.locator
-            guard candidate.sourceID == locator.sourceID,
-                  candidate.snapshotID == locator.snapshotID,
-                  candidate.adapterID == locator.adapterID else { return false }
-            if candidate == locator { return true }
-            if let page = locator.pdfPageIndex {
-                return candidate.pdfPageIndex == page
-            }
-            if let path = locator.relativePath {
-                return candidate.relativePath == path
-            }
-            return candidate.structuralPath == locator.structuralPath
-                && candidate.structuralPath != nil
-        }
-    }
-
     private func resolvedTarget(
         _ requested: Locator?,
         plan: AdapterPlan,
@@ -1620,7 +1730,7 @@ final class AppModel: ObservableObject {
         case .current, .relocated:
             return resolution.resolved
         case .orphaned:
-            throw AdapterError.invalidLocator("旧引用在当前 Snapshot 中无法恢复")
+            throw AdapterError.invalidLocator("旧引用在当前阅读版本中无法恢复")
         }
     }
 
@@ -1630,6 +1740,10 @@ final class AppModel: ObservableObject {
             .min { lhs, rhs in
                 Self.defaultNodeRank(lhs) < Self.defaultNodeRank(rhs)
             }
+    }
+
+    private var activeReadingLocator: Locator? {
+        currentPositionLocator ?? presentationDocument?.locator
     }
 
     private static func defaultNodeRank(_ node: ContentNode) -> (Int, Int, String) {
@@ -1846,7 +1960,7 @@ final class AppModel: ObservableObject {
             manifest = try database.currentSnapshotManifest(spaceID: spaceID)
         } catch {
             if selectedSpaceID == spaceID, workspaceGeneration == generation {
-                notice = AppNotice(title: "Agent 管线无法启动", message: error.localizedDescription)
+                notice = AppNotice(title: "阅读辅助无法启动", message: error.localizedDescription)
             }
             return
         }
@@ -2006,7 +2120,7 @@ final class AppModel: ObservableObject {
             if !(error is ReadingAgentError),
                selectedSpaceID == spaceID,
                workspaceGeneration == uiGeneration {
-                notice = AppNotice(title: "Agent Run 失败", message: error.localizedDescription)
+                notice = AppNotice(title: "阅读辅助任务失败", message: error.localizedDescription)
             }
             return nil
         }
@@ -2421,4 +2535,129 @@ final class AppModel: ObservableObject {
     private static func positionDescription(for locator: Locator) -> String {
         inferredPositionUpdate(for: locator).displayLabel ?? "已记录"
     }
+
+#if DEBUG && os(iOS)
+    static func makeUITestFixture(named name: String) -> AppModel {
+        let model = AppModel(automaticBootstrap: false)
+        model.installUITestFixture(named: name)
+        return model
+    }
+
+    private func installUITestFixture(named name: String) {
+        if name == "library-scroll" {
+            spaces = (0..<18).map { index in
+                ReadingSpace(
+                    id: "ui-library-\(index)",
+                    title: String(format: "Scroll Book %02d", index + 1),
+                    lastOpenedAt: index == 0 ? .now : nil
+                )
+            }
+            sources = spaces.map { space in
+                Source(
+                    id: "ui-source-\(space.id)",
+                    displayName: "\(space.title).md",
+                    originKind: .localFile,
+                    originURL: nil,
+                    managedState: .ready,
+                    latestSnapshotID: "ui-snapshot-\(space.id)"
+                )
+            }
+            sourceIDsBySpace = Dictionary(uniqueKeysWithValues: zip(spaces, sources).map { pair in
+                (pair.0.id, [pair.1.id])
+            })
+            isBootstrapComplete = true
+            return
+        }
+
+        let isCodeFixture = name == "code-scroll"
+        let isMarkdownFixture = name == "markdown-scroll"
+        let spaceID = "ui-reader-space"
+        let sourceID = "ui-reader-source"
+        let snapshotID = "ui-reader-snapshot"
+        let locator = Locator(
+            sourceID: sourceID,
+            snapshotID: snapshotID,
+            adapterID: isCodeFixture
+                ? "onereader.code"
+                : (isMarkdownFixture ? "onereader.markdown" : "onereader.text"),
+            payload: [
+                "path": isCodeFixture
+                    ? "fixture.swift"
+                    : (isMarkdownFixture ? "fixture.md" : "fixture.txt"),
+            ]
+        )
+        let content: String
+        if isCodeFixture {
+            content = (0..<160).map { index in
+                "let value\(index) = \"horizontal marker \(index) "
+                    + String(repeating: "0123456789", count: 120)
+                    + " END-\(index)\""
+            }.joined(separator: "\n")
+        } else if isMarkdownFixture {
+            content = (0..<180).map { index in
+                """
+                ## Reading section \(index + 1)
+
+                This Markdown fixture verifies that rendered headings, emphasis, links, and paragraphs remain vertically scrollable inside the complete OneReader workspace. **Marker \(index + 1)** keeps every section observable.
+
+                - Evidence anchor \(index + 1)
+                - Reading position \(index + 1)
+                """
+            }.joined(separator: "\n\n")
+        } else {
+            content = (0..<900).map { index in
+                "Reading line \(index + 1): this deterministic fixture verifies real vertical touch scrolling through the complete OneReader workspace."
+            }.joined(separator: "\n\n")
+        }
+        let space = ReadingSpace(id: spaceID, title: "Touch Scroll Fixture", lastOpenedAt: .now)
+        let source = Source(
+            id: sourceID,
+            displayName: isCodeFixture
+                ? "fixture.swift"
+                : (isMarkdownFixture ? "fixture.md" : "fixture.txt"),
+            originKind: .localFile,
+            originURL: nil,
+            managedState: .ready,
+            latestSnapshotID: snapshotID
+        )
+        let snapshot = SourceSnapshot(
+            id: snapshotID,
+            sourceID: sourceID,
+            revision: "ui-test",
+            revisionKind: .contentDigest,
+            digest: "ui-test",
+            observedAt: .now,
+            origin: nil,
+            managedRelativePath: nil,
+            byteCount: Int64(content.utf8.count)
+        )
+        spaces = [space]
+        sources = [source]
+        snapshots = [snapshot]
+        sourceIDsBySpace = [spaceID: [sourceID]]
+        selectedSpaceID = spaceID
+        selectedSourceID = sourceID
+        isReadingWorkspaceOpen = true
+        presentationState = .ready(
+            PresentationDocument(
+                id: "ui-reader-document",
+                surface: isCodeFixture
+                    ? .nativeCode
+                    : (isMarkdownFixture ? .nativeMarkdown : .nativeText),
+                locator: locator,
+                title: isCodeFixture
+                    ? "Code Touch Scroll"
+                    : (isMarkdownFixture ? "Markdown Touch Scroll" : "Text Touch Scroll"),
+                mediaType: isCodeFixture
+                    ? "text/x-swift"
+                    : (isMarkdownFixture ? "text/markdown" : "text/plain"),
+                content: content,
+                contentURL: nil,
+                baseURL: nil,
+                limitations: []
+            )
+        )
+        isBootstrapComplete = true
+    }
+#endif
 }

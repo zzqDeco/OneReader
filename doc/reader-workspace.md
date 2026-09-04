@@ -10,11 +10,13 @@ the optional Reading Agent may later propose additional structure.
 
 The primary workspace contains:
 
-- All Spaces, Recent, Processing, Favorites, and Space navigation;
-- Outline, Sources, Route, and Search navigation for the open Space;
+- All Spaces, Recent, Processing, Favorites, and Space navigation while the
+  Library is active;
+- Outline, Sources, Route, and Search navigation in the same leading column
+  after a Space opens;
 - one central native reading surface;
-- a trailing Inspector for annotations, evidence, factual Agent Activity, and
-  evidence-grounded questions.
+- optional trailing Reading Assistance for notes, citations, factual run
+  activity, and evidence-grounded questions.
 
 The Agent never replaces the reading surface and basic reading never waits for
 a Provider.
@@ -62,8 +64,20 @@ Locator are retained and are never rewritten to look current.
 | HTML/EPUB/web snapshot | controlled WKWebView | app-served sanitized bytes and explicit external-link handoff |
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
 
-Native Markdown drops raw HTML, never loads Markdown image URLs, and exposes a
-readable alt-text placeholder. Leaf text carries deterministic source UTF-16
+Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
+Relative images are resolved from the Markdown document directory and then
+confined to the same read-only Snapshot-root loader used by controlled WebKit.
+This permits book layouts such as `docs/chapter.md -> ../assets/figure.png`
+without permitting a path/symlink escape; MIME and 32 MiB limits still apply.
+Image metadata is inspected before decode, source dimensions are
+bounded to 16,384 pixels and 64 Mi pixels, and accepted images are downsampled
+to a 4,096-pixel maximum decoded edge; unavailable or remote images keep a
+readable alt-text placeholder. Rendered image attachments are deliberately
+unlocatable text, so selection cannot fabricate an anchor. A position capture
+that begins on an image instead uses that image's real Markdown source range,
+or the nearest mapped text when no image range exists, so image-heavy chapters
+do not retain a stale position. Tables use readable
+bordered rows rather than tab-separated fallback text. Leaf text carries deterministic source UTF-16
 attributes through heading, emphasis, list, and code styling. Mapping begins
 from each `swift-markdown` AST leaf `SourceRange`; inline-code delimiters and
 fenced-code delimiter/language lines are then removed before alignment. UTF-8
@@ -75,9 +89,11 @@ covered. Code-span newline normalization, indented fences, and indented code
 blocks therefore drop the whole leaf map instead of exposing a partial or
 syntax-anchored range. An explicit unavailable-map sentinel propagates that
 failure through selections crossing either edge of the leaf, so an adjacent
-mapped space cannot become a partial Locator. Selections and positions map
-rendered ranges back to exact source ranges (and fail closed when no map exists),
-so repeated text never falls back to a first/unique-match guess.
+mapped space cannot become a partial Locator. Selections map rendered ranges
+back to exact source ranges and fail closed when no map exists. Positions prefer
+the same exact mapping, but may use a real unavailable-leaf source range or
+nearest mapped source run as a non-selection resume anchor; repeated text never
+falls back to a first/unique-match guess.
 
 Controlled WebKit resources are confined to the Snapshot root, reject symlinks
 and unsupported MIME types, cap each resource at 32 MiB, and stream in 256 KiB
@@ -129,15 +145,36 @@ All presentation surfaces emit one normalized position stream:
 | --- | --- |
 | PDF | exact Snapshot, page index, normalized page fraction; selection rectangles remain annotation anchors |
 | Markdown, text, code | source UTF-16/range, line, quote/fingerprint, normalized text fraction |
-| HTML and web snapshot | DOM path, quote/fingerprint, normalized scroll fraction |
+| HTML and web snapshot | visible-element DOM path, nearest outline-heading DOM path, quote/fingerprint, normalized scroll fraction |
 | EPUB | spine `href` plus the controlled-Web DOM/quote/fraction position |
 | directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
 | Quick Look fallback | Source/Snapshot document-level last-open position only |
 
-Continuous scroll updates use a 350 ms persistence debounce. The latest pending
-update is flushed before any Source or Space switch and whenever the scene
-becomes inactive or enters the background, so the debounce cannot discard the
-last position. Reopening a Space restores its most recently updated Source.
+Native text bridges keep one coalescer for a live-scroll burst and wait 150 ms
+after its latest bounds change, so text layout, quote extraction,
+observable-model mutation, and storage scheduling do not run on every display
+frame. AppKit publishes immediately at live-scroll end; UIKit does so when drag
+or deceleration ends. The normalized position stream then uses a 350 ms
+persistence debounce. Before any Source/Space switch or inactive-scene flush,
+the host asks the active bridge for its current sample. Text and PDF bridges
+answer synchronously. Controlled WebKit evaluates a host-owned capture function
+against the live document; its result remains bound to the prior Space, Source,
+Snapshot, and presentation generation, so a Source/Space transition cannot make
+the callback write into the new reading context. A Space transition issues that
+capture once before changing context; opening the selected Source does not ask
+the retired surface a second time. In a multi-window app session, the request is
+also bound to the key window's presentation target and expected Source/Snapshot.
+Claim is main-actor exclusive, so another mounted Web view cannot race the
+active window's asynchronous result. WebKit records the visible element as the
+restore anchor and the nearest preceding heading separately for outline
+previous/next state. On the same Snapshot, the normalized fraction preserves the
+exact viewport while DOM/quote evidence remains available for relocation. A
+failed WebKit evaluation may fall back to the last normalized fraction, but
+that fallback removes stale DOM path, outline path, quote, and fingerprint
+evidence so restoration cannot jump to an old paragraph ahead of the saved
+fraction. Native Markdown positions use the current source line ahead of any
+stale heading path when deriving outline state. Reopening a Space restores its
+most recently updated Source.
 The reader footer shows the saved label, and Library cards show the latest
 resume target plus aggregate Source reading fraction even when no Provider or
 Reading Graph exists. Graph-unit completion remains a separate route fact and
@@ -161,22 +198,50 @@ Activity rows preserve redacted Source, Snapshot, Adapter, Locator digest, and
 outbound byte-range metadata so the disclosure describes what was actually
 sent without storing body text, paths, or notes.
 
+## Native editorial hierarchy
+
+The Library uses a quiet grouped background, one bounded continuation card,
+and a scannable shelf of stable solid-color covers. It does not use decorative
+gradients or dashboard-style metric cards. System sans-serif type belongs to
+application chrome; Markdown/text prose uses the platform serif design; code
+remains monospaced. Prose measure is capped at 720 points across native and
+controlled-Web surfaces.
+
+Opening a Space replaces Library navigation with its reading navigation rather
+than nesting another column. Reading Assistance is collapsed by default and is
+opened deliberately. User-facing chrome says 阅读空间、阅读辅助、引用 and 版本;
+adapter names, digests, and identifiers live only in explicit run or citation
+detail disclosures.
+
+Directory outlines filter actual image and font media rather than directory
+names. A readable `assets/README.md` therefore stays visible, while cover bytes
+remain out of the reading sequence. Previous/next uses that same readable node
+set, so sequential navigation cannot enter an item hidden from the outline.
+Navigation resolves exact Locators first, then format discriminators such as PDF
+page, EPUB spine, DOM path, structural heading, fingerprint/quote, and nearest
+preceding Markdown line. A relative path is used alone only when it identifies
+one node; multiple headings in one Markdown or HTML file therefore cannot all
+collapse to the first outline item. Previous/next controls are disabled at the
+resolved sequence boundaries.
+
 ## Responsive and accessible behavior
 
-macOS uses a 338-point trailing Inspector at wide sizes and a dismissible drawer
-below a 920-point detail width, preserving the reader at the 900 x 650 minimum.
-Regular-width iPad keeps Library, reading navigation, content, and an optional
-Inspector in the adaptive split workspace. Compact-width iPhone lets the system
-collapse Library navigation, keeps the reader full width, and presents
-Outline/Sources/Route/Search and Inspector in separate medium/large sheets. The
-iPhone footer becomes a horizontally scrollable icon control row rather than
-compressing actions below their usable size.
+macOS uses a 338-point trailing Reading Assistance panel at wide sizes and a
+dismissible drawer below a 760-point detail width, preserving the reader at the
+900 x 650 minimum. Regular-width iPad uses the same adaptive split workspace.
+Compact-width iPhone keeps the reader full width and presents
+Outline/Sources/Route/Search and Reading Assistance in separate medium/large
+sheets. It has one system inline navigation title and one stable bottom bar
+with four minimum-44-point actions: directory, previous item, next item, and
+notes. There is no second custom title bar or horizontally scrolling toolbar.
 
 macOS commands expose import, Space import, search, previous/next content,
 bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and
-iPad expose import, reading navigation, search, Inspector, and Settings in the
+iPad expose import, reading navigation, search, Reading Assistance, and Settings in the
 toolbar and preserve hardware-keyboard shortcuts where the platform supports
-them. Controls and search results have explicit accessibility labels, text is
+them. A toolbar or keyboard search request also reveals a hidden navigation
+column (or the compact navigation sheet) before selecting Search. Controls and
+search results have explicit accessibility labels, text is
 selectable, and animation honors Reduce Motion. Reader theme, font size, line
 width, line spacing, and PDF scale persist across launches.
 

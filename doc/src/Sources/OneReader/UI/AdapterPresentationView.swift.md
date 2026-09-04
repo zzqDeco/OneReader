@@ -26,10 +26,28 @@ geometry before either platform bridge uses it.
 All readable surfaces emit normalized `ReadingPositionUpdate` values. PDFKit
 observes page changes and reports page fraction; native Markdown/text/code
 reports source range, line, quote, and text fraction; controlled WebKit reports
-DOM path, quote, and scroll fraction and uses that fraction as its final restore
-fallback. Directory/repository and EPUB child `path`/`href` identity stays in
-the Locator. Incoming anchors are applied only once rather than snapping the
-reader back after later scrolling.
+the visible-element DOM path, a separate nearest outline-heading path, quote,
+and scroll fraction. Same-Snapshot restoration uses the fraction for the exact
+viewport after resolving DOM/quote evidence; relocation can still use that
+evidence when layout changes. Directory/repository and EPUB child `path`/`href`
+identity stays in the Locator. Incoming anchors are applied only once rather
+than snapping the reader back after later scrolling.
+
+The AppKit text bridge uses one 150 ms coalescer for an entire live-scroll
+burst, rather than creating work or deriving a Locator on every bounds change.
+It samples immediately when live scrolling ends. Before a Source, Space, or
+scene transition flushes progress, the host also sends a synchronous capture
+signal to the active native bridge; the fresh sample reaches `AppModel` before
+its generation token changes. Native and Web bridges claim that request only
+when both their window presentation target and Source/Snapshot match; one
+main-actor claim is exclusive. Render identity comes from the immutable
+presentation ID instead of re-hashing the complete chapter whenever SwiftUI
+updates, and non-contiguous TextKit layout remains enabled for long chapters.
+Dynamic Markdown positions replace a heading-only structural path with the
+current file path and line so outline navigation follows the section currently
+being read. If the viewport begins on an image or another intentionally
+unselectable Markdown leaf, position capture uses its real source range or the
+nearest mapped source run rather than retaining the previous position.
 
 The presentation descriptor makes Quick Look limitations machine-readable so
 the workspace does not expose unsupported search or structured highlight UI.

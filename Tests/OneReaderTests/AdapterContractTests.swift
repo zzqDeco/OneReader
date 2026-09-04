@@ -71,6 +71,59 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertEqual(resolution.resolved?.snapshotID, "snapshot-new")
     }
 
+    func testDirectoryMarkdownPresentationKeepsSnapshotRootAndDocumentBase() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-MarkdownResources")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let documentDirectory = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: documentDirectory,
+            withIntermediateDirectories: true
+        )
+        let markdownURL = documentDirectory.appendingPathComponent("chapter.md")
+        let content = "# Chapter\n\n![Figure](../assets/figure.png)"
+        try Data(content.utf8).write(to: markdownURL)
+        let source = Source(
+            id: "directory-markdown-source",
+            displayName: "Book",
+            originKind: .localDirectory,
+            originURL: root,
+            managedState: .ready,
+            latestSnapshotID: "directory-markdown-snapshot"
+        )
+        let snapshot = SourceSnapshot(
+            id: "directory-markdown-snapshot",
+            sourceID: source.id,
+            revision: "tree-digest",
+            revisionKind: .directoryTreeDigest,
+            digest: "tree-digest",
+            observedAt: .now,
+            origin: root,
+            managedRelativePath: nil,
+            byteCount: Int64(content.utf8.count)
+        )
+        let context = AdapterContext(
+            source: source,
+            snapshot: snapshot,
+            managedURL: markdownURL,
+            contentRootURL: root,
+            derivedRootURL: root.appendingPathComponent("Derived")
+        )
+
+        let presentation = try await MarkdownAdapter().presentation(
+            in: context,
+            at: nil
+        )
+
+        XCTAssertEqual(
+            presentation.baseURL?.standardizedFileURL,
+            root.standardizedFileURL
+        )
+        XCTAssertEqual(
+            presentation.contentURL?.standardizedFileURL,
+            markdownURL.standardizedFileURL
+        )
+    }
+
     func testPlainTextAndCodeUseNativeSelectablePresentations() async throws {
         let text = try makeFileFixture(name: "notes.txt", content: "plain searchable words")
         let code = try makeFileFixture(name: "Reader.swift", content: "struct Reader { let evidence = true }")
@@ -200,6 +253,10 @@ final class AdapterContractTests: XCTestCase {
         XCTAssertNotNil(probe)
         let nodes = try await adapter.listContent(in: fixture.context, under: nil, limit: 20)
         XCTAssertEqual(nodes.first?.title, "Chapter")
+        XCTAssertEqual(
+            nodes.first?.locator.payload["domPath"],
+            "body > h1:nth-of-type(1)"
+        )
         let rendered = try await adapter.presentation(in: fixture.context, at: nil)
         let html = try XCTUnwrap(rendered.content)
         XCTAssertFalse(html.localizedCaseInsensitiveContains("<script"))

@@ -16,6 +16,7 @@ implementation sequencing belongs in `plan/`.
 | [Acceptance](acceptance.md) | Automated and native manual acceptance matrix |
 | [Branching](branching.md) | Branch roles, pull-request flow, and promotion rules |
 | [GitHub Actions](github-actions.md) | Hosted CI and release behavior |
+| [Licensing](licensing.md) | Apache-2.0 policy, binary attribution, and dependency review |
 | [Design system](../design-system/onereader/MASTER.md) | Native visual language and interaction rules |
 | [Source notes](src/README.md) | Responsibilities of important source files |
 

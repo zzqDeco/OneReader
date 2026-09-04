@@ -5,8 +5,18 @@ Converts the pinned `swift-markdown` AST into a selectable
 emphasis, strong text, strike-through, inline/code blocks, lists, quotes,
 thematic breaks, and tables.
 
-Raw HTML is omitted. Images become alt-text placeholders and no image URL is
-fetched. Only explicit HTTP(S) destinations receive link attributes. The
+Raw HTML is omitted. Remote image URLs are never fetched. Relative images are
+resolved from the current Markdown document directory, normalized, and then
+passed through `ReadOnlyContentResourceLoader` under the presentation's
+Snapshot resource root. Parent-relative book assets inside the Snapshot work,
+while path traversal, symlinks, unsupported media, and oversized payloads fail
+closed to alt text. ImageIO metadata is checked before
+decode: either dimension above 16,384 pixels or more than 64 Mi pixels is
+rejected, and accepted images are downsampled to at most 4,096 pixels on their
+long edge before becoming an attachment. A rendered attachment carries an
+unavailable-map sentinel and cannot become a fabricated text Locator. Tables
+render as readable pipe-delimited rows with preserved cell source mapping rather
+than tabs. Only explicit HTTP(S) destinations receive link attributes. The
 renderer carries source UTF-16 attributes on emitted leaf text. The surrounding
 `NSTextView` coordinator maps ranges in both directions, derives source quote
 context and fingerprints, distinguishes repeated heading/emphasis/list text,
@@ -22,3 +32,6 @@ normalization, indented fences, and indented blocks fail closed for the whole
 leaf rather than returning a partial or syntax-anchored range. The renderer
 marks such leaves with an unavailable-map sentinel; both mapping directions
 reject any selection intersecting it, including left/right cross-leaf ranges.
+Position mapping remains separate from selection: it first tries the strict
+range map, then uses an unavailable leaf's real source range or the nearest
+mapped run so an image-heavy viewport still produces a durable resume point.

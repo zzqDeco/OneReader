@@ -54,7 +54,7 @@ enum HTMLSanitizer {
                 SanitizedHTML.Heading(
                     title: try $0.text(),
                     level: Int(String($0.tagName().dropFirst())) ?? 1,
-                    selector: try $0.cssSelector()
+                    selector: try stableDOMPath(for: $0)
                 )
             }
             let plainText = try cleanedDocument.text()
@@ -80,6 +80,25 @@ enum HTMLSanitizer {
         } catch {
             throw AdapterError.unsafeHTML(error.localizedDescription)
         }
+    }
+
+    static func stableDOMPath(for element: Element) throws -> String {
+        var parts: [String] = []
+        var current: Element? = element
+        while let node = current {
+            let tag = node.tagName().lowercased()
+            if tag == "body" { break }
+            var index = 1
+            var sibling = try node.previousElementSibling()
+            while let candidate = sibling {
+                if candidate.tagName().lowercased() == tag { index += 1 }
+                sibling = try candidate.previousElementSibling()
+            }
+            parts.insert("\(tag):nth-of-type(\(index))", at: 0)
+            current = node.parent()
+        }
+        guard !parts.isEmpty else { return "body" }
+        return "body > " + parts.joined(separator: " > ")
     }
 
     private static func rewriteManagedResources(

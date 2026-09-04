@@ -78,6 +78,7 @@ struct AdapterPresentationView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let document: PresentationDocument
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
@@ -96,7 +97,7 @@ struct AdapterPresentationView: View {
                         onPositionChange: onPositionChange
                     )
                 } else {
-                    unavailable("PDF Snapshot 不可用")
+                    unavailable("PDF 内容不可用")
                 }
             case .nativeMarkdown:
                 nativePresentation(kind: .markdown)
@@ -107,6 +108,7 @@ struct AdapterPresentationView: View {
             case .sanitizedWeb:
                 ControlledWebPresentation(
                     document: document,
+                    captureTargetID: captureTargetID,
                     preferences: preferences,
                     colorScheme: resolvedColorScheme,
                     onSelectionChange: onSelectionChange,
@@ -129,7 +131,7 @@ struct AdapterPresentationView: View {
                             )
                         }
                 } else {
-                    unavailable("Quick Look Snapshot 不可用")
+                    unavailable("系统预览内容不可用")
                 }
             }
         }
@@ -151,14 +153,9 @@ struct AdapterPresentationView: View {
 
     private var backgroundColor: Color {
         switch preferences.theme {
-        case .system:
-#if os(macOS)
-            Color(nsColor: .textBackgroundColor)
-#else
-            Color(uiColor: .systemBackground)
-#endif
-        case .paper: Color(red: 0.97, green: 0.95, blue: 0.90)
-        case .dark: Color(red: 0.08, green: 0.09, blue: 0.10)
+        case .system: ReaderTheme.paper
+        case .paper: Color(red: 0.985, green: 0.976, blue: 0.940)
+        case .dark: Color(red: 0.086, green: 0.090, blue: 0.094)
         }
     }
 
@@ -174,12 +171,44 @@ struct AdapterPresentationView: View {
     private func nativePresentation(kind: NativeTextPresentationKind) -> some View {
         let presentation = NativeSelectableTextPresentation(
             content: document.content ?? "",
+            contentIdentity: document.id,
             locator: document.locator,
             kind: kind,
+            resourceRootURL: document.baseURL,
+            documentBaseURL: document.contentURL?.deletingLastPathComponent(),
+            captureTargetID: captureTargetID,
             preferences: preferences,
             onSelectionChange: onSelectionChange,
             onPositionChange: onPositionChange
         )
+#if os(iOS)
+        GeometryReader { geometry in
+            let viewportSize = ReaderViewportSizing.finiteSize(
+                width: geometry.size.width,
+                height: geometry.size.height
+            ) ?? geometry.size
+            let maximumProseWidth = min(
+                preferences.lineWidth,
+                ReaderTheme.proseMaxWidth
+            ) + 48
+            let presentationWidth = kind == .code
+                ? viewportSize.width
+                : min(viewportSize.width, maximumProseWidth)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                presentation
+                    .frame(
+                        width: presentationWidth,
+                        height: viewportSize.height
+                    )
+                Spacer(minLength: 0)
+            }
+            .frame(
+                width: viewportSize.width,
+                height: viewportSize.height
+            )
+        }
+#else
         if kind == .code {
             presentation
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -187,11 +216,15 @@ struct AdapterPresentationView: View {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 presentation
-                    .frame(maxWidth: preferences.lineWidth + 56, maxHeight: .infinity)
+                    .frame(
+                        maxWidth: min(preferences.lineWidth, ReaderTheme.proseMaxWidth) + 48,
+                        maxHeight: .infinity
+                    )
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+#endif
     }
 }
 
@@ -199,6 +232,18 @@ enum NativeTextPresentationKind: String {
     case markdown
     case text
     case code
+}
+
+enum ReaderViewportSizing {
+    static func finiteSize(width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let width,
+              let height,
+              width.isFinite,
+              height.isFinite,
+              width > 0,
+              height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
 }
 
 struct PDFPageRectAnchor: Equatable, Sendable {
@@ -234,8 +279,12 @@ struct PDFPageRectAnchor: Equatable, Sendable {
 #if os(macOS)
 private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let content: String
+    let contentIdentity: String
     let locator: Locator
     let kind: NativeTextPresentationKind
+    let resourceRootURL: URL?
+    let documentBaseURL: URL?
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
@@ -253,7 +302,9 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let initialWidth = isCode ? 900 : preferences.lineWidth + 56
+        let initialWidth = isCode
+            ? 900
+            : min(preferences.lineWidth, ReaderTheme.proseMaxWidth) + 48
         let textView = ReaderTextView(
             frame: NSRect(x: 0, y: 0, width: initialWidth, height: 1)
         )
@@ -262,9 +313,10 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         textView.isRichText = kind == .markdown
         textView.importsGraphics = false
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 28, height: 24)
+        textView.textContainerInset = NSSize(width: 24, height: 28)
         textView.textContainer?.widthTracksTextView = !isCode
         textView.textContainer?.heightTracksTextView = false
+        textView.layoutManager?.allowsNonContiguousLayout = true
         textView.isHorizontallyResizable = isCode
         textView.isVerticallyResizable = true
         textView.minSize = NSSize(width: 0, height: 0)
@@ -275,7 +327,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.setAccessibilityLabel(isCode ? "代码阅读内容" : "文本阅读内容")
         scrollView.documentView = textView
-        context.coordinator.observe(textView, clipView: scrollView.contentView)
+        context.coordinator.observe(textView, scrollView: scrollView)
         apply(to: textView)
         return scrollView
     }
@@ -286,20 +338,29 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         apply(to: textView)
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = scrollView.documentView as? ReaderTextView {
+            coordinator.publishPositionImmediately(from: textView)
+        }
+        coordinator.stopObserving()
+    }
+
     private func apply(to textView: ReaderTextView) {
         let signature = [
             kind.rawValue,
-            AdapterUtilities.sha256(content),
+            contentIdentity,
             String(preferences.fontSize),
             String(preferences.lineSpacing),
             preferences.theme.rawValue,
+            resourceRootURL?.standardizedFileURL.path ?? "",
+            documentBaseURL?.standardizedFileURL.path ?? "",
         ].joined(separator: ":")
         if textView.renderSignature != signature {
             textView.renderSignature = signature
 
             let font = isCode
                 ? NSFont.monospacedSystemFont(ofSize: preferences.fontSize - 2, weight: .regular)
-                : NSFont.systemFont(ofSize: preferences.fontSize)
+                : readerSerifFont(ofSize: preferences.fontSize)
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = preferences.lineSpacing
             paragraph.maximumLineHeight = font.pointSize + preferences.lineSpacing + 4
@@ -307,7 +368,10 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             if kind == .markdown {
                 var renderer = NativeMarkdownRenderer(
                     fontSize: preferences.fontSize,
-                    lineSpacing: preferences.lineSpacing
+                    lineSpacing: preferences.lineSpacing,
+                    resourceRootURL: resourceRootURL,
+                    documentBaseURL: documentBaseURL,
+                    maximumImageWidth: min(preferences.lineWidth, ReaderTheme.proseMaxWidth)
                 )
                 rendered = renderer.render(content)
             } else {
@@ -329,7 +393,35 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             textView.backgroundColor = .clear
             textView.anchorSignature = nil
         }
+        resizeMarkdownImages(in: textView)
         applyAnchor(to: textView)
+    }
+
+    private func resizeMarkdownImages(
+        in textView: ReaderTextView,
+        availableWidth: CGFloat? = nil
+    ) {
+        guard kind == .markdown, let storage = textView.textStorage else { return }
+        let preferredWidth = CGFloat(min(preferences.lineWidth, ReaderTheme.proseMaxWidth))
+        let viewportWidth = availableWidth
+            ?? textView.enclosingScrollView?.contentSize.width
+            ?? 0
+        let measuredWidth = viewportWidth
+            - textView.textContainerInset.width * 2
+            - (textView.textContainer?.lineFragmentPadding ?? 0) * 2
+        let maximumWidth = measuredWidth > 0
+            ? min(preferredWidth, measuredWidth)
+            : preferredWidth
+        NativeMarkdownRenderer.resizeImageAttachments(
+            in: storage,
+            maximumImageWidth: max(1, maximumWidth)
+        )
+    }
+
+    private func readerSerifFont(ofSize size: CGFloat) -> NSFont {
+        let system = NSFont.systemFont(ofSize: size)
+        guard let descriptor = system.fontDescriptor.withDesign(.serif) else { return system }
+        return NSFont(descriptor: descriptor, size: size) ?? system
     }
 
     private func applyAnchor(to textView: ReaderTextView) {
@@ -421,30 +513,58 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         var parent: NativeSelectableTextPresentation
         private weak var observedTextView: ReaderTextView?
         private var lastPositionSignature: String?
+        private var positionPublishTask: Task<Void, Never>?
+        private var lastPositionChange = Date.distantPast
 
         init(parent: NativeSelectableTextPresentation) {
             self.parent = parent
         }
 
         deinit {
+            positionPublishTask?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
 
-        func observe(_ textView: ReaderTextView, clipView: NSClipView) {
+        func observe(_ textView: ReaderTextView, scrollView: ReaderTextScrollView) {
             observedTextView = textView
+            scrollView.contentWidthDidChange = { [weak self, weak textView] width in
+                guard let self, let textView else { return }
+                parent.resizeMarkdownImages(in: textView, availableWidth: width)
+            }
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(selectionDidChange(_:)),
                 name: NSTextView.didChangeSelectionNotification,
                 object: textView,
             )
-            clipView.postsBoundsChangedNotifications = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(visibleBoundsDidChange(_:)),
                 name: NSView.boundsDidChangeNotification,
-                object: clipView
+                object: scrollView.contentView
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(liveScrollDidEnd(_:)),
+                name: NSScrollView.didEndLiveScrollNotification,
+                object: scrollView
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        func stopObserving() {
+            positionPublishTask?.cancel()
+            positionPublishTask = nil
+            (observedTextView?.enclosingScrollView as? ReaderTextScrollView)?
+                .contentWidthDidChange = nil
+            observedTextView = nil
+            NotificationCenter.default.removeObserver(self)
         }
 
         @objc private func selectionDidChange(_ notification: Notification) {
@@ -456,6 +576,60 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
         @objc private func visibleBoundsDidChange(_ notification: Notification) {
             guard let textView = observedTextView,
                   !textView.isApplyingAnchor else { return }
+            schedulePositionPublish(from: textView)
+        }
+
+        @objc private func liveScrollDidEnd(_ notification: Notification) {
+            guard let textView = observedTextView,
+                  !textView.isApplyingAnchor else { return }
+            publishPositionImmediately(from: textView)
+        }
+
+        @objc private func positionCaptureRequested(_ notification: Notification) {
+            guard let textView = observedTextView,
+                  !textView.isApplyingAnchor else { return }
+            if let request = notification.object as? ReadingPositionCaptureRequest {
+                let targetID = parent.captureTargetID
+                guard request.claim(targetID: targetID, locator: parent.locator) else {
+                    return
+                }
+                publishPositionImmediately(from: textView)
+                request.finish(with: nil, targetID: targetID)
+                return
+            }
+            publishPositionImmediately(from: textView)
+        }
+
+        private func schedulePositionPublish(from textView: ReaderTextView) {
+            lastPositionChange = .now
+            guard positionPublishTask == nil else { return }
+            positionPublishTask = Task { @MainActor [weak self, weak textView] in
+                while let self, !Task.isCancelled {
+                    let elapsed = Date.now.timeIntervalSince(lastPositionChange)
+                    if elapsed < 0.15 {
+                        let remaining = max(1, Int(ceil((0.15 - elapsed) * 1_000)))
+                        do {
+                            try await Task.sleep(for: .milliseconds(remaining))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+                    guard let textView, !textView.isApplyingAnchor else {
+                        positionPublishTask = nil
+                        return
+                    }
+                    positionPublishTask = nil
+                    publishPosition(from: textView)
+                    return
+                }
+            }
+        }
+
+        func publishPositionImmediately(from textView: ReaderTextView) {
+            positionPublishTask?.cancel()
+            positionPublishTask = nil
+            guard !textView.isApplyingAnchor else { return }
             publishPosition(from: textView)
         }
 
@@ -565,10 +739,11 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             let locatorFingerprint: String
             if parent.kind == .markdown {
                 guard let storage = textView.textStorage,
-                      let sourceRange = MarkdownSourceMap.sourceRange(
+                      let anchor = MarkdownSourceMap.positionAnchor(
                           forRenderedRange: exactRange,
                           in: storage
                       ) else { return }
+                let sourceRange = anchor.sourceRange
                 let source = parent.content as NSString
                 guard NSMaxRange(sourceRange) <= source.length else { return }
                 let sourceExact = source.substring(with: sourceRange)
@@ -586,13 +761,16 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                     in: source,
                     range: NSRange(location: sourceSuffixStart, length: sourceSuffixLength)
                 )
-                payload["renderedStartUTF16"] = String(exactRange.location)
+                payload["renderedStartUTF16"] = String(anchor.renderedLocation)
                 payload["startUTF16"] = String(sourceRange.location)
                 payload["endUTF16"] = String(NSMaxRange(sourceRange))
                 let textBefore = source.substring(to: sourceRange.location)
-                payload["startLine"] = String(
-                    textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-                )
+                let startLine = textBefore.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+                let endLine = sourceExact.reduce(startLine) {
+                    $1 == "\n" ? $0 + 1 : $0
+                }
+                payload["startLine"] = String(startLine)
+                payload["endLine"] = String(endLine)
                 locatorQuote = TextQuote(
                     prefix: sourcePrefix.isEmpty ? nil : sourcePrefix,
                     exact: sourceExact,
@@ -617,7 +795,8 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                 snapshotID: parent.locator.snapshotID,
                 adapterID: parent.locator.adapterID,
                 payload: payload,
-                structuralPath: parent.locator.structuralPath,
+                structuralPath: parent.locator.relativePath
+                    ?? parent.locator.structuralPath,
                 textQuote: locatorQuote,
                 fingerprint: locatorFingerprint
             )
@@ -658,8 +837,31 @@ private final class ReaderTextView: NSTextView {
 }
 
 private final class ReaderTextScrollView: NSScrollView {
+    var contentWidthDidChange: ((CGFloat) -> Void)?
+    private var lastReportedContentWidth: CGFloat = 0
+    private var pendingContentWidth: CGFloat?
+    private var isWidthReportScheduled = false
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func layout() {
+        super.layout()
+        let width = contentSize.width
+        guard width > 0,
+              abs(width - lastReportedContentWidth) >= 1 else { return }
+        lastReportedContentWidth = width
+        pendingContentWidth = width
+        guard !isWidthReportScheduled else { return }
+        isWidthReportScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            isWidthReportScheduled = false
+            guard let width = pendingContentWidth else { return }
+            pendingContentWidth = nil
+            contentWidthDidChange?(width)
+        }
     }
 }
 
@@ -855,8 +1057,9 @@ private struct ManagedQuickLookPresentation: NSViewRepresentable {
     }
 }
 
-private struct ControlledWebPresentation: NSViewRepresentable {
+struct ControlledWebPresentation: NSViewRepresentable {
     let document: PresentationDocument
+    let captureTargetID: UUID
     let preferences: ReaderPreferences
     let colorScheme: ColorScheme
     let onSelectionChange: (ReaderSelection?) -> Void
@@ -901,13 +1104,14 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.underPageBackgroundColor = .clear
+        context.coordinator.observeCaptureRequests(for: view)
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.parent = self
         let renderID = [
-            AdapterUtilities.sha256(document.content ?? ""),
+            document.id,
             String(describing: preferences),
             colorScheme == .dark ? "dark" : "light",
             document.baseURL?.standardizedFileURL.path ?? "",
@@ -920,11 +1124,13 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         context.coordinator.loadedDocumentID = renderID
         context.coordinator.pendingAnchorID = anchorID
         context.coordinator.appliedAnchorID = nil
+        context.coordinator.resetCapturedPosition()
         let baseURL = URL(string: "onereader-content://\(document.locator.snapshotID)/")
         view.loadHTMLString(styledHTML, baseURL: baseURL)
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        coordinator.stopObservingCaptureRequests()
         view.configuration.userContentController.removeScriptMessageHandler(
             forName: Coordinator.selectionHandlerName
         )
@@ -935,16 +1141,30 @@ private struct ControlledWebPresentation: NSViewRepresentable {
 
     private var styledHTML: String {
         let isDark = colorScheme == .dark
-        let foreground = isDark ? "#e8e6e3" : "#25231f"
-        let background = isDark ? "#141619" : "#f8f3e8"
+        let foreground = isDark ? "#E8E6E1" : "#22211E"
+        let secondary = isDark ? "#AAA7A0" : "#66625B"
+        let border = isDark ? "#3A3B3C" : "#D8D2C7"
+        let muted = isDark ? "#202224" : "#F1EEE6"
+        let background = isDark ? "#161719" : "#FBFAF6"
         let style = """
             <style id="onereader-reader-theme">
             :root { color-scheme: \(isDark ? "dark" : "light"); }
-            body { color: \(foreground); background: \(background); font: \(preferences.fontSize)px/\(1.45 + preferences.lineSpacing / 30) ui-serif, Georgia, serif; max-width: \(preferences.lineWidth)px; margin: 0 auto; padding: 32px 34px 80px; }
-            img, svg, video { max-width: 100%; height: auto; }
+            * { box-sizing: border-box; }
+            body { color: \(foreground); background: \(background); font: \(preferences.fontSize)px/\(1.52 + preferences.lineSpacing / 32) ui-serif, Georgia, serif; max-width: \(min(preferences.lineWidth, ReaderTheme.proseMaxWidth))px; margin: 0 auto; padding: 42px 40px 96px; overflow-wrap: anywhere; }
+            h1, h2, h3 { line-height: 1.22; letter-spacing: -0.015em; margin: 1.55em 0 .55em; }
+            h1:first-child, h2:first-child { margin-top: 0; }
+            p, ul, ol { margin: 0 0 1em; }
+            img, svg, video { display: block; max-width: 100%; height: auto; margin: 1.5em auto; border-radius: 8px; }
+            pre { overflow-x: auto; padding: 16px; border: 1px solid \(border); border-radius: 8px; background: \(muted); }
             pre, code { font-family: ui-monospace, SFMono-Regular, monospace; }
-            a { color: #087f8c; }
-            ::selection { background: rgba(239, 168, 68, .34); }
+            code { font-size: .9em; }
+            blockquote { color: \(secondary); margin: 1.35em 0; padding: .1em 0 .1em 1.1em; border-left: 3px solid #0F766E; }
+            table { width: 100%; border-collapse: collapse; margin: 1.4em 0; font-size: .92em; }
+            th, td { padding: .65em .75em; border-bottom: 1px solid \(border); text-align: left; }
+            th { background: \(muted); font-weight: 600; }
+            hr { border: 0; border-top: 1px solid \(border); margin: 2em 0; }
+            a { color: #0F766E; text-underline-offset: .16em; }
+            ::selection { background: rgba(177, 125, 56, .30); }
             </style>
             """
         let html = document.content ?? ""
@@ -965,7 +1185,7 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         ].joined(separator: ":"))
     }
 
-    private static func anchorScript(for locator: Locator) -> String {
+    static func anchorScript(for locator: Locator) -> String {
         let selector = locator.payload["domPath"].flatMap { $0.isEmpty ? nil : $0 }
             ?? locator.structuralPath.flatMap { $0.hasPrefix("body") ? $0 : nil }
         let quote = locator.textQuote?.exact
@@ -1010,7 +1230,7 @@ private struct ControlledWebPresentation: NSViewRepresentable {
               }
               let textNode = matchingTextNode(target || document.body, quote);
               if (!textNode && target) textNode = matchingTextNode(document.body, quote);
-              if (!target && textNode) target = textNode.parentElement;
+              if (textNode) target = textNode.parentElement;
               if (!target) return restoreFraction();
               window.__oneReaderApplyingAnchor = true;
               if (selection) selection.removeAllRanges();
@@ -1023,7 +1243,13 @@ private struct ControlledWebPresentation: NSViewRepresentable {
                   selection.addRange(range);
                 }
               }
-              target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+              if (Number.isFinite(fraction)) {
+                const root = document.scrollingElement || document.documentElement;
+                const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
+                window.scrollTo({ top: Math.min(1, Math.max(0, fraction)) * maximum, behavior: 'auto' });
+              } else {
+                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+              }
               requestAnimationFrame(() => { window.__oneReaderApplyingAnchor = false; });
               return true;
             })();
@@ -1088,17 +1314,28 @@ private struct ControlledWebPresentation: NSViewRepresentable {
                 }
                 return '';
               }
-              function publish() {
-                if (window.__oneReaderApplyingAnchor) return;
-                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), Math.min(96, Math.max(1, window.innerHeight / 4))) || document.body;
+              function capturePosition() {
+                const referenceY = Math.min(96, Math.max(1, window.innerHeight / 4));
+                const element = document.elementFromPoint(Math.max(1, window.innerWidth / 2), referenceY) || document.body;
+                let anchor = null;
+                for (const heading of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+                  if (heading.getBoundingClientRect().top <= referenceY) anchor = heading;
+                  else break;
+                }
                 const root = document.scrollingElement || document.documentElement;
                 const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-                const fraction = maximum > 0 ? window.scrollY / maximum : 1;
-                window.webkit.messageHandlers.oneReaderPosition.postMessage({
+                const fraction = maximum > 0 ? root.scrollTop / maximum : 1;
+                return {
                   path: pathFor(element),
+                  outlinePath: anchor ? pathFor(anchor) : '',
                   quote: firstText(element),
                   fraction
-                });
+                };
+              }
+              window.__oneReaderCapturePosition = capturePosition;
+              function publish() {
+                if (window.__oneReaderApplyingAnchor) return;
+                window.webkit.messageHandlers.oneReaderPosition.postMessage(capturePosition());
               }
               let timer = 0;
               document.addEventListener('scroll', () => {
@@ -1113,9 +1350,135 @@ private struct ControlledWebPresentation: NSViewRepresentable {
         var loadedDocumentID: String?
         var pendingAnchorID: String?
         var appliedAnchorID: String?
+        private weak var observedWebView: WKWebView?
+        private var lastPath: String?
+        private var lastOutlinePath: String?
+        private var lastQuote: String?
+        private var lastFraction: Double?
 
         init(parent: ControlledWebPresentation) {
             self.parent = parent
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @MainActor
+        func observeCaptureRequests(for webView: WKWebView) {
+            observedWebView = webView
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(positionCaptureRequested(_:)),
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        @MainActor
+        func stopObservingCaptureRequests() {
+            observedWebView = nil
+            NotificationCenter.default.removeObserver(
+                self,
+                name: ReadingPositionCaptureSignal.requested,
+                object: nil
+            )
+        }
+
+        func resetCapturedPosition() {
+            lastPath = nil
+            lastOutlinePath = nil
+            lastQuote = nil
+            lastFraction = nil
+        }
+
+        @objc @MainActor
+        private func positionCaptureRequested(_ notification: Notification) {
+            guard let observedWebView else { return }
+            if let request = notification.object as? ReadingPositionCaptureRequest {
+                let targetID = parent.captureTargetID
+                guard request.claim(
+                    targetID: targetID,
+                    locator: parent.document.locator
+                ) else { return }
+                captureCurrentPosition(from: observedWebView) { update in
+                    request.finish(with: update, targetID: targetID)
+                }
+                return
+            }
+            publishPositionImmediately(from: observedWebView)
+        }
+
+        @MainActor
+        func publishPositionImmediately(from webView: WKWebView) {
+            captureCurrentPosition(from: webView) { [weak self] update in
+                self?.parent.onPositionChange(update)
+            }
+        }
+
+        @MainActor
+        private func captureCurrentPosition(
+            from webView: WKWebView,
+            completion: @escaping @MainActor (ReadingPositionUpdate) -> Void
+        ) {
+            let base = parent.document.locator
+            let fallbackFraction = lastFraction
+            guard !webView.isLoading else {
+                completion(
+                    WebReadingPositionCapture.fractionOnlyUpdate(
+                        for: base,
+                        fraction: fallbackFraction
+                    )
+                )
+                return
+            }
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let result = try? await webView.evaluateJavaScript(
+                    WebReadingPositionCapture.currentPositionJavaScript
+                )
+                guard let body = result as? [String: Any],
+                      let number = body["fraction"] as? NSNumber,
+                      number.doubleValue.isFinite else {
+                    completion(
+                        WebReadingPositionCapture.fractionOnlyUpdate(
+                            for: base,
+                            fraction: fallbackFraction
+                        )
+                    )
+                    return
+                }
+                let path = (body["path"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let outlinePath = (body["outlinePath"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let quote = (body["quote"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fraction = min(max(number.doubleValue, 0), 1)
+                if let path, !path.isEmpty { self?.lastPath = path }
+                if let outlinePath, !outlinePath.isEmpty {
+                    self?.lastOutlinePath = outlinePath
+                }
+                if let quote, !quote.isEmpty { self?.lastQuote = quote }
+                self?.lastFraction = fraction
+                completion(
+                    WebReadingPositionCapture.capturedUpdate(
+                        for: base,
+                        path: path,
+                        outlinePath: outlinePath,
+                        quote: quote,
+                        fraction: fraction
+                    )
+                )
+            }
         }
 
         @MainActor
@@ -1166,41 +1529,25 @@ private struct ControlledWebPresentation: NSViewRepresentable {
             guard let body = message.body as? [String: Any] else { return }
             if message.name == Self.positionHandlerName {
                 let path = body["path"] as? String
+                let outlinePath = body["outlinePath"] as? String
                 let quote = (body["quote"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let fraction = (body["fraction"] as? NSNumber)?.doubleValue
-                var payload = parent.document.locator.payload
-                if let path, !path.isEmpty { payload["domPath"] = path }
-                if let fraction, fraction.isFinite {
-                    payload["scrollFraction"] = String(
-                        format: "%.6f",
-                        min(max(fraction, 0), 1)
-                    )
+                if let path, !path.isEmpty { lastPath = path }
+                if let outlinePath, !outlinePath.isEmpty {
+                    lastOutlinePath = outlinePath
                 }
-                let locator = Locator(
-                    sourceID: parent.document.locator.sourceID,
-                    snapshotID: parent.document.locator.snapshotID,
-                    adapterID: parent.document.locator.adapterID,
-                    payload: payload,
-                    structuralPath: path ?? parent.document.locator.structuralPath,
-                    textQuote: quote.flatMap { value in
-                        value.isEmpty ? nil : TextQuote(prefix: nil, exact: value, suffix: nil)
-                    },
-                    fingerprint: quote.flatMap { value in
-                        value.isEmpty ? nil : AdapterUtilities.sha256(value)
-                    }
-                )
-                let normalizedFraction = fraction.map { min(max($0, 0), 1) }
-                let percentage = Int((normalizedFraction ?? 0) * 100)
+                if let quote, !quote.isEmpty { lastQuote = quote }
+                if let fraction, fraction.isFinite {
+                    lastFraction = min(max(fraction, 0), 1)
+                }
                 parent.onPositionChange(
-                    ReadingPositionUpdate(
-                        locator: locator,
-                        progressFraction: normalizedFraction,
-                        granularity: .dom,
-                        displayLabel: ReadingPositionUpdate.label(
-                            for: locator,
-                            detail: "阅读到 \(percentage)%"
-                        )
+                    WebReadingPositionCapture.update(
+                        for: parent.document.locator,
+                        path: lastPath,
+                        outlinePath: lastOutlinePath,
+                        quote: lastQuote,
+                        fraction: lastFraction
                     )
                 )
                 return
@@ -1225,6 +1572,7 @@ private struct ControlledWebPresentation: NSViewRepresentable {
             )
             parent.onSelectionChange(ReaderSelection(text: text, locator: locator))
         }
+
     }
 }
 
