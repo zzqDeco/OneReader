@@ -1,9 +1,20 @@
+import Foundation
 import SwiftUI
 
 public struct OneReaderScene: Scene {
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
 
-    public init() {}
+    public init() {
+#if DEBUG && os(iOS)
+        if let fixture = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_FIXTURE"] {
+            _model = StateObject(wrappedValue: AppModel.makeUITestFixture(named: fixture))
+        } else {
+            _model = StateObject(wrappedValue: AppModel())
+        }
+#else
+        _model = StateObject(wrappedValue: AppModel())
+#endif
+    }
 
     public var body: some Scene {
 #if os(macOS)
@@ -29,7 +40,7 @@ public struct OneReaderScene: Scene {
                 .keyboardShortcut("l", modifiers: [.command])
 
                 if model.isReadingWorkspaceOpen {
-                    Button("加入当前 Reading Space…") {
+                    Button("加入当前阅读空间…") {
                         model.presentLocalSourceImporter(destination: .currentSpace)
                     }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -40,11 +51,13 @@ public struct OneReaderScene: Scene {
                     model.selectPreviousNode()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(!model.canSelectPreviousNode)
 
                 Button("下一项") {
                     model.selectNextNode()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(!model.canSelectNextNode)
 
                 Divider()
 
@@ -61,8 +74,8 @@ public struct OneReaderScene: Scene {
 
                 Divider()
 
-                Button("搜索 Reading Space") {
-                    model.navigationTab = .search
+                Button("搜索阅读空间") {
+                    model.revealReaderNavigation(.search)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }

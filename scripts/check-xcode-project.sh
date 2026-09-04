@@ -20,6 +20,7 @@ cp "$repo_root/Package.swift" "$temporary_root/Package.swift"
 cp "$repo_root/Package.resolved" "$temporary_root/Package.resolved"
 cp -R "$repo_root/Apps" "$temporary_root/Apps"
 cp -R "$repo_root/Resources" "$temporary_root/Resources"
+cp -R "$repo_root/Tests" "$temporary_root/Tests"
 
 xcodegen generate \
   --spec "$temporary_root/project.yml" \

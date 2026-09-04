@@ -292,6 +292,69 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testDeferredWebCapturePersistsForPreviousSourceAfterImmediateSwitch() async throws {
+        let root = temporaryRoot("DeferredWebPositionSourceSwitch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstURL = root.appendingPathComponent("first.html")
+        let secondURL = root.appendingPathComponent("second.txt")
+        try Data("<h1>First</h1><p>position</p>".utf8).write(to: firstURL)
+        try Data("second source".utf8).write(to: secondURL)
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+        )
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library"),
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([firstURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument?.title == "first.html"
+                && model.activePendingImportCount == 0
+        }
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+        let firstSourceID = try XCTUnwrap(model.selectedSourceID)
+        model.importLocalURLs([secondURL], destination: .currentSpace)
+        try await waitUntil(timeout: .seconds(5)) {
+            model.sources.count == 2 && model.activePendingImportCount == 0
+        }
+        model.openSource(firstSourceID)
+        try await waitUntil { model.presentationDocument?.title == "first.html" }
+        let base = try XCTUnwrap(model.presentationDocument?.locator)
+        let exactCapture = WebReadingPositionCapture.capturedUpdate(
+            for: base,
+            path: "body > h1:nth-of-type(1)",
+            quote: "position",
+            fraction: 0.91
+        )
+        let captureProbe = DeferredPositionCaptureProbe(update: exactCapture)
+        NotificationCenter.default.addObserver(
+            captureProbe,
+            selector: #selector(DeferredPositionCaptureProbe.capture(_:)),
+            name: ReadingPositionCaptureSignal.requested,
+            object: nil
+        )
+        defer { NotificationCenter.default.removeObserver(captureProbe) }
+
+        let secondSourceID = try XCTUnwrap(
+            model.sources.first(where: { $0.id != firstSourceID })?.id
+        )
+        model.openSource(secondSourceID)
+        try await waitUntil(timeout: .seconds(2)) {
+            model.progressBySpace[spaceID]?
+                .sourcePositions[firstSourceID]?.progressFraction == 0.91
+        }
+
+        let stored = try XCTUnwrap(
+            model.progressBySpace[spaceID]?.sourcePositions[firstSourceID]
+        )
+        XCTAssertEqual(stored.locator.payload["domPath"], "body > h1:nth-of-type(1)")
+        XCTAssertEqual(stored.locator.textQuote?.exact, "position")
+        XCTAssertEqual(try XCTUnwrap(stored.progressFraction), 0.91, accuracy: 0.000_001)
+    }
+
     func testLatePositionFromPreviousChildCannotOverwriteCurrentChild() async throws {
         let root = temporaryRoot("PositionChildGeneration")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -399,7 +462,24 @@ final class AppModelLibraryTests: XCTestCase {
                 displayLabel: "第 1 行 · 31%"
             )
         )
+        let captureProbe = PositionCaptureProbe {
+            model.updateReadingPosition(
+                ReadingPositionUpdate(
+                    locator: locator,
+                    progressFraction: 0.73,
+                    granularity: .text,
+                    displayLabel: "第 1 行 · 73%"
+                )
+            )
+        }
+        NotificationCenter.default.addObserver(
+            captureProbe,
+            selector: #selector(PositionCaptureProbe.capture(_:)),
+            name: ReadingPositionCaptureSignal.requested,
+            object: nil
+        )
         model.flushReadingPosition()
+        NotificationCenter.default.removeObserver(captureProbe)
 
         let restored = AppModel(
             libraryRootURL: libraryRoot,
@@ -412,10 +492,57 @@ final class AppModelLibraryTests: XCTestCase {
 
         XCTAssertEqual(
             try XCTUnwrap(restored.currentProgress.sourcePositions[sourceID]?.progressFraction),
-            0.31,
+            0.73,
             accuracy: 0.000_001
         )
-        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 1 行 · 31%")
+        XCTAssertEqual(restored.currentProgress.sourcePositions[sourceID]?.displayLabel, "第 1 行 · 73%")
+    }
+
+    func testSynchronousWebCaptureFallbackWinsOverOlderPendingSample() async throws {
+        let root = temporaryRoot("SynchronousWebPositionFlush")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sourceURL = root.appendingPathComponent("chapter.html")
+        try Data("<h1>Chapter</h1><p>body</p>".utf8).write(to: sourceURL)
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")
+        )
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library"),
+            defaults: defaults,
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([sourceURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activePendingImportCount == 0
+        }
+        let base = try XCTUnwrap(model.presentationDocument?.locator)
+        model.updateReadingPosition(
+            WebReadingPositionCapture.fractionOnlyUpdate(for: base, fraction: 0.2)
+        )
+        let exact = WebReadingPositionCapture.capturedUpdate(
+            for: base,
+            path: "body > h1:nth-of-type(1)",
+            quote: "body",
+            fraction: 0.8
+        )
+        let captureProbe = SynchronousPositionCaptureProbe(update: exact)
+        NotificationCenter.default.addObserver(
+            captureProbe,
+            selector: #selector(SynchronousPositionCaptureProbe.capture(_:)),
+            name: ReadingPositionCaptureSignal.requested,
+            object: nil
+        )
+        defer { NotificationCenter.default.removeObserver(captureProbe) }
+
+        model.flushReadingPosition()
+
+        let stored = try XCTUnwrap(
+            model.currentProgress.sourcePositions[base.sourceID]
+        )
+        XCTAssertEqual(try XCTUnwrap(stored.progressFraction), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(stored.locator.textQuote?.exact, "body")
     }
 
     func testSeparateOpenEventsDoNotCancelEarlierImport() async throws {
@@ -1617,6 +1744,62 @@ final class AppModelLibraryTests: XCTestCase {
             sourceOrder: 0,
             preferredPresentation: .markdown
         )
+    }
+}
+
+@MainActor
+private final class PositionCaptureProbe: NSObject {
+    private let action: @MainActor () -> Void
+
+    init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+        super.init()
+    }
+
+    @objc func capture(_ notification: Notification) {
+        action()
+    }
+}
+
+@MainActor
+private final class DeferredPositionCaptureProbe: NSObject {
+    private let update: ReadingPositionUpdate
+
+    init(update: ReadingPositionUpdate) {
+        self.update = update
+        super.init()
+    }
+
+    @objc func capture(_ notification: Notification) {
+        guard let request = notification.object as? ReadingPositionCaptureRequest else {
+            return
+        }
+        let update = update
+        let targetID = request.targetID
+        guard request.claim(targetID: targetID, locator: update.locator) else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            request.finish(with: update, targetID: targetID)
+        }
+    }
+}
+
+@MainActor
+private final class SynchronousPositionCaptureProbe: NSObject {
+    private let update: ReadingPositionUpdate
+
+    init(update: ReadingPositionUpdate) {
+        self.update = update
+        super.init()
+    }
+
+    @objc func capture(_ notification: Notification) {
+        guard let request = notification.object as? ReadingPositionCaptureRequest else {
+            return
+        }
+        let targetID = request.targetID
+        guard request.claim(targetID: targetID, locator: update.locator) else { return }
+        request.finish(with: update, targetID: targetID)
     }
 }
 

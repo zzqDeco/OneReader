@@ -56,8 +56,10 @@ lifecycle flushing, persistence, Library progress, and restart restoration.
 - Bind every callback and pending write to a host-owned presentation token.
   Child navigation and Source refresh replace that token, so late callbacks can
   never overwrite the current child or a newer immutable Snapshot.
-- Restore WebKit by structural/quote anchor first and normalized scroll fraction
-  second. Preserve existing exact text and PDF page restoration behavior.
+- Restore WebKit with a visible-element DOM/quote anchor and a separate nearest
+  outline-heading path. On the same Snapshot, use the normalized scroll fraction
+  for the exact viewport after evidence resolution. Preserve existing exact text
+  and PDF page restoration behavior.
 - Show the current saved label in the reader footer and the latest resume target
   on Library cards. Use aggregate Source fractions when present and graph-unit
   completion only as a fallback.

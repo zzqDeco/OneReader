@@ -2,6 +2,11 @@ import SwiftUI
 
 struct ReaderNavigationSidebar: View {
     @EnvironmentObject private var model: AppModel
+    let showsLibraryBackButton: Bool
+
+    init(showsLibraryBackButton: Bool = true) {
+        self.showsLibraryBackButton = showsLibraryBackButton
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,23 +16,25 @@ struct ReaderNavigationSidebar: View {
             Divider()
             tabContent
         }
-        .background(.ultraThinMaterial)
+        .background(ReaderTheme.window)
         .accessibilityElement(children: .contain)
     }
 
     private var spaceHeader: some View {
         HStack(spacing: 10) {
-            Button {
-                model.closeReadingWorkspace()
-            } label: {
-                Image(systemName: "chevron.left")
+            if showsLibraryBackButton {
+                Button {
+                    model.closeReadingWorkspace()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .help("返回资料库")
+                .accessibilityLabel("返回资料库")
             }
-            .buttonStyle(.plain)
-            .help("返回资料库")
-            .accessibilityLabel("返回资料库")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.selectedSpace?.title ?? "Reading Space")
+                Text(model.selectedSpace?.title ?? "阅读空间")
                     .font(.headline)
                     .lineLimit(1)
                 Text("\(model.selectedSpaceSources.count) 个来源")
@@ -69,14 +76,14 @@ struct ReaderNavigationSidebar: View {
 
     private var outlineView: some View {
         Group {
-            if model.contentNodes.isEmpty {
+            if readerOutlineNodes.isEmpty {
                 ContentUnavailableView(
                     "没有结构化目录",
                     systemImage: "list.bullet.indent",
-                    description: Text("当前来源会直接显示；Quick Look 等兜底来源可能没有目录。")
+                    description: Text("当前来源会直接显示；系统预览等兜底内容可能没有目录。")
                 )
             } else {
-                List(model.contentNodes) { node in
+                List(readerOutlineNodes) { node in
                     Button {
                         model.openNode(node)
                     } label: {
@@ -204,7 +211,7 @@ struct ReaderNavigationSidebar: View {
                 List {
                     if let pending = model.pendingPlan {
                         Section("新路线可用") {
-                            Text("Agent 已基于更新后的证据生成 \(pending.goal) 路线。当前冻结路线不会自动替换。")
+                            Text("阅读助手已基于更新后的原文生成“\(pending.goal)”路线。当前路线不会自动替换。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Button("切换并迁移进度") {
@@ -235,11 +242,11 @@ struct ReaderNavigationSidebar: View {
             } else {
                 VStack(spacing: 14) {
                     ContentUnavailableView(
-                        "还没有 AI 阅读路线",
+                        "还没有智能阅读路线",
                         systemImage: "point.topleft.down.to.point.bottomright.curvepath",
                         description: Text("基础目录与阅读不受影响。配置模型后可基于真实证据生成冻结路线。")
                     )
-                    Button("生成 Reading Graph 与路线") {
+                    Button("生成阅读脉络与路线") {
                         model.launchAgentPipeline()
                     }
                     .buttonStyle(.borderedProminent)
@@ -281,7 +288,7 @@ struct ReaderNavigationSidebar: View {
 
             if model.searchResults.isEmpty, !model.isSearching {
                 ContentUnavailableView(
-                    model.searchText.isEmpty ? "搜索 Reading Space" : "没有匹配结果",
+                    model.searchText.isEmpty ? "搜索阅读空间" : "没有匹配结果",
                     systemImage: "magnifyingglass",
                     description: Text("结果会显示来源、快照与可跳转上下文。")
                 )
@@ -299,7 +306,7 @@ struct ReaderNavigationSidebar: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(3)
-                            Text("\(sourceLabel(hit.sourceID)) · Snapshot \(hit.snapshotID.prefix(12))")
+                            Text("\(sourceLabel(hit.sourceID)) · 版本 \(hit.snapshotID.prefix(12))")
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.tertiary)
                         }
@@ -309,7 +316,7 @@ struct ReaderNavigationSidebar: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(
                         "\(hit.title.isEmpty ? hit.locator.conciseDescription : hit.title)，"
-                        + "来源 \(sourceLabel(hit.sourceID))，Snapshot \(hit.snapshotID.prefix(12))，"
+                        + "来源 \(sourceLabel(hit.sourceID))，版本 \(hit.snapshotID.prefix(12))，"
                         + hit.context.replacingOccurrences(of: "[", with: "")
                             .replacingOccurrences(of: "]", with: "")
                     )
@@ -328,6 +335,10 @@ struct ReaderNavigationSidebar: View {
         case .file, .document: "doc"
         case .fallback: "eye"
         }
+    }
+
+    private var readerOutlineNodes: [ContentNode] {
+        ReaderContentNavigation.outlineNodes(from: model.contentNodes)
     }
 
     private func sourceSymbol(_ source: Source) -> String {
@@ -394,7 +405,7 @@ private extension SourceOriginKind {
         case .localFile: "本地文件"
         case .localDirectory: "本地目录"
         case .remoteURL: "网页快照"
-        case .githubRepository: "GitHub Snapshot"
+        case .githubRepository: "GitHub 仓库"
         }
     }
 }

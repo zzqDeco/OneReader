@@ -3,17 +3,40 @@ import SwiftUI
 struct ReaderSurfaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.readingPositionCaptureTargetID) private var captureTargetID
+
+    let onShowNavigation: (() -> Void)?
+    let onShowAssistance: (() -> Void)?
+
+    init(
+        onShowNavigation: (() -> Void)? = nil,
+        onShowAssistance: (() -> Void)? = nil
+    ) {
+        self.onShowNavigation = onShowNavigation
+        self.onShowAssistance = onShowAssistance
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            readerHeader
-            Divider()
+            if !usesCompactLayout {
+                readerHeader
+                Divider()
+            }
             presentation
-            Divider()
-            readerFooter
+            if !usesCompactLayout {
+                Divider()
+                readerFooter
+            }
         }
         .background(ReaderTheme.paper)
         .navigationTitle(model.presentationDocument?.title ?? model.selectedSpace?.title ?? "OneReader")
+#if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if usesCompactLayout {
+                compactReaderBar
+            }
+        }
+#endif
     }
 
     private var readerHeader: some View {
@@ -23,12 +46,7 @@ struct ReaderSurfaceView: View {
                     .font(.title3.weight(.semibold))
                     .lineLimit(1)
                 HStack(spacing: 7) {
-                    if let snapshot = model.selectedSnapshot {
-                        Text(snapshot.revisionLabel)
-                            .font(.caption.monospaced())
-                    }
                     if let document = model.presentationDocument {
-                        Text("·")
                         Text(document.surface.displayName)
                     }
                     if let limitation = model.presentationDescriptor?.limitation {
@@ -106,20 +124,23 @@ struct ReaderSurfaceView: View {
             let presentationToken = model.currentPresentationToken
             AdapterPresentationView(
                 document: document,
+                captureTargetID: captureTargetID,
                 preferences: model.preferences,
                 onSelectionChange: { selection in
-                    Task { @MainActor in
-                        guard model.currentPresentationToken == presentationToken else { return }
-                        model.currentSelection = selection
+                    guard model.currentPresentationToken == presentationToken,
+                          model.isActiveReadingPositionCaptureTarget(captureTargetID) else {
+                        return
                     }
+                    model.currentSelection = selection
                 },
                 onPositionChange: { update in
-                    Task { @MainActor in
-                        model.updateReadingPosition(
-                            update,
-                            presentationToken: presentationToken
-                        )
+                    guard model.isActiveReadingPositionCaptureTarget(captureTargetID) else {
+                        return
                     }
+                    model.updateReadingPosition(
+                        update,
+                        presentationToken: presentationToken
+                    )
                 }
             )
             .id(presentationToken)
@@ -128,20 +149,7 @@ struct ReaderSurfaceView: View {
     }
 
     private var readerFooter: some View {
-        Group {
-#if os(iOS)
-            if horizontalSizeClass == .compact {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    footerControls
-                        .labelStyle(.iconOnly)
-                }
-            } else {
-                footerControls
-            }
-#else
-            footerControls
-#endif
-        }
+        footerControls
         .padding(.horizontal, 17)
         .padding(.vertical, 10)
         .background(.bar)
@@ -157,6 +165,7 @@ struct ReaderSurfaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("上一项")
             .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .disabled(!model.canSelectPreviousNode)
 
             Button {
                 model.selectNextNode()
@@ -166,6 +175,7 @@ struct ReaderSurfaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("下一项")
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .disabled(!model.canSelectNextNode)
 
             if let position = model.currentPositionDescription {
                 Label("已记录 · \(position)", systemImage: "bookmark.circle")
@@ -227,38 +237,92 @@ struct ReaderSurfaceView: View {
             }
             .accessibilityLabel("添加笔记")
             .disabled(model.presentationDocument == nil)
-            .help("在 Inspector 中编写带当前位置的笔记")
+            .help("编写带当前位置的笔记")
         }
     }
+
+#if os(iOS)
+    private var compactReaderBar: some View {
+        HStack(spacing: 0) {
+            CompactReaderAction(title: "目录", systemImage: "list.bullet") {
+                onShowNavigation?()
+            }
+            CompactReaderAction(
+                title: "上一项",
+                systemImage: "chevron.left",
+                isDisabled: !model.canSelectPreviousNode
+            ) {
+                model.selectPreviousNode()
+            }
+            CompactReaderAction(
+                title: "下一项",
+                systemImage: "chevron.right",
+                isDisabled: !model.canSelectNextNode
+            ) {
+                model.selectNextNode()
+            }
+            CompactReaderAction(title: "笔记", systemImage: "note.text") {
+                onShowAssistance?()
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 5)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+#endif
 
     private var highlightHelp: String {
         if model.presentationDocument?.surface == .quickLook {
-            return "Quick Look 只支持来源级书签和笔记"
+            return "系统预览只支持来源级书签和笔记"
         }
         if model.currentSelection == nil { return "先在正文中选择文本" }
-        return "保存带稳定 Locator 的高亮"
+        return "保存可在版本变化后重新定位的高亮"
     }
-}
 
-private extension SourceSnapshot {
-    var revisionLabel: String {
-        switch revisionKind {
-        case .gitCommit: String(revision.prefix(9))
-        case .contentDigest, .directoryTreeDigest, .webSnapshot: String(digest.prefix(9))
-        case .unresolved: "未解析"
-        }
+    private var usesCompactLayout: Bool {
+#if os(iOS)
+        horizontalSizeClass == .compact
+#else
+        false
+#endif
     }
 }
 
 private extension PresentationSurface {
     var displayName: String {
         switch self {
-        case .pdfKit: "PDFKit"
-        case .nativeMarkdown: "Markdown"
-        case .nativeText: "文本"
+        case .pdfKit: "PDF"
+        case .nativeMarkdown: "富文本"
+        case .nativeText: "纯文本"
         case .nativeCode: "代码"
-        case .sanitizedWeb: "受控 Web"
-        case .quickLook: "Quick Look"
+        case .sanitizedWeb: "网页"
+        case .quickLook: "系统预览"
         }
     }
 }
+
+#if os(iOS)
+private struct CompactReaderAction: View {
+    let title: String
+    let systemImage: String
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .medium))
+                Text(title)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .disabled(isDisabled)
+    }
+}
+#endif

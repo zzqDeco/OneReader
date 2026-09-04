@@ -2,7 +2,7 @@
 
 ## Target model
 
-OneReader ships one native product across macOS, iPhone, and iPad. The shared
+OneReader maintains one native product across macOS, iPhone, and iPad. The shared
 Swift package target named `OneReader` owns domain contracts, GRDB persistence,
 managed snapshots, deterministic adapters, the Reading Agent runtime, and most
 SwiftUI views. `Apps/OneReaderApp/OneReaderAppMain.swift` is a thin executable
@@ -21,13 +21,20 @@ local `OneReader` package product and the same exact `Package.resolved` graph.
 There is no copied mobile module, second database schema, or format-specific
 mobile product mode.
 
+The v0.3.1 release gate covers macOS and the connected physical iPhone. The
+universal target remains compile-compatible with iPad, but physical iPad layout
+and gesture acceptance is deferred by product decision and is not claimed by
+this release.
+
 ## Adaptive application shell
 
 The root is one `NavigationSplitView` on every platform. macOS and regular-width
-iPad keep Library navigation beside a content-first reader workspace. iPhone
+iPad replace Library navigation with contextual reading navigation when a Space
+opens, leaving a content-first reader plus optional Reading Assistance. iPhone
 uses the system compact split-view collapse, presents Outline/Sources/Route/
-Search in a navigation sheet, and presents annotations, evidence, Activity,
-and questions in a separate Inspector sheet. The reading content remains the
+Search in a navigation sheet, and presents notes, citations, activity, and
+questions in a separate Reading Assistance sheet. Its reader uses one inline
+system title and a stable four-action bottom bar. The reading content remains the
 primary surface in every size class.
 
 macOS alone owns menu commands, Settings scene, window presets, `NSOpenPanel`,
@@ -79,10 +86,19 @@ the first occurrence.
 Every bridge publishes the same `ReadingPositionUpdate` contract with Locator,
 granularity, optional fraction, and display label. SwiftUI flushes the pending
 debounced update when the scene leaves `.active`; `AppModel` also flushes before
-Source and Space changes. This lifecycle behavior is shared by macOS, iPhone,
-and iPad rather than implemented as platform-specific persistence. Quick Look
-publishes only document granularity because neither platform exposes a stable
-public API for the system preview's internal page or scroll state.
+Source and Space changes. Native text and PDF capture synchronously. WebKit uses
+the same host-installed JavaScript capture function on macOS and iOS, and the
+host persists its asynchronous result against the captured prior Space/Source
+context even if navigation has already changed the visible generation. Failed
+evaluation stores only a safe fraction fallback and never pairs it with stale
+DOM evidence. The bridge keeps the exact visible-element DOM path separate from
+the nearest preceding outline-heading path, and same-Snapshot restoration uses
+the captured normalized fraction after resolving the evidence. Space changes
+send one capture request before changing context, so a retired Web view cannot
+be rebound to the incoming Space. This lifecycle behavior is shared by macOS,
+iPhone, and iPad rather than implemented as platform-specific persistence.
+Quick Look publishes only document granularity because neither platform exposes
+a stable public API for the system preview's internal page or scroll state.
 
 The host supplies a presentation-generation token to every bridge callback and
 remounts the presentation when it changes. This applies even when the Source ID
@@ -123,3 +139,8 @@ shared tests, a SwiftPM Release build, macOS Sandbox packaging,
 signature/entitlement checks, documentation gates, and lock-digest checks. CI
 uses the default Simulator destination and the same script; real Provider
 credentials are never present.
+
+Hosted CI and release remain pinned to Xcode 26.6. A user-local Xcode 27 beta is
+used only when an attached iOS 27 beta device is ineligible under the stable
+toolchain; that device-only evidence does not constitute a hosted Xcode 27
+migration.

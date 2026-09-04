@@ -57,11 +57,11 @@ sub-agent surface. See [Reading Agent runtime](reading-agent-runtime.md).
 - GRDB `DatabasePool` owns migrations, WAL concurrency, FTS5 indexes, and
   serialized transactions.
 
-Every platform uses one outer `NavigationSplitView` for Library navigation.
-Inside an open Space, a SwiftUI reading stack owns Outline/Sources/Route/Search,
-content, and the Inspector. macOS and regular-width iPad keep an in-layout
-reading navigation column; macOS changes the Inspector to a drawer when its
-detail width is constrained. iPhone presents reading navigation and Inspector
+Every platform uses one outer `NavigationSplitView`. Its leading column switches
+between Library navigation and open-Space Outline/Sources/Route/Search; those
+contexts are never stacked into simultaneous sidebars. The detail owns content
+and optional Reading Assistance. macOS changes assistance to a drawer when its
+detail width is constrained. iPhone presents reading navigation and assistance
 as independent sheets so content remains primary. Platform shells do not fork
 Library, adapter, Locator, progress, graph, or Agent contracts. See
 [Apple platforms](apple-platforms.md).

@@ -1,5 +1,21 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+private struct ReadingPositionCaptureTargetKey: EnvironmentKey {
+    static let defaultValue = UUID()
+}
+
+extension EnvironmentValues {
+    var readingPositionCaptureTargetID: UUID {
+        get { self[ReadingPositionCaptureTargetKey.self] }
+        set { self[ReadingPositionCaptureTargetKey.self] = newValue }
+    }
+}
 
 struct WorkspaceView: View {
     @EnvironmentObject private var model: AppModel
@@ -10,9 +26,22 @@ struct WorkspaceView: View {
     @State private var isDropTargeted = false
     @State private var isMobileNavigationPresented = false
     @State private var isSettingsPresented = false
+    @State private var readingPositionCaptureTargetID = UUID()
 
     var body: some View {
         rootWorkspace
+        .environment(
+            \.readingPositionCaptureTargetID,
+            readingPositionCaptureTargetID
+        )
+        .background {
+            ReadingPositionCaptureWindowObserver {
+                model.activateReadingPositionCaptureTarget(
+                    readingPositionCaptureTargetID
+                )
+            }
+            .frame(width: 0, height: 0)
+        }
         .sheet(isPresented: $model.isImportSheetPresented) {
             ImportSourceSheet()
                 .environmentObject(model)
@@ -58,6 +87,21 @@ struct WorkspaceView: View {
                 model.flushReadingPosition()
             }
         }
+        .onChange(of: model.readerNavigationRequestID) { _, _ in
+            guard model.isReadingWorkspaceOpen else { return }
+            if usesCompactReader {
+                isMobileNavigationPresented = true
+            } else {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                    columnVisibility = .all
+                }
+            }
+        }
+#if os(macOS)
+        // A window-sized drop destination installs a drag interaction over every
+        // descendant. That is useful on macOS, but on iPhone it competes with
+        // the vertical pan recognizers owned by Library and reader scroll views.
+        // iOS keeps the document picker / Open In entry points instead.
         .dropDestination(for: URL.self) { urls, _ in
             model.importLocalURLs(urls)
             return !urls.isEmpty
@@ -66,6 +110,7 @@ struct WorkspaceView: View {
                 isDropTargeted = isTargeted
             }
         }
+#endif
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 18)
@@ -90,7 +135,7 @@ struct WorkspaceView: View {
         }
         .sheet(isPresented: $isMobileNavigationPresented) {
             NavigationStack {
-                ReaderNavigationSidebar()
+                ReaderNavigationSidebar(showsLibraryBackButton: false)
                     .environmentObject(model)
                     .navigationTitle("阅读导航")
                     .toolbar {
@@ -122,7 +167,7 @@ struct WorkspaceView: View {
             NavigationStack {
                 ReaderInspectorView()
                     .environmentObject(model)
-                    .navigationTitle("Inspector")
+                    .navigationTitle("阅读辅助")
             }
             .presentationDetents([.medium, .large])
         }
@@ -136,9 +181,17 @@ struct WorkspaceView: View {
             NavigationStack {
                 LibraryHomeView()
                     .toolbar { toolbar }
+                    .navigationBarTitleDisplayMode(.inline)
                     .navigationDestination(isPresented: compactReaderBinding) {
-                        ReaderSurfaceView()
+                        ReaderSurfaceView(
+                            onShowNavigation: { isMobileNavigationPresented = true },
+                            onShowAssistance: {
+                                model.inspectorTab = .annotations
+                                model.isInspectorPresented = true
+                            }
+                        )
                             .toolbar { toolbar }
+                            .navigationBarTitleDisplayMode(.inline)
                     }
             }
         } else {
@@ -151,8 +204,13 @@ struct WorkspaceView: View {
 
     private var splitWorkspace: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebarView()
-                .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
+            if model.isReadingWorkspaceOpen {
+                ReaderNavigationSidebar()
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            } else {
+                LibrarySidebarView()
+                    .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
+            }
         } detail: {
             detail
         }
@@ -169,12 +227,9 @@ struct WorkspaceView: View {
                     }
             } else {
                 GeometryReader { geometry in
-                    let compact = geometry.size.width < 920
+                    let compact = geometry.size.width < 760
                     ZStack(alignment: .trailing) {
                         HStack(spacing: 0) {
-                            ReaderNavigationSidebar()
-                                .frame(width: compact ? 210 : 245)
-                            Divider()
                             ReaderSurfaceView()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .layoutPriority(1)
@@ -215,24 +270,6 @@ struct WorkspaceView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            if model.isReadingWorkspaceOpen, let snapshot = model.selectedSnapshot {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(ReaderTheme.teal)
-                        .frame(width: 7, height: 7)
-                    Text(String(snapshot.revision.prefix(9)))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(.thinMaterial, in: Capsule())
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("当前 Snapshot \(String(snapshot.revision.prefix(9)))")
-            }
-        }
-
         ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
             if usesCompactReader, !model.isReadingWorkspaceOpen {
@@ -250,58 +287,71 @@ struct WorkspaceView: View {
             }
 #endif
 
-            if model.isReadingWorkspaceOpen, usesCompactReader {
-                Button {
-                    isMobileNavigationPresented = true
+            if !model.isReadingWorkspaceOpen || !usesCompactReader {
+                Menu {
+                    Button("选择文件或目录…", systemImage: "folder") {
+                        model.presentLocalSourceImporter()
+                    }
+                    Button("粘贴 URL…", systemImage: "link") {
+                        model.isImportSheetPresented = true
+                    }
+                    if model.isReadingWorkspaceOpen {
+                        Divider()
+                        Button("加入当前阅读空间…", systemImage: "rectangle.stack.badge.plus") {
+                            model.presentLocalSourceImporter(destination: .currentSpace)
+                        }
+                    }
                 } label: {
-                    Label("阅读导航", systemImage: "list.bullet")
+                    Label("添加材料", systemImage: "plus")
                 }
+                .help("添加任意支持的来源")
             }
 
-            Menu {
-                Button("选择文件或目录…", systemImage: "folder") {
-                    model.presentLocalSourceImporter()
-                }
-                Button("粘贴 URL…", systemImage: "link") {
-                    model.isImportSheetPresented = true
-                }
-                if model.isReadingWorkspaceOpen {
-                    Divider()
-                    Button("加入当前 Reading Space…", systemImage: "rectangle.stack.badge.plus") {
-                        model.presentLocalSourceImporter(destination: .currentSpace)
-                    }
-                }
-            } label: {
-                Label("添加材料", systemImage: "plus")
-            }
-            .help("添加任意支持的来源")
-
-            if model.isReadingWorkspaceOpen {
+            if model.isReadingWorkspaceOpen, !usesCompactReader {
                 Button {
-                    model.navigationTab = .search
-                    if usesCompactReader {
-                        isMobileNavigationPresented = true
-                    }
+                    model.revealReaderNavigation(.search)
                 } label: {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
-                .help("搜索 Reading Space")
+                .help("搜索阅读空间")
 
                 Button {
                     model.isInspectorPresented.toggle()
                 } label: {
-                    Label("Inspector", systemImage: "sidebar.trailing")
+                    Label("阅读辅助", systemImage: "sidebar.trailing")
                 }
-                .help(model.isInspectorPresented ? "隐藏 Inspector" : "显示 Inspector")
+                .help(model.isInspectorPresented ? "隐藏阅读辅助" : "显示阅读辅助")
             }
 
 #if os(iOS)
-            Button {
-                isSettingsPresented = true
-            } label: {
-                Label("设置", systemImage: "gearshape")
+            if !model.isReadingWorkspaceOpen {
+                Button {
+                    isSettingsPresented = true
+                } label: {
+                    Label("设置", systemImage: "gearshape")
+                }
+                .help("阅读与模型设置")
+            } else if usesCompactReader {
+                Menu {
+                    Button("加入当前阅读空间", systemImage: "plus") {
+                        model.presentLocalSourceImporter(destination: .currentSpace)
+                    }
+                    Button("搜索正文", systemImage: "magnifyingglass") {
+                        model.revealReaderNavigation(.search)
+                    }
+                    if model.canOpenOriginalSource {
+                        Button("打开原始来源", systemImage: "arrow.up.right.square") {
+                            model.openOriginalSource()
+                        }
+                    }
+                    Divider()
+                    Button("设置", systemImage: "gearshape") {
+                        isSettingsPresented = true
+                    }
+                } label: {
+                    Label("更多", systemImage: "ellipsis.circle")
+                }
             }
-            .help("阅读与模型设置")
 #endif
         }
     }
@@ -341,3 +391,131 @@ struct WorkspaceView: View {
 #endif
     }
 }
+
+#if os(macOS)
+private struct ReadingPositionCaptureWindowObserver: NSViewRepresentable {
+    let onBecomeKey: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> KeyWindowObserverView {
+        KeyWindowObserverView(onBecomeKey: onBecomeKey)
+    }
+
+    func updateNSView(_ view: KeyWindowObserverView, context: Context) {
+        view.onBecomeKey = onBecomeKey
+    }
+
+    final class KeyWindowObserverView: NSView {
+        var onBecomeKey: @MainActor () -> Void
+        private var activationScheduled = false
+
+        init(onBecomeKey: @escaping @MainActor () -> Void) {
+            self.onBecomeKey = onBecomeKey
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didBecomeKeyNotification,
+                object: nil
+            )
+            guard let window else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidBecomeKey(_:)),
+                name: NSWindow.didBecomeKeyNotification,
+                object: window
+            )
+            activateIfKey()
+        }
+
+        func activateIfKey() {
+            guard window?.isKeyWindow == true, !activationScheduled else { return }
+            activationScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activationScheduled = false
+                guard self.window?.isKeyWindow == true else { return }
+                self.onBecomeKey()
+            }
+        }
+
+        @objc private func windowDidBecomeKey(_ notification: Notification) {
+            onBecomeKey()
+        }
+    }
+}
+#else
+private struct ReadingPositionCaptureWindowObserver: UIViewRepresentable {
+    let onBecomeKey: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> KeyWindowObserverView {
+        KeyWindowObserverView(onBecomeKey: onBecomeKey)
+    }
+
+    func updateUIView(_ view: KeyWindowObserverView, context: Context) {
+        view.onBecomeKey = onBecomeKey
+    }
+
+    final class KeyWindowObserverView: UIView {
+        var onBecomeKey: @MainActor () -> Void
+        private var activationScheduled = false
+
+        init(onBecomeKey: @escaping @MainActor () -> Void) {
+            self.onBecomeKey = onBecomeKey
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIWindow.didBecomeKeyNotification,
+                object: nil
+            )
+            guard let window else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidBecomeKey(_:)),
+                name: UIWindow.didBecomeKeyNotification,
+                object: window
+            )
+            activateIfKey()
+        }
+
+        func activateIfKey() {
+            guard window?.isKeyWindow == true, !activationScheduled else { return }
+            activationScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activationScheduled = false
+                guard self.window?.isKeyWindow == true else { return }
+                self.onBecomeKey()
+            }
+        }
+
+        @objc private func windowDidBecomeKey(_ notification: Notification) {
+            onBecomeKey()
+        }
+    }
+}
+#endif

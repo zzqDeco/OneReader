@@ -480,6 +480,9 @@ enum TextAdapterCore {
         let resolvedLocator = locator ?? rootLocator(context, adapterID: adapterID)
         try context.validate(resolvedLocator, adapterID: adapterID)
         let content = try loadText(context.managedURL)
+        let resourceRoot = isDirectory(context.contentRootURL)
+            ? context.contentRootURL
+            : context.managedURL.deletingLastPathComponent()
         return PresentationDocument(
             id: "presentation:\(resolvedLocator.stableID)",
             surface: surface,
@@ -488,7 +491,7 @@ enum TextAdapterCore {
             mediaType: mediaType,
             content: content,
             contentURL: context.managedURL,
-            baseURL: context.managedURL.deletingLastPathComponent(),
+            baseURL: resourceRoot,
             limitations: []
         )
     }

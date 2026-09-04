@@ -276,12 +276,12 @@ enum ReadingAgentError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .noProvider: "未配置可用的模型 Provider。"
-        case let .providerUnavailable(category): "Provider 不可用：\(category)"
-        case let .invalidProviderEndpoint(category): "Provider endpoint 无效：\(category)"
-        case .secretMissing: "Provider 缺少 Keychain 密钥。"
-        case .disclosureRequired: "远程 Provider 读取该 Reading Space 前需要确认数据外发说明。"
-        case .runNotCurrent: "Agent Run 已被新的来源版本或用户操作取代。"
+        case .noProvider: "未配置可用的模型服务。"
+        case let .providerUnavailable(category): "模型服务不可用：\(category)"
+        case let .invalidProviderEndpoint(category): "模型服务地址无效：\(category)"
+        case .secretMissing: "模型服务缺少钥匙串密钥。"
+        case .disclosureRequired: "远程模型首次读取该阅读空间前需要确认数据外发说明。"
+        case .runNotCurrent: "阅读辅助任务已被新的来源版本或用户操作取代。"
         case let .modelRoundBudgetExceeded(limit): "模型回合已达到上限：\(limit)。"
         case let .toolCallBudgetExceeded(limit): "工具调用已达到上限：\(limit)。"
         case let .unknownTool(name): "模型请求了未注册工具：\(name)。"
@@ -291,7 +291,7 @@ enum ReadingAgentError: LocalizedError, Equatable, Sendable {
         case let .toolExecutionFailed(category): "读取工具失败：\(category)。"
         case let .contextBudgetExceeded(limit): "模型上下文超过宿主上限：\(limit) tokens。"
         case let .responseBudgetExceeded(limit): "模型输出超过宿主上限：\(limit) bytes。"
-        case .interrupted: "Agent Run 已中断，需要显式恢复。"
+        case .interrupted: "阅读辅助任务已中断，需要手动恢复。"
         }
     }
 }
