@@ -37,6 +37,7 @@ struct LibraryHomeView: View {
             .padding(.bottom, 56)
             .frame(maxWidth: .infinity)
         }
+        .accessibilityIdentifier("library-scroll-view")
         .background(ReaderTheme.grouped)
         .navigationTitle(model.selectedCollection.title)
     }
@@ -344,6 +345,7 @@ private struct SpaceBookCard: View {
         .accessibilityLabel(
             "\(space.title)，\(sources.count) 个来源，进度 \(Int(model.progressFraction(for: space.id) * 100))%"
         )
+        .accessibilityIdentifier("space-card-\(space.id)")
     }
 
     private var cardDetail: String {

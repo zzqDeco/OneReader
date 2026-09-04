@@ -723,6 +723,7 @@ final class AppModel: ObservableObject {
     }
 
     func activateReadingPositionCaptureTarget(_ targetID: UUID) {
+        guard activeReadingPositionCaptureTargetID != targetID else { return }
         activeReadingPositionCaptureTargetID = targetID
     }
 
@@ -2534,4 +2535,129 @@ final class AppModel: ObservableObject {
     private static func positionDescription(for locator: Locator) -> String {
         inferredPositionUpdate(for: locator).displayLabel ?? "已记录"
     }
+
+#if DEBUG && os(iOS)
+    static func makeUITestFixture(named name: String) -> AppModel {
+        let model = AppModel(automaticBootstrap: false)
+        model.installUITestFixture(named: name)
+        return model
+    }
+
+    private func installUITestFixture(named name: String) {
+        if name == "library-scroll" {
+            spaces = (0..<18).map { index in
+                ReadingSpace(
+                    id: "ui-library-\(index)",
+                    title: String(format: "Scroll Book %02d", index + 1),
+                    lastOpenedAt: index == 0 ? .now : nil
+                )
+            }
+            sources = spaces.map { space in
+                Source(
+                    id: "ui-source-\(space.id)",
+                    displayName: "\(space.title).md",
+                    originKind: .localFile,
+                    originURL: nil,
+                    managedState: .ready,
+                    latestSnapshotID: "ui-snapshot-\(space.id)"
+                )
+            }
+            sourceIDsBySpace = Dictionary(uniqueKeysWithValues: zip(spaces, sources).map { pair in
+                (pair.0.id, [pair.1.id])
+            })
+            isBootstrapComplete = true
+            return
+        }
+
+        let isCodeFixture = name == "code-scroll"
+        let isMarkdownFixture = name == "markdown-scroll"
+        let spaceID = "ui-reader-space"
+        let sourceID = "ui-reader-source"
+        let snapshotID = "ui-reader-snapshot"
+        let locator = Locator(
+            sourceID: sourceID,
+            snapshotID: snapshotID,
+            adapterID: isCodeFixture
+                ? "onereader.code"
+                : (isMarkdownFixture ? "onereader.markdown" : "onereader.text"),
+            payload: [
+                "path": isCodeFixture
+                    ? "fixture.swift"
+                    : (isMarkdownFixture ? "fixture.md" : "fixture.txt"),
+            ]
+        )
+        let content: String
+        if isCodeFixture {
+            content = (0..<160).map { index in
+                "let value\(index) = \"horizontal marker \(index) "
+                    + String(repeating: "0123456789", count: 120)
+                    + " END-\(index)\""
+            }.joined(separator: "\n")
+        } else if isMarkdownFixture {
+            content = (0..<180).map { index in
+                """
+                ## Reading section \(index + 1)
+
+                This Markdown fixture verifies that rendered headings, emphasis, links, and paragraphs remain vertically scrollable inside the complete OneReader workspace. **Marker \(index + 1)** keeps every section observable.
+
+                - Evidence anchor \(index + 1)
+                - Reading position \(index + 1)
+                """
+            }.joined(separator: "\n\n")
+        } else {
+            content = (0..<900).map { index in
+                "Reading line \(index + 1): this deterministic fixture verifies real vertical touch scrolling through the complete OneReader workspace."
+            }.joined(separator: "\n\n")
+        }
+        let space = ReadingSpace(id: spaceID, title: "Touch Scroll Fixture", lastOpenedAt: .now)
+        let source = Source(
+            id: sourceID,
+            displayName: isCodeFixture
+                ? "fixture.swift"
+                : (isMarkdownFixture ? "fixture.md" : "fixture.txt"),
+            originKind: .localFile,
+            originURL: nil,
+            managedState: .ready,
+            latestSnapshotID: snapshotID
+        )
+        let snapshot = SourceSnapshot(
+            id: snapshotID,
+            sourceID: sourceID,
+            revision: "ui-test",
+            revisionKind: .contentDigest,
+            digest: "ui-test",
+            observedAt: .now,
+            origin: nil,
+            managedRelativePath: nil,
+            byteCount: Int64(content.utf8.count)
+        )
+        spaces = [space]
+        sources = [source]
+        snapshots = [snapshot]
+        sourceIDsBySpace = [spaceID: [sourceID]]
+        selectedSpaceID = spaceID
+        selectedSourceID = sourceID
+        isReadingWorkspaceOpen = true
+        presentationState = .ready(
+            PresentationDocument(
+                id: "ui-reader-document",
+                surface: isCodeFixture
+                    ? .nativeCode
+                    : (isMarkdownFixture ? .nativeMarkdown : .nativeText),
+                locator: locator,
+                title: isCodeFixture
+                    ? "Code Touch Scroll"
+                    : (isMarkdownFixture ? "Markdown Touch Scroll" : "Text Touch Scroll"),
+                mediaType: isCodeFixture
+                    ? "text/x-swift"
+                    : (isMarkdownFixture ? "text/markdown" : "text/plain"),
+                content: content,
+                contentURL: nil,
+                baseURL: nil,
+                limitations: []
+            )
+        )
+        isBootstrapComplete = true
+    }
+#endif
 }

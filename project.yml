@@ -152,6 +152,21 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OneReader.app/OneReader"
 
+  OneReader-iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.1"
+    sources:
+      - path: Tests/OneReaderiOSUITests
+    dependencies:
+      - target: OneReader-iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader.UITests
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+
 schemes:
   OneReader-macOS:
     build:
@@ -167,10 +182,14 @@ schemes:
       targets:
         OneReader-iOS: all
         OneReader-iOSLayoutTests: [test]
+        OneReader-iOSUITests: [test]
     test:
       config: Debug
+      environmentVariables:
+        ONEREADER_DEVICE_LIBRARY_SPACE_ID: "$(ONEREADER_DEVICE_LIBRARY_SPACE_ID)"
       targets:
         - OneReader-iOSLayoutTests
+        - OneReader-iOSUITests
     run:
       config: Debug
     archive:

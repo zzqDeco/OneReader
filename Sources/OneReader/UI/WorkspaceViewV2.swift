@@ -402,11 +402,11 @@ private struct ReadingPositionCaptureWindowObserver: NSViewRepresentable {
 
     func updateNSView(_ view: KeyWindowObserverView, context: Context) {
         view.onBecomeKey = onBecomeKey
-        view.activateIfKey()
     }
 
     final class KeyWindowObserverView: NSView {
         var onBecomeKey: @MainActor () -> Void
+        private var activationScheduled = false
 
         init(onBecomeKey: @escaping @MainActor () -> Void) {
             self.onBecomeKey = onBecomeKey
@@ -440,8 +440,14 @@ private struct ReadingPositionCaptureWindowObserver: NSViewRepresentable {
         }
 
         func activateIfKey() {
-            guard window?.isKeyWindow == true else { return }
-            onBecomeKey()
+            guard window?.isKeyWindow == true, !activationScheduled else { return }
+            activationScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activationScheduled = false
+                guard self.window?.isKeyWindow == true else { return }
+                self.onBecomeKey()
+            }
         }
 
         @objc private func windowDidBecomeKey(_ notification: Notification) {
@@ -459,11 +465,11 @@ private struct ReadingPositionCaptureWindowObserver: UIViewRepresentable {
 
     func updateUIView(_ view: KeyWindowObserverView, context: Context) {
         view.onBecomeKey = onBecomeKey
-        view.activateIfKey()
     }
 
     final class KeyWindowObserverView: UIView {
         var onBecomeKey: @MainActor () -> Void
+        private var activationScheduled = false
 
         init(onBecomeKey: @escaping @MainActor () -> Void) {
             self.onBecomeKey = onBecomeKey
@@ -497,8 +503,14 @@ private struct ReadingPositionCaptureWindowObserver: UIViewRepresentable {
         }
 
         func activateIfKey() {
-            guard window?.isKeyWindow == true else { return }
-            onBecomeKey()
+            guard window?.isKeyWindow == true, !activationScheduled else { return }
+            activationScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activationScheduled = false
+                guard self.window?.isKeyWindow == true else { return }
+                self.onBecomeKey()
+            }
         }
 
         @objc private func windowDidBecomeKey(_ notification: Notification) {

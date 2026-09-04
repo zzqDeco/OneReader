@@ -1,9 +1,20 @@
+import Foundation
 import SwiftUI
 
 public struct OneReaderScene: Scene {
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
 
-    public init() {}
+    public init() {
+#if DEBUG && os(iOS)
+        if let fixture = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_FIXTURE"] {
+            _model = StateObject(wrappedValue: AppModel.makeUITestFixture(named: fixture))
+        } else {
+            _model = StateObject(wrappedValue: AppModel())
+        }
+#else
+        _model = StateObject(wrappedValue: AppModel())
+#endif
+    }
 
     public var body: some Scene {
 #if os(macOS)

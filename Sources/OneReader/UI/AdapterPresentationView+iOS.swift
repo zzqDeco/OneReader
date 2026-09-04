@@ -23,10 +23,9 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeUIView(context: Context) -> ReaderTextViewportView {
-        let viewport = ReaderTextViewportView()
-        let textView = viewport.textView
-        viewport.displaysCode = isCode
+    func makeUIView(context: Context) -> ReaderTextView {
+        let textView = ReaderTextView()
+        textView.displaysCode = isCode
         textView.delegate = context.coordinator
         textView.isEditable = false
         textView.isSelectable = true
@@ -50,35 +49,25 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         textView.adjustsFontForContentSizeCategory = true
         textView.accessibilityLabel = isCode ? "代码阅读内容" : "文本阅读内容"
+        textView.accessibilityIdentifier = isCode ? "reader-code-view" : "reader-text-view"
         context.coordinator.observeCaptureRequests(for: textView)
         apply(to: textView, coordinator: context.coordinator)
-        return viewport
+        return textView
     }
 
-    func updateUIView(_ viewport: ReaderTextViewportView, context: Context) {
+    func updateUIView(_ textView: ReaderTextView, context: Context) {
         context.coordinator.parent = self
-        viewport.displaysCode = isCode
-        apply(to: viewport.textView, coordinator: context.coordinator)
-        viewport.setNeedsLayout()
+        textView.displaysCode = isCode
+        apply(to: textView, coordinator: context.coordinator)
+        textView.setNeedsLayout()
     }
 
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        uiView: ReaderTextViewportView,
-        context: Context
-    ) -> CGSize? {
-        ReaderViewportSizing.finiteSize(
-            width: proposal.width,
-            height: proposal.height
-        )
-    }
-
-    static func dismantleUIView(_ viewport: ReaderTextViewportView, coordinator: Coordinator) {
-        coordinator.publishPositionImmediately(from: viewport.textView)
+    static func dismantleUIView(_ textView: ReaderTextView, coordinator: Coordinator) {
+        coordinator.publishPositionImmediately(from: textView)
         coordinator.stopObservingCaptureRequests()
     }
 
-    private func apply(to textView: UITextView, coordinator: Coordinator) {
+    private func apply(to textView: ReaderTextView, coordinator: Coordinator) {
         let measuredWidth = textView.bounds.width
             - textView.textContainerInset.left
             - textView.textContainerInset.right
@@ -98,6 +87,8 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             String(Int(maximumImageWidth.rounded())),
         ].joined(separator: ":")
         if coordinator.renderSignature != signature {
+            coordinator.isApplyingContent = true
+            defer { coordinator.isApplyingContent = false }
             coordinator.renderSignature = signature
             let baseFont = isCode
                 ? UIFont.monospacedSystemFont(
@@ -129,9 +120,37 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                 )
             }
             coordinator.anchorSignature = nil
-            (textView.superview as? ReaderTextViewportView)?.invalidateTextLayoutMetrics()
+            let narrowGlyphAdvance = ceil(
+                ("i" as NSString).size(withAttributes: [.font: font]).width
+            )
+            coordinator.measureMinimumContentHeight(
+                content: textView.attributedText.string,
+                signature: signature,
+                availableWidth: max(1, maximumImageWidth),
+                glyphAdvance: max(1, narrowGlyphAdvance),
+                lineHeight: max(1, font.lineHeight + preferences.lineSpacing),
+                verticalInsets: textView.textContainerInset.top
+                    + textView.textContainerInset.bottom,
+                wrapsLines: !isCode,
+                in: textView
+            )
+            if isCode {
+                let glyphAdvance = ceil(
+                    ("M" as NSString).size(withAttributes: [.font: font]).width
+                )
+                coordinator.measureCodeWidth(
+                    content: content,
+                    signature: signature,
+                    glyphAdvance: max(1, glyphAdvance),
+                    lineFragmentPadding: textView.textContainer.lineFragmentPadding,
+                    in: textView
+                )
+            } else {
+                coordinator.cancelCodeWidthMeasurement(in: textView)
+            }
         }
         applyAnchor(to: textView, coordinator: coordinator)
+        coordinator.scheduleUITestMetricsRefresh(from: textView)
     }
 
     private func readerSerifFont(ofSize size: CGFloat) -> UIFont {
@@ -215,13 +234,26 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         var renderSignature: String?
         var anchorSignature: String?
         var isApplyingAnchor = false
+        var isApplyingContent = false
         private var lastPositionSignature: String?
         private var positionPublishTask: Task<Void, Never>?
+        private var codeWidthTask: Task<Void, Never>?
+        private var codeWidthWorker: Task<CGFloat, Error>?
+        private var codeWidthMeasurementID: UUID?
+        private var codeWidthSignature: String?
+        private var contentHeightTask: Task<Void, Never>?
+        private var contentHeightWorker: Task<CGFloat, Error>?
+        private var contentHeightMeasurementID: UUID?
+        private var contentHeightSignature: String?
         private var lastPositionChange = Date.distantPast
         private weak var observedTextView: UITextView?
 
         deinit {
             positionPublishTask?.cancel()
+            codeWidthTask?.cancel()
+            codeWidthWorker?.cancel()
+            contentHeightTask?.cancel()
+            contentHeightWorker?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
 
@@ -231,6 +263,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
 
         func observeCaptureRequests(for textView: UITextView) {
             observedTextView = textView
+            publishUITestScrollOffset(from: textView)
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(positionCaptureRequested(_:)),
@@ -242,8 +275,116 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         func stopObservingCaptureRequests() {
             positionPublishTask?.cancel()
             positionPublishTask = nil
+            codeWidthTask?.cancel()
+            codeWidthTask = nil
+            codeWidthWorker?.cancel()
+            codeWidthWorker = nil
+            codeWidthMeasurementID = nil
+            contentHeightTask?.cancel()
+            contentHeightTask = nil
+            contentHeightWorker?.cancel()
+            contentHeightWorker = nil
+            contentHeightMeasurementID = nil
             observedTextView = nil
             NotificationCenter.default.removeObserver(self)
+        }
+
+        func measureCodeWidth(
+            content: String,
+            signature: String,
+            glyphAdvance: CGFloat,
+            lineFragmentPadding: CGFloat,
+            in textView: ReaderTextView
+        ) {
+            guard codeWidthSignature != signature else { return }
+            codeWidthTask?.cancel()
+            codeWidthWorker?.cancel()
+            codeWidthSignature = signature
+            textView.applyCodeContentWidth(nil)
+            let measurementID = UUID()
+            codeWidthMeasurementID = measurementID
+            let worker = Task.detached(priority: .utility) {
+                try ReaderTextLayoutMetrics.codeContentWidth(
+                    for: content,
+                    glyphAdvance: glyphAdvance,
+                    lineFragmentPadding: lineFragmentPadding
+                )
+            }
+            codeWidthWorker = worker
+            codeWidthTask = Task { @MainActor [weak self, weak textView] in
+                do {
+                    let measuredWidth = try await worker.value
+                    guard !Task.isCancelled,
+                          let self,
+                          self.codeWidthMeasurementID == measurementID,
+                          self.codeWidthSignature == signature else { return }
+                    textView?.applyCodeContentWidth(measuredWidth)
+                    self.codeWidthWorker = nil
+                    self.codeWidthTask = nil
+                } catch {
+                    guard let self,
+                          self.codeWidthMeasurementID == measurementID else { return }
+                    self.codeWidthWorker = nil
+                    self.codeWidthTask = nil
+                }
+            }
+        }
+
+        func cancelCodeWidthMeasurement(in textView: ReaderTextView) {
+            codeWidthTask?.cancel()
+            codeWidthTask = nil
+            codeWidthWorker?.cancel()
+            codeWidthWorker = nil
+            codeWidthMeasurementID = nil
+            codeWidthSignature = nil
+            textView.applyCodeContentWidth(nil)
+        }
+
+        func measureMinimumContentHeight(
+            content: String,
+            signature: String,
+            availableWidth: CGFloat,
+            glyphAdvance: CGFloat,
+            lineHeight: CGFloat,
+            verticalInsets: CGFloat,
+            wrapsLines: Bool,
+            in textView: ReaderTextView
+        ) {
+            guard contentHeightSignature != signature else { return }
+            contentHeightTask?.cancel()
+            contentHeightWorker?.cancel()
+            contentHeightSignature = signature
+            textView.applyMinimumScrollableContentHeight(nil)
+            let measurementID = UUID()
+            contentHeightMeasurementID = measurementID
+            let worker = Task.detached(priority: .utility) {
+                try ReaderTextLayoutMetrics.minimumContentHeight(
+                    for: content,
+                    availableWidth: availableWidth,
+                    glyphAdvance: glyphAdvance,
+                    lineHeight: lineHeight,
+                    verticalInsets: verticalInsets,
+                    wrapsLines: wrapsLines
+                )
+            }
+            contentHeightWorker = worker
+            contentHeightTask = Task { @MainActor [weak self, weak textView] in
+                do {
+                    let minimumHeight = try await worker.value
+                    guard !Task.isCancelled,
+                          let self,
+                          self.contentHeightMeasurementID == measurementID,
+                          self.contentHeightSignature == signature else { return }
+                    textView?.applyMinimumScrollableContentHeight(minimumHeight)
+                    self.contentHeightWorker = nil
+                    self.contentHeightTask = nil
+                } catch {
+                    guard let self,
+                          self.contentHeightMeasurementID == measurementID else { return }
+                    self.contentHeightWorker = nil
+                    self.contentHeightTask = nil
+                }
+            }
         }
 
         @objc private func positionCaptureRequested(_ notification: Notification) {
@@ -261,12 +402,15 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard !isApplyingAnchor else { return }
+            guard !isApplyingAnchor, !isApplyingContent else { return }
             publishSelection(from: textView)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard !isApplyingAnchor, let textView = scrollView as? UITextView else { return }
+            guard !isApplyingAnchor,
+                  !isApplyingContent,
+                  let textView = scrollView as? UITextView else { return }
+            publishUITestScrollOffset(from: textView)
             schedulePositionPublish(from: textView)
         }
 
@@ -280,7 +424,77 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             guard let textView = scrollView as? UITextView else { return }
+            publishUITestScrollOffset(from: textView)
             publishPositionImmediately(from: textView)
+        }
+
+        func scheduleUITestMetricsRefresh(from textView: UITextView) {
+            guard shouldPublishUITestMetrics else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.publishUITestScrollOffset(from: textView)
+            }
+        }
+
+        private func publishUITestScrollOffset(from textView: UITextView) {
+            guard shouldPublishUITestMetrics else { return }
+            let x = Int(max(0, textView.contentOffset.x).rounded())
+            let y = Int(max(0, textView.contentOffset.y).rounded())
+            let contentWidth = Int(textView.contentSize.width.rounded())
+            let contentHeight = Int(textView.contentSize.height.rounded())
+            let boundsWidth = Int(textView.bounds.width.rounded())
+            let boundsHeight = Int(textView.bounds.height.rounded())
+            let textLength = textView.attributedText.length
+            let textContainerWidth = Int(textView.textContainer.size.width.rounded())
+            let sourceAnchor = parent.locator.payload["startUTF16"] ?? "-1"
+            let visibleAnchor = visibleSourceAnchor(from: textView)
+            textView.accessibilityValue = [
+                "x:\(x)",
+                "y:\(y)",
+                "cw:\(contentWidth)",
+                "ch:\(contentHeight)",
+                "bw:\(boundsWidth)",
+                "bh:\(boundsHeight)",
+                "len:\(textLength)",
+                "tcw:\(textContainerWidth)",
+                "anchor:\(sourceAnchor)",
+                "visible:\(visibleAnchor)",
+            ].joined(separator: ";")
+        }
+
+        private func visibleSourceAnchor(from textView: UITextView) -> Int {
+            let renderedValue = textView.attributedText.string as NSString
+            guard renderedValue.length > 0 else { return -1 }
+            let point = CGPoint(
+                x: textView.textContainerInset.left + 2,
+                y: textView.contentOffset.y + textView.textContainerInset.top + 2
+            )
+            let glyph = textView.layoutManager.glyphIndex(
+                for: point,
+                in: textView.textContainer,
+                fractionOfDistanceThroughGlyph: nil
+            )
+            let location = min(
+                max(0, textView.layoutManager.characterIndexForGlyph(at: glyph)),
+                renderedValue.length - 1
+            )
+            let renderedRange = renderedValue.rangeOfComposedCharacterSequences(
+                for: NSRange(location: location, length: 1)
+            )
+            guard parent.kind == .markdown else { return renderedRange.location }
+            return MarkdownSourceMap.positionAnchor(
+                forRenderedRange: renderedRange,
+                in: textView.attributedText
+            )?.sourceRange.location ?? -1
+        }
+
+        private var shouldPublishUITestMetrics: Bool {
+#if DEBUG
+            ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_FIXTURE"] != nil
+                || ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_METRICS"] == "1"
+#else
+            false
+#endif
         }
 
         private func schedulePositionPublish(from textView: UITextView) {
@@ -479,122 +693,216 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     }
 }
 
-final class ReaderTextViewportView: UIView {
-    let textView = UITextView(frame: .zero)
-    private var cachedCodeContentWidth: CGFloat?
-    private var cachedCodeMinimumWidth: CGFloat?
+final class ReaderTextView: UITextView {
+    private var codeContentWidth: CGFloat?
     var displaysCode = false {
         didSet {
             guard displaysCode != oldValue else { return }
-            invalidateTextLayoutMetrics()
+            if !displaysCode { codeContentWidth = nil }
+            updateTextContainerWidth()
+        }
+    }
+    private var minimumScrollableContentWidth: CGFloat?
+    private var minimumScrollableContentHeight: CGFloat?
+
+    override var contentSize: CGSize {
+        get { super.contentSize }
+        set {
+            var adjustedSize = newValue
+            if let minimumScrollableContentWidth {
+                adjustedSize.width = max(adjustedSize.width, minimumScrollableContentWidth)
+            }
+            if let minimumScrollableContentHeight {
+                adjustedSize.height = max(adjustedSize.height, minimumScrollableContentHeight)
+            }
+            super.contentSize = adjustedSize
         }
     }
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        clipsToBounds = true
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(textView)
-        NSLayoutConstraint.activate([
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+    func applyCodeContentWidth(_ width: CGFloat?) {
+        codeContentWidth = width
+        setNeedsLayout()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is unavailable")
-    }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(
-            width: UIView.noIntrinsicMetric,
-            height: UIView.noIntrinsicMetric
-        )
-    }
-
-    func invalidateTextLayoutMetrics() {
-        cachedCodeContentWidth = nil
-        cachedCodeMinimumWidth = nil
+    func applyMinimumScrollableContentHeight(_ height: CGFloat?) {
+        let previousHeight = minimumScrollableContentHeight
+        minimumScrollableContentHeight = height
+        if let previousHeight,
+           height == nil || (height ?? previousHeight) < previousHeight - 0.5 {
+            var resetSize = super.contentSize
+            resetSize.height = max(bounds.height, height ?? bounds.height)
+            super.contentSize = resetSize
+        }
+        enforceScrollableContentSize()
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard bounds.width > 0, bounds.height > 0 else { return }
+        updateTextContainerWidth()
+        enforceScrollableContentSize()
+    }
 
-        if displaysCode {
-            let availableWidth = max(
-                1,
-                textView.bounds.width
-                    - textView.textContainerInset.left
-                    - textView.textContainerInset.right
+    private func updateTextContainerWidth() {
+        guard bounds.width > 0 else { return }
+        textContainer.widthTracksTextView = !displaysCode
+        guard displaysCode else {
+            if minimumScrollableContentWidth != nil {
+                var resetSize = super.contentSize
+                resetSize.width = bounds.width
+                super.contentSize = resetSize
+            }
+            minimumScrollableContentWidth = nil
+            return
+        }
+        let viewportWidth = max(
+            1,
+            bounds.width
+                - textContainerInset.left
+                - textContainerInset.right
+        )
+        let targetWidth = max(viewportWidth, codeContentWidth ?? viewportWidth)
+        if abs(textContainer.size.width - targetWidth) > 0.5 {
+            textContainer.size = CGSize(
+                width: targetWidth,
+                height: CGFloat.greatestFiniteMagnitude
             )
-            let measuredWidth: CGFloat
-            if cachedCodeMinimumWidth == availableWidth,
-               let cachedCodeContentWidth {
-                measuredWidth = cachedCodeContentWidth
-            } else {
-                measuredWidth = ReaderTextLayoutMetrics.codeContentWidth(
-                    for: textView.attributedText,
-                    minimum: availableWidth,
-                    lineFragmentPadding: textView.textContainer.lineFragmentPadding
-                )
-                cachedCodeContentWidth = measuredWidth
-                cachedCodeMinimumWidth = availableWidth
-            }
-            if abs(textView.textContainer.size.width - measuredWidth) > 0.5 {
-                textView.textContainer.size = CGSize(
-                    width: measuredWidth,
-                    height: CGFloat.greatestFiniteMagnitude
-                )
-            }
-        } else {
-            textView.textContainer.widthTracksTextView = true
         }
+        let nextMinimumWidth = ceil(
+            targetWidth
+                + textContainerInset.left
+                + textContainerInset.right
+        )
+        if let previousWidth = minimumScrollableContentWidth,
+           nextMinimumWidth < previousWidth - 0.5 {
+            var resetSize = super.contentSize
+            resetSize.width = max(bounds.width, nextMinimumWidth)
+            super.contentSize = resetSize
+        }
+        minimumScrollableContentWidth = nextMinimumWidth
+        enforceScrollableContentSize()
+    }
 
-        textView.layoutManager.ensureLayout(for: textView.textContainer)
-        let usedRect = textView.layoutManager.usedRect(for: textView.textContainer)
-        let contentWidth = ceil(
-            usedRect.width
-                + textView.textContainerInset.left
-                + textView.textContainerInset.right
-        )
-        let contentHeight = ceil(
-            usedRect.height
-                + textView.textContainerInset.top
-                + textView.textContainerInset.bottom
-        )
-        let requiredSize = CGSize(
-            width: displaysCode ? max(textView.bounds.width, contentWidth) : textView.bounds.width,
-            height: max(textView.bounds.height, contentHeight)
-        )
-        if abs(textView.contentSize.width - requiredSize.width) > 0.5
-            || abs(textView.contentSize.height - requiredSize.height) > 0.5 {
-            textView.contentSize = requiredSize
+    private func enforceScrollableContentSize() {
+        var requiredSize = super.contentSize
+        if let minimumScrollableContentWidth,
+           minimumScrollableContentWidth.isFinite,
+           minimumScrollableContentWidth > bounds.width {
+            requiredSize.width = max(requiredSize.width, minimumScrollableContentWidth)
         }
+        if let minimumScrollableContentHeight,
+           minimumScrollableContentHeight.isFinite,
+           minimumScrollableContentHeight > bounds.height {
+            requiredSize.height = max(requiredSize.height, minimumScrollableContentHeight)
+        }
+        guard abs(requiredSize.width - super.contentSize.width) > 0.5
+            || abs(requiredSize.height - super.contentSize.height) > 0.5 else { return }
+        super.contentSize = requiredSize
     }
 }
 
 enum ReaderTextLayoutMetrics {
+    static let maximumCodeColumns = 4_096
+    static let maximumEstimatedLines = 500_000
+
     static func codeContentWidth(
-        for attributedText: NSAttributedString,
-        minimum: CGFloat,
+        for content: String,
+        glyphAdvance: CGFloat,
         lineFragmentPadding: CGFloat
-    ) -> CGFloat {
-        guard attributedText.length > 0 else { return minimum }
-        let measured = attributedText.boundingRect(
-            with: CGSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
-            ),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil
-        ).width
-        return max(minimum, ceil(measured + (lineFragmentPadding * 2)))
+    ) throws -> CGFloat {
+        let columns = try maximumVisualColumns(in: content, limit: maximumCodeColumns)
+        return ceil((CGFloat(columns) * max(1, glyphAdvance)) + (lineFragmentPadding * 2))
+    }
+
+    static func maximumVisualColumns(in content: String, limit: Int) throws -> Int {
+        try Task.checkCancellation()
+        guard limit > 0 else { return 0 }
+        var lineColumns = 0
+        var maximum = 0
+        var scannedBytes = 0
+        for byte in content.utf8 {
+            scannedBytes += 1
+            if scannedBytes % 4_096 == 0 {
+                try Task.checkCancellation()
+            }
+            switch byte {
+            case 0x0A:
+                maximum = max(maximum, lineColumns)
+                lineColumns = 0
+            case 0x0D:
+                continue
+            case 0x09:
+                lineColumns = min(limit, ((lineColumns / 4) + 1) * 4)
+            case 0x00...0x7F:
+                lineColumns = min(limit, lineColumns + 1)
+            case 0xC0...0xFF:
+                // Treat each non-ASCII scalar conservatively as two monospace
+                // columns; continuation bytes add no extra width.
+                lineColumns = min(limit, lineColumns + 2)
+            default:
+                continue
+            }
+            if lineColumns == limit { return limit }
+        }
+        try Task.checkCancellation()
+        return max(maximum, lineColumns)
+    }
+
+    static func minimumContentHeight(
+        for content: String,
+        availableWidth: CGFloat,
+        glyphAdvance: CGFloat,
+        lineHeight: CGFloat,
+        verticalInsets: CGFloat,
+        wrapsLines: Bool
+    ) throws -> CGFloat {
+        try Task.checkCancellation()
+        let columnsPerLine = max(
+            1,
+            Int(floor(max(1, availableWidth) / max(1, glyphAdvance)))
+        )
+        var visualLines = 1
+        var lineColumns = 0
+        var scannedBytes = 0
+
+        for byte in content.utf8 {
+            scannedBytes += 1
+            if scannedBytes % 4_096 == 0 {
+                try Task.checkCancellation()
+            }
+            if byte == 0x0A {
+                visualLines = min(maximumEstimatedLines, visualLines + 1)
+                lineColumns = 0
+                if visualLines == maximumEstimatedLines { break }
+                continue
+            }
+            if byte == 0x0D { continue }
+
+            let additionalColumns: Int
+            switch byte {
+            case 0x09:
+                additionalColumns = max(1, 4 - (lineColumns % 4))
+            case 0x00...0x7F:
+                additionalColumns = 1
+            case 0xC0...0xFF:
+                additionalColumns = 2
+            default:
+                additionalColumns = 0
+            }
+            guard wrapsLines, additionalColumns > 0 else { continue }
+            if lineColumns + additionalColumns > columnsPerLine {
+                visualLines = min(maximumEstimatedLines, visualLines + 1)
+                lineColumns = 0
+                if visualLines == maximumEstimatedLines { break }
+            }
+            lineColumns += additionalColumns
+        }
+
+        try Task.checkCancellation()
+        return ceil(
+            (CGFloat(visualLines) * max(1, lineHeight))
+                + max(0, verticalInsets)
+        )
     }
 }
 
