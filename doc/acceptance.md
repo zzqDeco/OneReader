@@ -21,6 +21,65 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## v0.3.1 Native Editorial Reader record
+
+Runtime implementation commit
+`e3440e91cf25d186477dc196bf6bc41646fad5e6`, version 0.3.1 (4), replaces the
+engineering shell with the editorial Library and focused reader while closing
+the observed macOS scroll hitch. The old text bridge reacted to every visible
+bounds change by deriving a Locator and publishing observable state; that could
+schedule persistence and another SwiftUI update while TextKit was laying out the
+same long document. Render updates could also re-derive complete presentation
+identity and replace attributed content more often than necessary.
+
+The implementation now keeps one 150 ms coalescer for a complete live-scroll
+burst, captures immediately when live scrolling ends, and debounces database
+writes for 350 ms. Immutable `PresentationDocument.id` values guard expensive
+rendering, while AppKit enables non-contiguous TextKit layout. WebKit performs
+exact host-owned capture only on demand. A Space transition captures the outgoing
+surface once and binds a delayed result to that old Space/Source/Snapshot; it
+cannot be rebound to the incoming Space. Web/EPUB positions keep the exact visible
+DOM element separate from the nearest outline heading and preserve the normalized
+viewport fraction. Markdown navigation uses the current source line ahead of a
+stale heading path. The current commit also binds capture to the key window's
+presentation target and outgoing Source/Snapshot. A main-actor-exclusive claim
+prevents another mounted Web view from racing the asynchronous result. Native
+Markdown position capture now remains valid when the viewport begins on an
+image or another deliberately unselectable leaf, while selection stays strict.
+Directory books resolve parent-relative assets from the Markdown document
+directory and then enforce immutable Snapshot-root containment.
+
+Exact-head evidence:
+
+- local Xcode 27 beta 6 `scripts/validate-native.sh` passed 227 tests, including
+  real `WKWebView` capture/reload/restore, delayed cross-Space capture, and a
+  two-Web-view target-exclusivity case; the same run passed release compilation,
+  Sandbox packaging, codesign/entitlement checks, generated-project drift,
+  documentation/release gates, and generic iPhone/iPad SDK compilation;
+- hosted Xcode 26.6 baseline
+  [`Native validation`](https://github.com/zzqDeco/OneReader/actions/runs/33618325465)
+  passed on predecessor `f0431986562901d9048b1a7b821200b4f3510d46` with 224
+  tests, release compilation,
+  Sandbox packaging, codesign/entitlement checks, generated-project drift,
+  documentation/release gates, and generic iPhone/iPad SDK compilation. Hosted
+  exact-head evidence for `e3440e9` is pending its feature-branch push;
+- `.onereader/acceptance/ui-redesign-macos-library-exact-f043198.png` records
+  the latest exact 900-pixel-wide macOS Library layout at predecessor `f043198`.
+  The current commit changes capture identity and Markdown position/resource
+  handling without changing that UI. Reader and wide/narrow
+  visual baselines at ancestor `57e8d81cff537a55a48a89bf20bf20ce623046a1`
+  remain under the same local directory; later commits changed position and
+  navigation behavior, not the editorial layout;
+- the 1 ms interval sample
+  `.onereader/acceptance/ui-redesign-macos-scroll-exact.sample.txt` at that
+  layout ancestor contains no stack occurrence of whole-content SHA work,
+  `publishPosition`, `saveReadingProgress`, or `setAttributedString`. Its
+  remaining active reader work is system TextKit/AppKit layout. This proves the
+  application-owned per-frame path was removed; it is not a synthetic FPS claim.
+
+No Simulator device was created or booted. Generic Simulator SDK compilation is
+a build gate only and does not substitute for the physical-device record.
+
 ## iPhone physical-device record
 
 On 2026-09-01 and 2026-09-02, implementation commit `3572f91` was built,
@@ -230,6 +289,8 @@ manifest records database schema 9, adapter schema 1, Agent runtime schema 5,
 ad-hoc signing, Sandbox, and unnotarized state.
 
 The workflow contract makes manual dispatch artifact-only and refuses to
-overwrite an existing GitHub Release. No live tag, remote release, or branch
-protection was created because this repository currently has no remote. The
-Developer Preview remains explicitly ad-hoc signed and not notarized.
+overwrite an existing GitHub Release. The public repository protects `main` and
+`dev` with pull requests, administrator enforcement, immutable history, and the
+required `Native validation` check. At implementation commit `e3440e9`, no live
+version tag or GitHub Release had yet been created. The Developer Preview remains
+explicitly ad-hoc signed and not notarized.
