@@ -306,17 +306,28 @@ failed result and screen recordings remain separate from the passing evidence.
 The test now taps an unobscured button location and verifies sheet dismissal;
 device accessibility settings were not changed.
 
-One supplemental gate remains incomplete: the existing **nine hosted iPhone
-layout tests** were cancelled in device-lock preflight before any test method
-ran. `.onereader/acceptance/cross-format-layout-df4ba5a.xcresult` records that
-cancellation, not a pass. The intended host launch uses
-`TEST_RUNNER_ONEREADER_UI_TEST_FIXTURE=text-scroll` to avoid the production
-Library. The temporary OneReader UI Runner was removed afterward; the App and
-Library were preserved and the device window released to the other task.
-[PR #15](https://github.com/zzqDeco/OneReader/pull/15) stays Draft pending this
-supplemental gate. No merge, new tag, or distribution was performed, and no
-Simulator device was created or booted. This record does not change the
-released v0.3.1 evidence above.
+The supplemental hosted-layout gate is now complete. On 2026-09-05, checkout
+`b86a98c54193b91b579c0ac62cbedda5d43fe87f` reran the exact same built runtime
+and test bundle on the unlocked physical iPhone: **9/9 hosted layout tests
+passed**, zero failures/skips/runtime warnings. That checkout differs from
+runtime commit `df4ba5a` only in documentation. The host uses
+`TEST_RUNNER_ONEREADER_UI_TEST_FIXTURE=text-scroll`, and the destination is
+explicitly `platform=iOS,arch=arm64`. Evidence is retained at
+`.onereader/acceptance/cross-format-layout-b86a98c-unlocked.xcresult` and its
+adjacent `.log`; test execution finished at 2026-09-05 16:06:14 +08:00.
+Production SQLite and WAL were copied again after the hosted tests and remain
+byte-identical to the pre-test copies. No OneReader test process or UI Runner
+remained on the device, and the main App/Library were preserved before the
+window was handed back to the other task.
+
+The earlier `.onereader/acceptance/cross-format-layout-df4ba5a.xcresult`
+continues to record a cancelled device-lock preflight, not a test pass.
+[CI](https://github.com/zzqDeco/OneReader/actions/runs/33953525971) also passed
+on documentation checkout `b86a98c`. All runtime and physical gates for
+[PR #15](https://github.com/zzqDeco/OneReader/pull/15) are now complete; subsequent
+documentation-only commits still receive their own required CI check. No
+merge, new tag, distribution, or Simulator boot was performed. This record
+does not change the released v0.3.1 evidence above.
 
 ### Deterministic contracts
 

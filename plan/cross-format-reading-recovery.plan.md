@@ -95,11 +95,15 @@ Sol max returns `APPROVE` with no P0/P1/P2 blockers. Eighteen screenshots are
 retained; production SQLite and WAL before/after the UI suite are byte-identical.
 See [acceptance](../doc/acceptance.md) for exact local result/log paths.
 
-The extra rerun of the nine hosted iPhone layout tests did not enter any test
-method: the device locked, so its preflight wait was explicitly cancelled. This
-remaining supplemental check is not claimed as passed. The temporary UI Runner
-was removed and the device window released; the main App and Library remain.
-PR #15 stays Draft until this check can run on an unlocked physical device.
+The initial hosted-layout rerun was cancelled in lock preflight; no test method
+ran. The fresh attempt on the unlocked phone at documentation checkout
+`b86a98c` reused the same runtime/test binaries and passed **9/9**, with zero
+failures/skips/runtime warnings. Its result is retained in
+`.onereader/acceptance/cross-format-layout-b86a98c-unlocked.xcresult`.
+Production SQLite/WAL remain byte-identical after this final device run. There
+is no remaining OneReader test process or temporary UI Runner; the main App and
+Library were preserved, and the device window was handed back to the other
+task. PR #15 can leave Draft with the runtime/review/physical gates complete.
 
 ## Non-goals
 
@@ -115,6 +119,6 @@ notarization, TestFlight, cloud sync, or changes to user Library content.
 - [x] Shared and native build gates pass
 - [x] Current-state and source docs synchronized
 - [x] Sol max review passes
-- [ ] Supplemental nine hosted iPhone layout tests rerun after device unlock
-- [x] PR opened against `dev`: [Draft #15](https://github.com/zzqDeco/OneReader/pull/15), tracked by [issue #14](https://github.com/zzqDeco/OneReader/issues/14) in `v0.3.2`
+- [x] Supplemental nine hosted iPhone layout tests rerun after device unlock
+- [x] PR opened against `dev`: [#15](https://github.com/zzqDeco/OneReader/pull/15), tracked by [issue #14](https://github.com/zzqDeco/OneReader/issues/14) in `v0.3.2`
 - [ ] Branch merged and status changed to Delivered
