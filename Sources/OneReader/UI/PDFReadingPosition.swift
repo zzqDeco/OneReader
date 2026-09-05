@@ -19,7 +19,7 @@ enum PDFViewportAnchor {
     }
 
     private static func valid(_ bounds: CGRect) -> Bool {
-        !bounds.isNull && !bounds.isEmpty
+        !bounds.isNull && !bounds.isInfinite && !bounds.isEmpty
             && [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy(\.isFinite)
     }
 
