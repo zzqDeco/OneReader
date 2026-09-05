@@ -1,4 +1,4 @@
-# v0.3 Acceptance
+# OneReader Acceptance
 
 ## Automated gates
 
@@ -252,6 +252,29 @@ Simulator device list was empty after validation.
 
 ## Fixture and contract coverage
 
+### Cross-format physical recovery gate (v0.3.2 work in progress)
+
+The physical UI suite now uses a fresh UUID-isolated managed Library for each
+recovery case. It performs actual local import and adapter preparation for
+generated PDF, EPUB, HTML, and Markdown files. Each case retains that same
+Library across process relaunch; malformed UUIDs cannot fall through to the
+production Library. The former opt-in automatic test against a user's existing
+Space is replaced by the isolated managed Markdown case.
+
+The suite covers same-page and later-page PDF destinations, HTML, both EPUB
+spine items, and Markdown. It separately waits for persistence and compares
+the actual native viewport before/after Space switches and relaunch. PDF
+observations use the live page/coordinate; Web observations use native content
+offset/fraction; Markdown also checks the independently derived visible source
+offset. Screenshots are retained at the scrolled and restored states.
+
+This new physical gate is **not yet passed**. The first 2026-09-05 attempt was
+cancelled while Xcode waited for device unlock, before any test body ran. That
+preflight result does not supersede the released v0.3.1 evidence above. No
+Simulator device was created or booted.
+
+### Deterministic contracts
+
 Generated, non-copyrighted fixtures exercise PDF, EPUB, Markdown, text, code,
 HTML, directories, web snapshots, public GitHub archives, remote documents,
 and unknown-file Quick Look routing. Adapter tests cover every declared
@@ -346,6 +369,24 @@ ad-hoc signing, Sandbox, and unnotarized state.
 The workflow contract makes manual dispatch artifact-only and refuses to
 overwrite an existing GitHub Release. The public repository protects `main` and
 `dev` with pull requests, administrator enforcement, immutable history, and the
-required `Native validation` check. At implementation commit `e3440e9`, no live
-version tag or GitHub Release had yet been created. The Developer Preview remains
-explicitly ad-hoc signed and not notarized.
+required `Native validation` check.
+
+On 2026-09-05, annotated `v0.3.1` was published from protected
+`main@d45d73a836d200d053f8b0fbf17e118cd5896c8e`. Main CI
+[`33867621471`](https://github.com/zzqDeco/OneReader/actions/runs/33867621471)
+and independent tag Release
+[`33941769373`](https://github.com/zzqDeco/OneReader/actions/runs/33941769373)
+passed all 228 shared tests and the complete validation bundle. The
+[public release](https://github.com/zzqDeco/OneReader/releases/tag/v0.3.1)
+contains DMG, ZIP, a manifest, and their three SHA-256 sidecars.
+
+Post-publication download verification passed every sidecar. Manifest tag,
+commit, version, schema, dependency-lock, license, and notice digests matched
+the exact tag. The ZIP application is arm64, version 0.3.1 (4), minimum macOS
+26.1; its strict signature and Sandbox entitlement checks pass. The DMG mounted
+read-only and contained the identical application tree. Both include the
+Apache-2.0 license, third-party notices, and 29 upstream license/notice files.
+The verification image was ejected afterward.
+
+The release is explicitly ad-hoc signed and not notarized. iPhone test evidence
+does not imply an iOS binary, TestFlight, App Store, or physical iPad release.

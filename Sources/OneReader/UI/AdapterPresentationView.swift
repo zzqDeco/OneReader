@@ -91,6 +91,7 @@ struct AdapterPresentationView: View {
                     ManagedPDFPresentation(
                         url: url,
                         documentLocator: document.locator,
+                        captureTargetID: captureTargetID,
                         pageIndex: document.locator.pdfPageIndex ?? 0,
                         scale: preferences.pdfScale,
                         onSelectionChange: onSelectionChange,
@@ -868,6 +869,7 @@ private final class ReaderTextScrollView: NSScrollView {
 private struct ManagedPDFPresentation: NSViewRepresentable {
     let url: URL
     let documentLocator: Locator
+    let captureTargetID: UUID
     let pageIndex: Int
     let scale: Double
     let onSelectionChange: (ReaderSelection?) -> Void
@@ -895,6 +897,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             context.coordinator.appliedAnchorSignature = nil
         }
         view.scaleFactor = min(max(scale, 0.5), 3)
+        context.coordinator.positionObserver.refreshScrollObservation()
         let anchorSignature = [
             documentLocator.stableID,
             documentLocator.textQuote?.exact ?? "",
@@ -904,7 +907,9 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
            let page = view.document?.page(at: pageIndex) {
             context.coordinator.isApplyingAnchor = true
             context.coordinator.appliedAnchorSignature = anchorSignature
-            if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
+            if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
+                view.go(to: PDFDestination(page: page, at: point))
+            } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
                let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
                 if let selection = page.selection(for: rect) {
                     if let exact = documentLocator.textQuote?.exact {
@@ -928,10 +933,17 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
                 view.go(to: page)
             }
             DispatchQueue.main.async {
+                guard context.coordinator.appliedAnchorSignature == anchorSignature else { return }
                 context.coordinator.isApplyingAnchor = false
-                context.coordinator.publishPosition(from: view)
+                context.coordinator.positionObserver.refreshScrollObservation()
+                context.coordinator.positionObserver.captureImmediately()
             }
         }
+    }
+
+    static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
+        coordinator.positionObserver.captureImmediately()
+        coordinator.positionObserver.stop()
     }
 
     @MainActor
@@ -940,6 +952,12 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false
+        lazy var positionObserver = PDFReadingPositionObserver(
+            base: { [weak self] in self?.parent.documentLocator },
+            targetID: { [weak self] in self?.parent.captureTargetID },
+            isApplyingAnchor: { [weak self] in self?.isApplyingAnchor ?? true },
+            publish: { [weak self] in self?.parent.onPositionChange($0) }
+        )
 
         init(parent: ManagedPDFPresentation) {
             self.parent = parent
@@ -950,67 +968,18 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
         }
 
         func observe(_ view: PDFView) {
+            positionObserver.observe(view)
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(selectionDidChange(_:)),
                 name: .PDFViewSelectionChanged,
                 object: view,
             )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(pageDidChange(_:)),
-                name: .PDFViewPageChanged,
-                object: view
-            )
         }
 
         @objc private func selectionDidChange(_ notification: Notification) {
             guard let view = notification.object as? PDFView else { return }
             publishSelection(from: view)
-        }
-
-        @objc private func pageDidChange(_ notification: Notification) {
-            guard !isApplyingAnchor,
-                  let view = notification.object as? PDFView else { return }
-            publishPosition(from: view)
-        }
-
-        func publishPosition(from view: PDFView) {
-            guard !isApplyingAnchor,
-                  let page = view.currentPage,
-                  let document = view.document else { return }
-            let pageIndex = document.index(for: page)
-            guard pageIndex >= 0 else { return }
-            var payload = parent.documentLocator.payload
-            payload["pageIndex"] = String(pageIndex)
-            payload["rect"] = nil
-            let locator = Locator(
-                sourceID: parent.documentLocator.sourceID,
-                snapshotID: parent.documentLocator.snapshotID,
-                adapterID: parent.documentLocator.adapterID,
-                payload: payload,
-                structuralPath: "page/\(pageIndex)",
-                textQuote: nil,
-                fingerprint: nil
-            )
-            let pageCount = document.pageCount
-            let fraction = pageCount > 0
-                ? Double(pageIndex + 1) / Double(pageCount)
-                : nil
-            let detail = pageCount > 0
-                ? "第 \(pageIndex + 1) / \(pageCount) 页"
-                : "第 \(pageIndex + 1) 页"
-            parent.onPositionChange(
-                ReadingPositionUpdate(
-                    locator: locator,
-                    progressFraction: fraction,
-                    granularity: .page,
-                    displayLabel: ReadingPositionUpdate.label(
-                        for: locator,
-                        detail: detail
-                    )
-                )
-            )
         }
 
         private func publishSelection(from view: PDFView) {
@@ -1025,6 +994,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             let pageIndex = document.index(for: page)
             let rect = selection.bounds(for: page)
             var payload = parent.documentLocator.payload
+            ["positionKind", "viewportX", "viewportY"].forEach { payload[$0] = nil }
             payload["pageIndex"] = String(pageIndex)
             payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
                 .map { String(format: "%.3f", $0) }

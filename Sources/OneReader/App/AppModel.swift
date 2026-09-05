@@ -2537,7 +2537,64 @@ final class AppModel: ObservableObject {
     }
 
 #if DEBUG && os(iOS)
+    @Published private(set) var recoveryUITestReady = false
+
+    static func makeRecoveryUITestFixture(rawID: String) -> AppModel {
+        guard let runID = UUID(uuidString: rawID) else {
+            let model = AppModel(automaticBootstrap: false)
+            model.notice = AppNotice(title: "Recovery fixture failed", message: "A valid UUID is required; production Library was not opened.")
+            model.isBootstrapComplete = true
+            return model
+        }
+        let root = ReaderRecoveryUITestFixture.root(for: runID)
+        UIApplication.shared.isIdleTimerDisabled = true
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library", isDirectory: true),
+            defaults: UserDefaults(suiteName: "OneReader.RecoveryUITest.\(runID.uuidString)")!,
+            automaticBootstrap: false
+        )
+        Task {
+            await model.bootstrap()
+            do {
+                let urls = try ReaderRecoveryUITestFixture.materials(in: root)
+                for url in urls where !model.sources.contains(where: {
+                    $0.displayName == url.lastPathComponent
+                }) {
+                    await model.importOne(.local(url), destination: .newSpace, allowLargeImport: false)
+                }
+                model.closeReadingWorkspace()
+                model.recoveryUITestReady = true
+            } catch {
+                model.notice = AppNotice(title: "Recovery fixture failed", message: error.localizedDescription)
+            }
+        }
+        return model
+    }
+
+    var recoveryUITestPersistenceMetrics: String {
+        guard let spaceID = selectedSpaceID,
+              let sourceID = selectedSourceID,
+              let position = progressBySpace[spaceID]?.sourcePositions[sourceID] else { return "pending" }
+        let locator = position.locator
+        let fields = [
+            "source": locator.sourceID,
+            "snapshot": locator.snapshotID,
+            "adapter": locator.adapterID,
+            "path": locator.payload["href"] ?? locator.payload["path"] ?? "",
+            "page": locator.payload["pageIndex"] ?? "",
+            "rect": locator.payload["rect"] ?? "",
+            "viewportY": locator.payload["viewportY"] ?? "",
+            "start": locator.payload["startUTF16"] ?? "",
+            "dom": locator.payload["domPath"] ?? "",
+            "fraction": String(position.progressFraction ?? -1),
+        ]
+        guard let data = try? JSONEncoder().encode(fields) else { return "pending" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     static func makeUITestFixture(named name: String) -> AppModel {
+        precondition(["library-scroll", "text-scroll", "markdown-scroll", "code-scroll"].contains(name), "Unknown UI test fixture")
+        UIApplication.shared.isIdleTimerDisabled = true
         let model = AppModel(automaticBootstrap: false)
         model.installUITestFixture(named: name)
         return model

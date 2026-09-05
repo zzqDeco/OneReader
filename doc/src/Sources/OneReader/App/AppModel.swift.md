@@ -1,5 +1,13 @@
 # `Sources/OneReader/App/AppModel.swift`
 
+DEBUG physical recovery tests validate a UUID launch namespace and bootstrap an
+isolated Library/UserDefaults suite beside, not inside, the production Library.
+Generated PDF/EPUB/HTML/Markdown material uses the normal managed import and
+adapter path. Relaunch preserves Source/Snapshot identity and the same database;
+invalid UUIDs fail closed without opening production storage. The legacy
+automatic test that changed an existing user's reading progress has been
+replaced by this isolated managed fixture.
+
 Owns main-actor application orchestration:
 
 - empty-first-launch Library/Space/Source selection;

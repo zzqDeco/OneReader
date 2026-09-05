@@ -4,8 +4,10 @@ Owns native UIKit bridges for the shared presentation registry. `UITextView`
 uses Dynamic Type-scaled serif prose (and monospaced code), renders selectable
 Markdown/text/code, and maps selections and scroll positions
 to the same source UTF-16 Locators as the macOS text bridge. `PDFView` emits page
-and rectangle anchors, then restores the clipped rectangle before ambiguous
-quote-only fallback and validates a recovered selection against its exact quote.
+and rectangle anchors. Saved viewport positions use the shared
+[PDF capture observer](PDFReadingPosition.swift.md) and PDFDestination; selections
+restore the clipped rectangle before ambiguous quote-only fallback and validate
+a recovered selection against its exact quote.
 `QLPreviewController` preserves Quick Look's source-level capability limit.
 
 Every UIKit bridge emits the same rich position update as its AppKit peer:
@@ -33,3 +35,9 @@ The iOS `WKWebView` is non-persistent, disables Source JavaScript, loads only
 the shared read-only `onereader-content` scheme, and hands an activated external
 HTTP(S) link to `UIApplication`. Host-owned selection and position user scripts
 produce DOM/quote Locators but cannot widen navigation or network authority.
+
+DEBUG recovery tests use read-only accessibility observations from the mounted
+PDFView/WKWebView (page coordinates and native scroll offsets). Saved-position
+metadata is exposed separately by AppModel and cannot satisfy the viewport
+assertions. These observation subclasses compile to native typealiases in
+Release builds and do not enable Source scripts or change gesture ownership.

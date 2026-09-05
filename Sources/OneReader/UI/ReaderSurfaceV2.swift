@@ -23,6 +23,14 @@ struct ReaderSurfaceView: View {
                 Divider()
             }
             presentation
+#if DEBUG && os(iOS)
+            if ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_RECOVERY_ID"] != nil {
+                Text("Recovery test")
+                    .font(.system(size: 8))
+                    .accessibilityIdentifier("reader-persisted-position")
+                    .accessibilityValue(model.recoveryUITestPersistenceMetrics)
+            }
+#endif
             if !usesCompactLayout {
                 Divider()
                 readerFooter
