@@ -264,14 +264,59 @@ Space is replaced by the isolated managed Markdown case.
 The suite covers same-page and later-page PDF destinations, HTML, both EPUB
 spine items, and Markdown. It separately waits for persistence and compares
 the actual native viewport before/after Space switches and relaunch. PDF
-observations use the live page/coordinate; Web observations use native content
-offset/fraction; Markdown also checks the independently derived visible source
+observations use both live page coordinates; Web observations use native content
+offset/fraction and the actual loaded DOM document title (not the persisted
+spine Locator); Markdown also checks the independently derived visible source
 offset. Screenshots are retained at the scrolled and restored states.
 
-This new physical gate is **not yet passed**. The first 2026-09-05 attempt was
-cancelled while Xcode waited for device unlock, before any test body ran. That
-preflight result does not supersede the released v0.3.1 evidence above. No
-Simulator device was created or booted.
+Runtime implementation `df4ba5a70774848e6d60bf55b106185ca4b51c64` passed the
+complete **10/10 physical UI suite** on 2026-09-05: all six recovery cases plus
+the four existing Library/text/Markdown/code touch-scroll regressions. The
+device was an iPhone 13 Pro Max running iOS 27.0 (`24A5424a`), built with Xcode
+27.0 (`27A5252f`) at `/Applications/Xcode.app/Contents/Developer`. Retained local
+evidence:
+
+- `.onereader/acceptance/cross-format-device-df4ba5a.xcresult`: 10 passed,
+  zero failures, zero skipped, no runtime warnings;
+- `.onereader/acceptance/cross-format-device-df4ba5a-attachments/`: 18 retained
+  screenshots across scrolled, Space-restored, and process-restored states;
+  PDF, Markdown, and second-spine EPUB restoration screenshots were visually
+  checked against their scrolled states;
+- `.onereader/acceptance/cross-format-post-layout-validation.log`: 234 shared
+  tests passed, release build, Sandbox packaging/codesign/entitlements, project
+  drift, documentation/release policy, and generic iPhoneOS compilation passed;
+- hosted [CI / Native validation](https://github.com/zzqDeco/OneReader/actions/runs/33952657065)
+  passed on this exact runtime implementation;
+- final Sol max review: `APPROVE`, no P0/P1/P2 blockers;
+- production `Library.sqlite` and `Library.sqlite-wal` copied before and after
+  the isolated UI runs were byte-identical (`cmp` succeeded). These private
+  copies and all generated fixtures remain local and untracked.
+
+PDF destinations now wait for nonzero native layout. Native text positions use
+source-anchor line-relative offsets instead of only making a range visible.
+Six deterministic PDF tests cover all four rotations, both page coordinates,
+within-page capture, lifecycle targeting, teardown, malformed geometry, and
+deferred single-shot restoration. The generated six-page PDF was additionally
+checked with `pdfinfo` and its first full page rendered for visual inspection.
+
+The predecessor `17ebd694` had passed native CI but only 2/6 physical recovery
+cases: PDF returned to the top, Markdown shifted its viewport, and the
+second-spine EPUB test had its Done tap intercepted by AssistiveTouch. Its
+failed result and screen recordings remain separate from the passing evidence.
+The test now taps an unobscured button location and verifies sheet dismissal;
+device accessibility settings were not changed.
+
+One supplemental gate remains incomplete: the existing **nine hosted iPhone
+layout tests** were cancelled in device-lock preflight before any test method
+ran. `.onereader/acceptance/cross-format-layout-df4ba5a.xcresult` records that
+cancellation, not a pass. The intended host launch uses
+`TEST_RUNNER_ONEREADER_UI_TEST_FIXTURE=text-scroll` to avoid the production
+Library. The temporary OneReader UI Runner was removed afterward; the App and
+Library were preserved and the device window released to the other task.
+[PR #15](https://github.com/zzqDeco/OneReader/pull/15) stays Draft pending this
+supplemental gate. No merge, new tag, or distribution was performed, and no
+Simulator device was created or booted. This record does not change the
+released v0.3.1 evidence above.
 
 ### Deterministic contracts
 

@@ -85,8 +85,21 @@ native text line-relative offsets, and assert the actual WKWebView DOM chapter
 title. The test dismisses the sheet using an unobscured part of Done and checks
 that it disappeared without changing device accessibility settings. PDF tests
 now cover all four rotations, both page coordinates, and deferred single-shot
-application. Six PDF unit tests pass locally; renewed physical acceptance and
-Sol review are still required.
+application.
+
+At runtime implementation `df4ba5a70774848e6d60bf55b106185ca4b51c64`, all ten
+physical UI cases pass (six recovery plus four existing gesture regressions),
+234 shared tests and complete native validation pass, exact-head hosted
+[CI](https://github.com/zzqDeco/OneReader/actions/runs/33952657065) passes, and
+Sol max returns `APPROVE` with no P0/P1/P2 blockers. Eighteen screenshots are
+retained; production SQLite and WAL before/after the UI suite are byte-identical.
+See [acceptance](../doc/acceptance.md) for exact local result/log paths.
+
+The extra rerun of the nine hosted iPhone layout tests did not enter any test
+method: the device locked, so its preflight wait was explicitly cancelled. This
+remaining supplemental check is not claimed as passed. The temporary UI Runner
+was removed and the device window released; the main App and Library remain.
+PR #15 stays Draft until this check can run on an unlocked physical device.
 
 ## Non-goals
 
@@ -97,10 +110,11 @@ notarization, TestFlight, cloud sync, or changes to user Library content.
 
 - [x] v0.3.1 publication documentation synchronized
 - [x] Isolated persistent fixtures and physical tests implemented
-- [ ] PDF/EPUB/HTML visible recovery acceptance recorded
-- [ ] Existing native-scroll tests remain green
-- [ ] Shared and native build gates pass
-- [ ] Current-state and source docs synchronized
-- [ ] Sol max review passes
+- [x] PDF/EPUB/HTML visible recovery acceptance recorded
+- [x] Existing native-scroll tests remain green
+- [x] Shared and native build gates pass
+- [x] Current-state and source docs synchronized
+- [x] Sol max review passes
+- [ ] Supplemental nine hosted iPhone layout tests rerun after device unlock
 - [x] PR opened against `dev`: [Draft #15](https://github.com/zzqDeco/OneReader/pull/15), tracked by [issue #14](https://github.com/zzqDeco/OneReader/issues/14) in `v0.3.2`
 - [ ] Branch merged and status changed to Delivered
