@@ -63,6 +63,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ textView: ReaderTextView, coordinator: Coordinator) {
+        textView.pendingAnchor = nil
         coordinator.publishPositionImmediately(from: textView)
         coordinator.stopObservingCaptureRequests()
     }
@@ -159,7 +160,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
         return UIFont(descriptor: descriptor, size: size)
     }
 
-    private func applyAnchor(to textView: UITextView, coordinator: Coordinator) {
+    private func applyAnchor(to textView: ReaderTextView, coordinator: Coordinator) {
         let signature = [
             locator.stableID,
             locator.textQuote?.prefix ?? "",
@@ -193,13 +194,36 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             targetRange = NSRange(location: 0, length: 0)
         }
         coordinator.isApplyingAnchor = true
-        textView.selectedRange = targetRange
-        if targetRange.location > 0 || targetRange.length > 0 {
-            textView.scrollRangeToVisible(targetRange)
+        textView.pendingAnchor = { [weak coordinator] textView in
+            guard let coordinator, coordinator.anchorSignature == signature else { return }
+            if locator.payload["positionKind"] == "textViewport",
+               let offset = Double(locator.payload["textViewportOffsetY"] ?? ""), offset.isFinite,
+               abs(offset) < 1_000_000, targetRange.location < textView.attributedText.length {
+                let anchor = NSRange(location: targetRange.location, length: 1)
+                textView.layoutManager.ensureLayout(forCharacterRange: anchor)
+                let glyph = textView.layoutManager.glyphIndexForCharacter(at: targetRange.location)
+                let rect = textView.layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let minimum = -textView.adjustedContentInset.top
+                let maximum = max(minimum, textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom)
+                let y = min(max(rect.minY + textView.textContainerInset.top + offset, minimum), maximum)
+                let rawX = Double(locator.payload["textViewportX"] ?? "") ?? 0
+                let x = rawX.isFinite ? min(max(rawX, 0), max(0, textView.contentSize.width - textView.bounds.width)) : 0
+                textView.selectedRange = NSRange(location: targetRange.location, length: 0)
+                textView.setContentOffset(CGPoint(x: x, y: y), animated: false)
+            } else {
+                textView.selectedRange = targetRange
+                if targetRange.location > 0 || targetRange.length > 0 {
+                    textView.scrollRangeToVisible(targetRange)
+                }
+            }
+            DispatchQueue.main.async {
+                guard coordinator.anchorSignature == signature else { return }
+                coordinator.isApplyingAnchor = false
+                coordinator.publishPositionImmediately(from: textView)
+                coordinator.scheduleUITestMetricsRefresh(from: textView)
+            }
         }
-        DispatchQueue.main.async {
-            coordinator.isApplyingAnchor = false
-        }
+        textView.schedulePendingAnchor()
     }
 
     private static func range(of quote: TextQuote, in value: NSString) -> NSRange? {
@@ -466,8 +490,8 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let renderedValue = textView.attributedText.string as NSString
             guard renderedValue.length > 0 else { return -1 }
             let point = CGPoint(
-                x: textView.textContainerInset.left + 2,
-                y: textView.contentOffset.y + textView.textContainerInset.top + 2
+                x: max(2, textView.contentOffset.x + 2),
+                y: max(0, textView.contentOffset.y - textView.textContainerInset.top + 2)
             )
             let glyph = textView.layoutManager.glyphIndex(
                 for: point,
@@ -539,7 +563,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                 return
             }
             var payload = parent.locator.payload
-            ["startUTF16", "endUTF16", "startLine", "endLine", "renderedStartUTF16"]
+            ["startUTF16", "endUTF16", "startLine", "endLine", "renderedStartUTF16", "positionKind", "textViewportOffsetY", "textViewportX"]
                 .forEach { payload[$0] = nil }
             let sourceRange: NSRange
             if parent.kind == .markdown {
@@ -602,8 +626,8 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let renderedValue = textView.attributedText.string as NSString
             guard renderedValue.length > 0 else { return }
             let point = CGPoint(
-                x: textView.textContainerInset.left + 2,
-                y: textView.contentOffset.y + textView.textContainerInset.top + 2
+                x: max(2, textView.contentOffset.x + 2),
+                y: max(0, textView.contentOffset.y - textView.textContainerInset.top + 2)
             )
             let glyph = textView.layoutManager.glyphIndex(
                 for: point,
@@ -630,6 +654,12 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             } else {
                 sourceRange = renderedRange
             }
+            let renderedLocation = Int(payload["renderedStartUTF16"] ?? "") ?? renderedRange.location
+            let anchorGlyph = textView.layoutManager.glyphIndexForCharacter(at: min(renderedLocation, renderedValue.length - 1))
+            let lineRect = textView.layoutManager.lineFragmentRect(forGlyphAt: anchorGlyph, effectiveRange: nil)
+            payload["positionKind"] = "textViewport"
+            payload["textViewportOffsetY"] = String(Double(textView.contentOffset.y - lineRect.minY - textView.textContainerInset.top))
+            payload["textViewportX"] = String(Double(textView.contentOffset.x))
             guard NSMaxRange(sourceRange) <= sourceValue.length else { return }
             let exact = sourceValue.substring(with: sourceRange)
             guard !exact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -695,6 +725,22 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
 }
 
 final class ReaderTextView: UITextView {
+    var pendingAnchor: ((ReaderTextView) -> Void)?
+    private var anchorScheduled = false
+
+    func schedulePendingAnchor() {
+        guard pendingAnchor != nil, !anchorScheduled, bounds.width > 0, bounds.height > 0 else { return }
+        anchorScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            anchorScheduled = false
+            guard bounds.width > 0, bounds.height > 0, let apply = pendingAnchor else { return }
+            pendingAnchor = nil
+            layoutIfNeeded()
+            apply(self)
+        }
+    }
+
     private var codeContentWidth: CGFloat?
     var displaysCode = false {
         didSet {
@@ -742,6 +788,7 @@ final class ReaderTextView: UITextView {
         super.layoutSubviews()
         updateTextContainerWidth()
         enforceScrollableContentSize()
+        schedulePendingAnchor()
     }
 
     private func updateTextContainerWidth() {
@@ -918,7 +965,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    func makeUIView(context: Context) -> PDFView {
+    func makeUIView(context: Context) -> ReadingPDFView {
         let view = RecoveryObservablePDFView()
         view.autoScales = false
         view.displayMode = .singlePageContinuous
@@ -928,14 +975,15 @@ struct ManagedPDFPresentation: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: PDFView, context: Context) {
+    func updateUIView(_ view: ReadingPDFView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.loadedURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
             context.coordinator.appliedAnchorSignature = nil
         }
-        view.scaleFactor = min(max(scale, 0.5), 3)
+        let requestedScale = min(max(scale, 0.5), 3)
+        if abs(view.scaleFactor - requestedScale) > 0.001 { view.scaleFactor = requestedScale }
         context.coordinator.positionObserver.refreshScrollObservation()
         let signature = [
             documentLocator.stableID,
@@ -946,39 +994,44 @@ struct ManagedPDFPresentation: UIViewRepresentable {
            let page = view.document?.page(at: pageIndex) {
             context.coordinator.isApplyingAnchor = true
             context.coordinator.appliedAnchorSignature = signature
-            if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
-                view.go(to: PDFDestination(page: page, at: point))
-            } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
-               let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
-                if let selection = page.selection(for: rect) {
-                    if let exact = documentLocator.textQuote?.exact {
-                        if selection.string?.contains(exact) == true {
+            view.pendingAnchor = { [weak coordinator = context.coordinator] view in
+                guard let coordinator, coordinator.appliedAnchorSignature == signature else { return }
+                if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
+                    view.go(to: PDFDestination(page: page, at: point))
+                } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
+                   let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
+                    if let selection = page.selection(for: rect) {
+                        if let exact = documentLocator.textQuote?.exact {
+                            if selection.string?.contains(exact) == true {
+                                view.setCurrentSelection(selection, animate: false)
+                            }
+                        } else {
                             view.setCurrentSelection(selection, animate: false)
                         }
-                    } else {
-                        view.setCurrentSelection(selection, animate: false)
                     }
+                    view.go(to: rect, on: page)
+                } else if let exact = documentLocator.textQuote?.exact,
+                   let pageText = page.string,
+                   let range = pageText.range(of: exact),
+                   let selection = page.selection(for: NSRange(range, in: pageText)) {
+                    view.setCurrentSelection(selection, animate: false)
+                    view.go(to: selection)
+                } else {
+                    view.go(to: page)
                 }
-                view.go(to: rect, on: page)
-            } else if let exact = documentLocator.textQuote?.exact,
-               let pageText = page.string,
-               let range = pageText.range(of: exact),
-               let selection = page.selection(for: NSRange(range, in: pageText)) {
-                view.setCurrentSelection(selection, animate: false)
-                view.go(to: selection)
-            } else {
-                view.go(to: page)
+                DispatchQueue.main.async {
+                    guard coordinator.appliedAnchorSignature == signature else { return }
+                    coordinator.isApplyingAnchor = false
+                    coordinator.positionObserver.refreshScrollObservation()
+                    coordinator.positionObserver.captureImmediately()
+                }
             }
-            DispatchQueue.main.async {
-                guard context.coordinator.appliedAnchorSignature == signature else { return }
-                context.coordinator.isApplyingAnchor = false
-                context.coordinator.positionObserver.refreshScrollObservation()
-                context.coordinator.positionObserver.captureImmediately()
-            }
+            view.schedulePendingAnchor()
         }
     }
 
-    static func dismantleUIView(_ view: PDFView, coordinator: Coordinator) {
+    static func dismantleUIView(_ view: ReadingPDFView, coordinator: Coordinator) {
+        view.pendingAnchor = nil
         coordinator.positionObserver.captureImmediately()
         coordinator.positionObserver.stop()
     }
@@ -1505,6 +1558,9 @@ struct ControlledWebPresentation: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+#if DEBUG
+            (webView as? RecoveryObservableWebView)?.refreshDocumentObservation()
+#endif
             let anchorID = pendingAnchorID
                 ?? ControlledWebPresentation.anchorSignature(parent.document.locator)
             applyAnchor(anchorID, in: webView)

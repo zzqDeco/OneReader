@@ -27,6 +27,12 @@ without weakening selection anchors. Presentation IDs, rather than full-content
 hashing during view updates, guard expensive Markdown rendering. Markdown image width comes from
 the active text container/window scene and is re-rendered when that width
 changes; it never depends on a process-global screen singleton.
+Text position capture converts the viewport into text-container coordinates
+without adding the text inset twice. Optional `positionKind=textViewport`,
+`textViewportOffsetY`, and `textViewportX` retain the source anchor's line-relative
+offset. Restoration waits for native layout and aligns that line with the saved
+viewport, rather than merely asking TextKit to make an already visible range
+visible. Selection Locators drop these viewport-only fields.
 
 Compact reader chrome is composed outside these bridges, so every format keeps
 the same native navigation and four-action bottom bar.
@@ -37,7 +43,8 @@ HTTP(S) link to `UIApplication`. Host-owned selection and position user scripts
 produce DOM/quote Locators but cannot widen navigation or network authority.
 
 DEBUG recovery tests use read-only accessibility observations from the mounted
-PDFView/WKWebView (page coordinates and native scroll offsets). Saved-position
+PDFView/WKWebView (page coordinates, native scroll offsets, and the loaded DOM
+document title). Saved-position
 metadata is exposed separately by AppModel and cannot satisfy the viewport
 assertions. These observation subclasses compile to native typealiases in
 Release builds and do not enable Source scripts or change gesture ownership.

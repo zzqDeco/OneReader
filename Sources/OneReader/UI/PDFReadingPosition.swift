@@ -54,11 +54,56 @@ enum PDFViewportAnchor {
             sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
             payload: payload, structuralPath: "page/\(index)", textQuote: nil, fingerprint: nil
         )
-        let fraction = (Double(index) + Double((bounds.maxY - point.y) / bounds.height)) / Double(document.pageCount)
+        // Measure progress on the displayed vertical axis, not page-space y:
+        // page rotations can swap or reverse the PDF coordinate axes.
+        let displayedPage = view.convert(bounds, from: page)
+        guard valid(displayedPage) else { return nil }
+#if os(macOS)
+        let distance = view.isFlipped ? top - displayedPage.minY : displayedPage.maxY - top
+#else
+        let distance = top - displayedPage.minY
+#endif
+        let withinPage = min(max(distance / displayedPage.height, 0), 1)
+        let fraction = (Double(index) + Double(withinPage)) / Double(document.pageCount)
         return ReadingPositionUpdate(
             locator: locator, progressFraction: fraction, granularity: .page,
             displayLabel: ReadingPositionUpdate.label(for: locator, detail: "第 \(index + 1) / \(document.pageCount) 页")
         )
+    }
+}
+
+/// A representable is initially updated with zero bounds. PDF destinations
+/// applied at that point are discarded by PDFKit's first document layout.
+@MainActor
+class ReadingPDFView: PDFView {
+    var pendingAnchor: ((PDFView) -> Void)?
+    private var anchorScheduled = false
+
+#if os(macOS)
+    override func layout() {
+        super.layout()
+        schedulePendingAnchor()
+    }
+#else
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        schedulePendingAnchor()
+    }
+#endif
+
+    func schedulePendingAnchor() {
+        guard pendingAnchor != nil, !anchorScheduled,
+              bounds.width > 0, bounds.height > 0 else { return }
+        anchorScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            anchorScheduled = false
+            guard bounds.width > 0, bounds.height > 0,
+                  let apply = pendingAnchor else { return }
+            pendingAnchor = nil
+            layoutDocumentView()
+            apply(self)
+        }
     }
 }
 

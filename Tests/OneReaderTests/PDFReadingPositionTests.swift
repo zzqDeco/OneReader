@@ -79,21 +79,71 @@ final class PDFReadingPositionTests: XCTestCase {
         XCTAssertNotNil(update.locator.payload["rect"])
     }
 
+    func testEveryPageRotationHasMonotonicProgressAndTwoCoordinateRecovery() async throws {
+        for rotation in [0, 90, 180, 270] {
+            let view = makeView(rotation: rotation)
+            let page = try XCTUnwrap(view.document?.page(at: 0))
+            let initial = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
+            let displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+            let point = view.convert(CGPoint(x: displayed.minX, y: displayed.maxY - 550), to: page)
+            view.go(to: PDFDestination(page: page, at: point))
+            try await Task.sleep(for: .milliseconds(80))
+            let captured = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
+            XCTAssertGreaterThan(try XCTUnwrap(captured.progressFraction), try XCTUnwrap(initial.progressFraction), "rotation \(rotation)")
+            let anchor = try XCTUnwrap(PDFViewportAnchor.point(in: captured.locator, pageBounds: page.bounds(for: view.displayBox)))
+            let restored = makeView(rotation: rotation)
+            restored.go(to: PDFDestination(page: try XCTUnwrap(restored.document?.page(at: 0)), at: anchor))
+            try await Task.sleep(for: .milliseconds(80))
+            let reread = try XCTUnwrap(PDFViewportAnchor.capture(from: restored, base: locator()))
+            XCTAssertEqual(try XCTUnwrap(Double(reread.locator.payload["viewportX"] ?? "")), anchor.x, accuracy: 2, "rotation \(rotation)")
+            XCTAssertEqual(try XCTUnwrap(Double(reread.locator.payload["viewportY"] ?? "")), anchor.y, accuracy: 2, "rotation \(rotation)")
+        }
+    }
+
+    func testDestinationWaitsForNonzeroViewportAndAppliesOnlyOnce() async throws {
+        let view = makeView()
+        let page = try XCTUnwrap(view.document?.page(at: 1))
+        view.frame = .zero
+        var applications = 0
+        view.pendingAnchor = { view in
+            applications += 1
+            view.go(to: PDFDestination(page: page, at: CGPoint(x: 0, y: 900)))
+        }
+        view.schedulePendingAnchor()
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(applications, 0)
+        view.frame = CGRect(x: 0, y: 0, width: 420, height: 600)
+        view.layoutSubtreeIfNeeded()
+        view.schedulePendingAnchor()
+        try await Task.sleep(for: .milliseconds(100))
+        let update = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
+        XCTAssertEqual(applications, 1)
+        XCTAssertEqual(update.locator.pdfPageIndex, 1)
+        XCTAssertEqual(try XCTUnwrap(Double(update.locator.payload["viewportY"] ?? "")), 900, accuracy: 2)
+        view.layoutSubtreeIfNeeded()
+        view.schedulePendingAnchor()
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(applications, 1)
+    }
+
     private func locator(x: String = "0", y: String = "1600") -> Locator {
         Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
                 payload: ["pageIndex": "0", "positionKind": "viewport", "viewportX": x, "viewportY": y])
     }
 
-    private func makeView() -> PDFView {
+    private func makeView(rotation: Int = 0) -> ReadingPDFView {
         let document = PDFDocument()
-        let image = NSImage(size: NSSize(width: 420, height: 1_600), flipped: false) { rect in
+        let size = rotation == 90 || rotation == 270 ? NSSize(width: 1_600, height: 420) : NSSize(width: 420, height: 1_600)
+        let image = NSImage(size: size, flipped: false) { rect in
             NSColor.white.setFill()
             rect.fill()
             return true
         }
         document.insert(PDFPage(image: image)!, at: 0)
         document.insert(PDFPage(image: image)!, at: 1)
-        let view = PDFView(frame: NSRect(x: 0, y: 0, width: 420, height: 600))
+        document.page(at: 0)?.rotation = rotation
+        document.page(at: 1)?.rotation = rotation
+        let view = ReadingPDFView(frame: NSRect(x: 0, y: 0, width: 420, height: 600))
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.autoScales = false

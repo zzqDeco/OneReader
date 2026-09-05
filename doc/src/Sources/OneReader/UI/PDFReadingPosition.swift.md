@@ -12,6 +12,11 @@ they use a PDFDestination rather than selection scrolling, which intentionally
 does nothing when a rectangle is already visible. Coordinates are measured from
 the mounted view, checked for finiteness, and confined to the displayed page.
 The view's top edge is converted with the platform's coordinate orientation.
+Page fraction is measured on the displayed vertical axis, so rotations of
+0/90/180/270 degrees neither reverse progress nor confuse the page-space axes.
+`ReadingPDFView` waits for a nonzero laid-out viewport before applying a pending
+destination once. Teardown discards pending restoration; capture stays suspended
+until it completes. Repeated equal zoom values do not reset PDFKit layout.
 
 A saved viewport is not a text selection. A quote-bearing Locator still uses
 selection geometry, and new PDF selections remove viewport-only metadata.

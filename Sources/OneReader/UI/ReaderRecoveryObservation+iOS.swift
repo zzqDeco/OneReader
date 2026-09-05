@@ -16,7 +16,7 @@ private func recoveryMetricsEnabled() -> Bool {
 /// deliberately unavailable here, so a persisted row cannot masquerade as a
 /// successful visual restoration.
 @MainActor
-final class RecoveryObservablePDFView: PDFView {
+final class RecoveryObservablePDFView: ReadingPDFView {
     override var accessibilityIdentifier: String? {
         get { recoveryMetricsEnabled() ? "reader-pdf-view" : super.accessibilityIdentifier }
         set { super.accessibilityIdentifier = newValue }
@@ -33,9 +33,9 @@ final class RecoveryObservablePDFView: PDFView {
                   let page = page(for: CGPoint(x: bounds.midX, y: bounds.minY + 1), nearest: true) else {
                 return super.accessibilityValue
             }
-            let point = convert(CGPoint(x: bounds.midX, y: bounds.minY + 1), to: page)
+            let point = convert(CGPoint(x: bounds.minX, y: bounds.minY), to: page)
             let fields: [String: Double] = [
-                "page": Double(document.index(for: page)), "y": point.y,
+                "page": Double(document.index(for: page)), "x": point.x, "y": point.y,
                 "height": bounds.height, "scale": scaleFactor,
             ]
             return (try? JSONEncoder().encode(fields)).map { String(decoding: $0, as: UTF8.self) }
@@ -46,6 +46,17 @@ final class RecoveryObservablePDFView: PDFView {
 
 @MainActor
 final class RecoveryObservableWebView: WKWebView {
+    private(set) var observedDocumentTitle: String?
+
+    func refreshDocumentObservation() {
+        guard recoveryMetricsEnabled() else { return }
+        // This observes the loaded DOM, never PresentationDocument/Locator.
+        evaluateJavaScript("document.title") { [weak self] result, _ in
+            self?.observedDocumentTitle = result as? String
+            self?.accessibilityLabel = result as? String
+        }
+    }
+
     override var accessibilityIdentifier: String? {
         get { recoveryMetricsEnabled() ? "reader-web-view" : super.accessibilityIdentifier }
         set { super.accessibilityIdentifier = newValue }
@@ -67,7 +78,7 @@ final class RecoveryObservableWebView: WKWebView {
     }
 }
 #else
-typealias RecoveryObservablePDFView = PDFView
+typealias RecoveryObservablePDFView = ReadingPDFView
 typealias RecoveryObservableWebView = WKWebView
 #endif
 #endif

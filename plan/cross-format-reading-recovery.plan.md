@@ -32,6 +32,9 @@ before recording new, separately scoped evidence.
   measured from the actual visible viewport and validated against page bounds.
   Optional viewport-kind/X/Y payload fields distinguish a reading destination
   from an annotation rectangle; old Locators do not require migration.
+- Native text viewport payloads add optional line-relative Y and horizontal X
+  offsets. Source UTF-16/quote remains authoritative; selections clear these
+  viewport-only fields, and old Locators remain readable without migration.
 - DEBUG-only fixture selection accepts a UUID namespace, not an arbitrary path;
   it uses a separate managed Library and UserDefaults suite that survive relaunch.
 - Fixtures use the ordinary import, adapter, presentation, and persistence paths.
@@ -69,6 +72,22 @@ launch attempt on 2026-09-05 stopped in device preflight because the iPhone
 locked before the test runner launched; no physical test pass is claimed.
 The attempt was explicitly cancelled, and its `.xcresult` is retained locally.
 
+The first completed device run at `17ebd694` executed all six cross-format
+cases: HTML and first-spine EPUB passed; four cases failed. PDF returned to the
+top after reopening; Markdown restored a visible range with a shifted viewport.
+The second-spine EPUB recording showed AssistiveTouch intercepting the Done
+button, leaving the navigation sheet open. These are retained as failure
+evidence, not acceptance. Native validation and exact-head GitHub CI passed at
+that commit, demonstrating why build gates are not physical acceptance.
+
+Follow-up changes defer native anchor application until nonzero layout, retain
+native text line-relative offsets, and assert the actual WKWebView DOM chapter
+title. The test dismisses the sheet using an unobscured part of Done and checks
+that it disappeared without changing device accessibility settings. PDF tests
+now cover all four rotations, both page coordinates, and deferred single-shot
+application. Six PDF unit tests pass locally; renewed physical acceptance and
+Sol review are still required.
+
 ## Non-goals
 
 New formats, AI Provider smoke tests, iPad acceptance, hosted Xcode 27 migration,
@@ -83,5 +102,5 @@ notarization, TestFlight, cloud sync, or changes to user Library content.
 - [ ] Shared and native build gates pass
 - [ ] Current-state and source docs synchronized
 - [ ] Sol max review passes
-- [ ] PR opened against `dev`
+- [x] PR opened against `dev`: [Draft #15](https://github.com/zzqDeco/OneReader/pull/15), tracked by [issue #14](https://github.com/zzqDeco/OneReader/issues/14) in `v0.3.2`
 - [ ] Branch merged and status changed to Delivered

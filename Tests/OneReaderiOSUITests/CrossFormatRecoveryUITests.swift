@@ -38,11 +38,16 @@ final class CrossFormatRecoveryUITests: XCTestCase {
             let chapter = app.buttons["EPUB Second Chapter"]
             XCTAssertTrue(chapter.waitForExistence(timeout: 10))
             chapter.tap()
-            app.buttons["完成"].tap()
+            // The device's AssistiveTouch control can cover the leading edge
+            // of this button. Keep system accessibility settings untouched.
+            app.buttons["完成"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertTrue(app.buttons["完成"].waitForNonExistence(timeout: 10), "Dismiss the navigation sheet before testing a reader gesture")
             _ = try stableViewport(reader)
             XCTAssertEqual(try persisted(in: app)["path"], "OEBPS/second.xhtml")
         }
         let initial = try stableViewport(reader)
+        let documentTitle = format == "EPUB" ? (secondSpine ? "EPUB Second Chapter" : "EPUB First Chapter") : "Recovery HTML"
+        if format == "EPUB" || format == "HTML" { try assertLoadedDocument(reader, title: documentTitle) }
         let initialPersistence = try persisted(in: app)
         let start = reader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         let end = reader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
@@ -79,6 +84,7 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         _ = try open(format == "HTML" ? "EPUB" : "HTML", in: app)
         backToLibrary(app)
         let switched = try open(format, in: app)
+        if format == "EPUB" || format == "HTML" { try assertLoadedDocument(switched, title: documentTitle) }
         try assertRestored(switched, expected: scrolled, format: format)
         XCTAssertEqual(try persisted(in: app)["source"], saved["source"])
         attach(app, name: "\(format)-space-restored")
@@ -86,6 +92,7 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         app.terminate()
         app.launch()
         let restored = try open(format, in: app)
+        if format == "EPUB" || format == "HTML" { try assertLoadedDocument(restored, title: documentTitle) }
         try assertRestored(restored, expected: scrolled, format: format)
         let reopened = try persisted(in: app)
         XCTAssertEqual(reopened["source"], saved["source"])
@@ -138,6 +145,11 @@ final class CrossFormatRecoveryUITests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(actual["visible"]), try XCTUnwrap(expected["visible"]), accuracy: 64)
         }
         XCTAssertEqual(try XCTUnwrap(actual["y"]), try XCTUnwrap(expected["y"]), accuracy: 16, "\(format) visible viewport drift")
+    }
+
+    private func assertLoadedDocument(_ reader: XCUIElement, title: String) throws {
+        let predicate = NSPredicate(format: "label == %@", title)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: reader)], timeout: 10), .completed, "The mounted WKWebView DOM must be the expected chapter")
     }
 
     private func stableViewport(_ reader: XCUIElement) throws -> [String: Double] {
