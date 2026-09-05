@@ -1,4 +1,4 @@
-# v0.3 Acceptance
+# OneReader Acceptance
 
 ## Automated gates
 
@@ -252,6 +252,85 @@ Simulator device list was empty after validation.
 
 ## Fixture and contract coverage
 
+### Cross-format physical recovery gate (v0.3.2 work in progress)
+
+The physical UI suite now uses a fresh UUID-isolated managed Library for each
+recovery case. It performs actual local import and adapter preparation for
+generated PDF, EPUB, HTML, and Markdown files. Each case retains that same
+Library across process relaunch; malformed UUIDs cannot fall through to the
+production Library. The former opt-in automatic test against a user's existing
+Space is replaced by the isolated managed Markdown case.
+
+The suite covers same-page and later-page PDF destinations, HTML, both EPUB
+spine items, and Markdown. It separately waits for persistence and compares
+the actual native viewport before/after Space switches and relaunch. PDF
+observations use both live page coordinates; Web observations use native content
+offset/fraction and the actual loaded DOM document title (not the persisted
+spine Locator); Markdown also checks the independently derived visible source
+offset. Screenshots are retained at the scrolled and restored states.
+
+Runtime implementation `df4ba5a70774848e6d60bf55b106185ca4b51c64` passed the
+complete **10/10 physical UI suite** on 2026-09-05: all six recovery cases plus
+the four existing Library/text/Markdown/code touch-scroll regressions. The
+device was an iPhone 13 Pro Max running iOS 27.0 (`24A5424a`), built with Xcode
+27.0 (`27A5252f`) at `/Applications/Xcode.app/Contents/Developer`. Retained local
+evidence:
+
+- `.onereader/acceptance/cross-format-device-df4ba5a.xcresult`: 10 passed,
+  zero failures, zero skipped, no runtime warnings;
+- `.onereader/acceptance/cross-format-device-df4ba5a-attachments/`: 18 retained
+  screenshots across scrolled, Space-restored, and process-restored states;
+  PDF, Markdown, and second-spine EPUB restoration screenshots were visually
+  checked against their scrolled states;
+- `.onereader/acceptance/cross-format-post-layout-validation.log`: 234 shared
+  tests passed, release build, Sandbox packaging/codesign/entitlements, project
+  drift, documentation/release policy, and generic iPhoneOS compilation passed;
+- hosted [CI / Native validation](https://github.com/zzqDeco/OneReader/actions/runs/33952657065)
+  passed on this exact runtime implementation;
+- final Sol max review: `APPROVE`, no P0/P1/P2 blockers;
+- production `Library.sqlite` and `Library.sqlite-wal` copied before and after
+  the isolated UI runs were byte-identical (`cmp` succeeded). These private
+  copies and all generated fixtures remain local and untracked.
+
+PDF destinations now wait for nonzero native layout. Native text positions use
+source-anchor line-relative offsets instead of only making a range visible.
+Six deterministic PDF tests cover all four rotations, both page coordinates,
+within-page capture, lifecycle targeting, teardown, malformed geometry, and
+deferred single-shot restoration. The generated six-page PDF was additionally
+checked with `pdfinfo` and its first full page rendered for visual inspection.
+
+The predecessor `17ebd694` had passed native CI but only 2/6 physical recovery
+cases: PDF returned to the top, Markdown shifted its viewport, and the
+second-spine EPUB test had its Done tap intercepted by AssistiveTouch. Its
+failed result and screen recordings remain separate from the passing evidence.
+The test now taps an unobscured button location and verifies sheet dismissal;
+device accessibility settings were not changed.
+
+The supplemental hosted-layout gate is now complete. On 2026-09-05, checkout
+`b86a98c54193b91b579c0ac62cbedda5d43fe87f` reran the exact same built runtime
+and test bundle on the unlocked physical iPhone: **9/9 hosted layout tests
+passed**, zero failures/skips/runtime warnings. That checkout differs from
+runtime commit `df4ba5a` only in documentation. The host uses
+`TEST_RUNNER_ONEREADER_UI_TEST_FIXTURE=text-scroll`, and the destination is
+explicitly `platform=iOS,arch=arm64`. Evidence is retained at
+`.onereader/acceptance/cross-format-layout-b86a98c-unlocked.xcresult` and its
+adjacent `.log`; test execution finished at 2026-09-05 16:06:14 +08:00.
+Production SQLite and WAL were copied again after the hosted tests and remain
+byte-identical to the pre-test copies. No OneReader test process or UI Runner
+remained on the device, and the main App/Library were preserved before the
+window was handed back to the other task.
+
+The earlier `.onereader/acceptance/cross-format-layout-df4ba5a.xcresult`
+continues to record a cancelled device-lock preflight, not a test pass.
+[CI](https://github.com/zzqDeco/OneReader/actions/runs/33953525971) also passed
+on documentation checkout `b86a98c`. All runtime and physical gates for
+[PR #15](https://github.com/zzqDeco/OneReader/pull/15) are now complete; subsequent
+documentation-only commits still receive their own required CI check. No
+merge, new tag, distribution, or Simulator boot was performed. This record
+does not change the released v0.3.1 evidence above.
+
+### Deterministic contracts
+
 Generated, non-copyrighted fixtures exercise PDF, EPUB, Markdown, text, code,
 HTML, directories, web snapshots, public GitHub archives, remote documents,
 and unknown-file Quick Look routing. Adapter tests cover every declared
@@ -346,6 +425,24 @@ ad-hoc signing, Sandbox, and unnotarized state.
 The workflow contract makes manual dispatch artifact-only and refuses to
 overwrite an existing GitHub Release. The public repository protects `main` and
 `dev` with pull requests, administrator enforcement, immutable history, and the
-required `Native validation` check. At implementation commit `e3440e9`, no live
-version tag or GitHub Release had yet been created. The Developer Preview remains
-explicitly ad-hoc signed and not notarized.
+required `Native validation` check.
+
+On 2026-09-05, annotated `v0.3.1` was published from protected
+`main@d45d73a836d200d053f8b0fbf17e118cd5896c8e`. Main CI
+[`33867621471`](https://github.com/zzqDeco/OneReader/actions/runs/33867621471)
+and independent tag Release
+[`33941769373`](https://github.com/zzqDeco/OneReader/actions/runs/33941769373)
+passed all 228 shared tests and the complete validation bundle. The
+[public release](https://github.com/zzqDeco/OneReader/releases/tag/v0.3.1)
+contains DMG, ZIP, a manifest, and their three SHA-256 sidecars.
+
+Post-publication download verification passed every sidecar. Manifest tag,
+commit, version, schema, dependency-lock, license, and notice digests matched
+the exact tag. The ZIP application is arm64, version 0.3.1 (4), minimum macOS
+26.1; its strict signature and Sandbox entitlement checks pass. The DMG mounted
+read-only and contained the identical application tree. Both include the
+Apache-2.0 license, third-party notices, and 29 upstream license/notice files.
+The verification image was ejected afterward.
+
+The release is explicitly ad-hoc signed and not notarized. iPhone test evidence
+does not imply an iOS binary, TestFlight, App Store, or physical iPad release.

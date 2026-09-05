@@ -1,5 +1,6 @@
 import XCTest
 
+@MainActor
 final class ReaderTouchScrollUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -84,55 +85,6 @@ final class ReaderTouchScrollUITests: XCTestCase {
         )
     }
 
-    func testExistingDeviceLibraryReadingPositionSurvivesRelaunch() throws {
-        guard let spaceID = ProcessInfo.processInfo.environment[
-            "ONEREADER_DEVICE_LIBRARY_SPACE_ID"
-        ], !spaceID.isEmpty, !spaceID.contains("$(") else {
-            throw XCTSkip("Requires an explicitly selected existing device Library space")
-        }
-
-        let app = XCUIApplication()
-        app.launchEnvironment["ONEREADER_UI_TEST_METRICS"] = "1"
-        app.launch()
-        let reader = try openNativeReader(in: app, spaceID: spaceID)
-        waitForScrollingToSettle()
-        let initialY = offset("y", of: reader)
-        let initialAnchor = metric("anchor", of: reader)
-        let initialVisibleAnchor = metric("visible", of: reader)
-
-        reader.swipeUp()
-        waitForScrollingToSettle()
-        let scrolledY = offset("y", of: reader)
-        XCTAssertGreaterThan(
-            scrolledY,
-            initialY + 24,
-            "Existing Library reader ignored a real vertical swipe: \(reader.value ?? "nil")"
-        )
-
-        app.terminate()
-        app.launch()
-        let restoredReader = try openNativeReader(in: app, spaceID: spaceID)
-        waitForScrollingToSettle()
-        let restoredY = offset("y", of: restoredReader)
-        let restoredVisibleAnchor = metric("visible", of: restoredReader)
-
-        XCTAssertGreaterThan(
-            metric("anchor", of: restoredReader),
-            initialAnchor,
-            "Existing Library reader did not restore a later semantic source anchor: \(restoredReader.value ?? "nil")"
-        )
-        XCTAssertGreaterThan(
-            restoredY,
-            24,
-            "Existing Library reader loaded a Locator but did not restore a visible offset: \(restoredReader.value ?? "nil")"
-        )
-        XCTAssertGreaterThan(
-            restoredVisibleAnchor,
-            initialVisibleAnchor,
-            "Existing Library reader did not restore a later visible source anchor: \(restoredReader.value ?? "nil")"
-        )
-    }
-
     private func launch(fixture: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ONEREADER_UI_TEST_FIXTURE"] = fixture
@@ -142,24 +94,6 @@ final class ReaderTouchScrollUITests: XCTestCase {
 
     private func waitForScrollingToSettle() {
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-    }
-
-    private func openNativeReader(
-        in app: XCUIApplication,
-        spaceID: String
-    ) throws -> XCUIElement {
-        let card = app.buttons["space-card-\(spaceID)"]
-        guard card.waitForExistence(timeout: 10) else {
-            XCTFail("Existing Library space \(spaceID) did not appear")
-            throw ExistingLibrarySmokeError.spaceUnavailable
-        }
-        card.tap()
-        let reader = app.textViews["reader-text-view"]
-        guard reader.waitForExistence(timeout: 15) else {
-            XCTFail("Existing Library space \(spaceID) did not open a native reader")
-            throw ExistingLibrarySmokeError.readerUnavailable
-        }
-        return reader
     }
 
     private func offset(_ axis: String, of element: XCUIElement) -> Int {
@@ -173,9 +107,4 @@ final class ReaderTouchScrollUITests: XCTestCase {
             .flatMap { Int($0.dropFirst(name.count + 1)) }
             ?? -1
     }
-}
-
-private enum ExistingLibrarySmokeError: Error {
-    case spaceUnavailable
-    case readerUnavailable
 }
