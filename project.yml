@@ -185,8 +185,6 @@ schemes:
         OneReader-iOSUITests: [test]
     test:
       config: Debug
-      environmentVariables:
-        ONEREADER_DEVICE_LIBRARY_SPACE_ID: "$(ONEREADER_DEVICE_LIBRARY_SPACE_ID)"
       targets:
         - OneReader-iOSLayoutTests
         - OneReader-iOSUITests

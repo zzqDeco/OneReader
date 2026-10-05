@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0197190C63DE981E710A9329 /* CrossFormatRecoveryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237FA1F6F88C016F0E3AB71D /* CrossFormatRecoveryUITests.swift */; };
 		2A877D9E069B279BBF3146BE /* ReaderTouchScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22478D0908D096D22B11B2C6 /* ReaderTouchScrollUITests.swift */; };
 		537CAA4299F6780F6092D470 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AC35A80D4A1FB8234BB3609C /* AppIcon.icns */; };
 		63AFE40C2D27FCD03F76719D /* OneReaderAppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */; };
@@ -37,6 +38,7 @@
 
 /* Begin PBXFileReference section */
 		22478D0908D096D22B11B2C6 /* ReaderTouchScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTouchScrollUITests.swift; sourceTree = "<group>"; };
+		237FA1F6F88C016F0E3AB71D /* CrossFormatRecoveryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossFormatRecoveryUITests.swift; sourceTree = "<group>"; };
 		23D7D8E77561E14CD57C434F /* OneReader-iOSLayoutTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "OneReader-iOSLayoutTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		37A507F39580BA6B365C546C /* OneReader-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OneReader-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		71F828313B2491EBEE250316 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -107,6 +109,7 @@
 		60584AF972EE07FC3F2B7FB6 /* OneReaderiOSUITests */ = {
 			isa = PBXGroup;
 			children = (
+				237FA1F6F88C016F0E3AB71D /* CrossFormatRecoveryUITests.swift */,
 				22478D0908D096D22B11B2C6 /* ReaderTouchScrollUITests.swift */,
 			);
 			path = OneReaderiOSUITests;
@@ -291,6 +294,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0197190C63DE981E710A9329 /* CrossFormatRecoveryUITests.swift in Sources */,
 				2A877D9E069B279BBF3146BE /* ReaderTouchScrollUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
