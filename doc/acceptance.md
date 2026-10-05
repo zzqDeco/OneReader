@@ -252,7 +252,7 @@ Simulator device list was empty after validation.
 
 ## Fixture and contract coverage
 
-### Cross-format physical recovery gate (v0.3.2 work in progress)
+### Cross-format physical recovery gate (v0.3.2)
 
 The physical UI suite now uses a fresh UUID-isolated managed Library for each
 recovery case. It performs actual local import and adapter preparation for
