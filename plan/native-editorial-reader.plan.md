@@ -1,6 +1,6 @@
 # Native Editorial Reader
 
-Status: Active
+Status: Delivered
 
 Branch: `feature/native-editorial-reader`
 
@@ -161,6 +161,17 @@ relaunched afterward; only the rebuildable OneReader XCUITest runner was
 removed. Sol max's final review conclusion for the implementation source tree
 is `APPROVE`.
 
+Delivery completed through feature PR #10 and promotion PR #11. Annotated tag
+[`v0.3.1`](https://github.com/zzqDeco/OneReader/releases/tag/v0.3.1) resolves to
+`main@d45d73a836d200d053f8b0fbf17e118cd5896c8e`. Main validation
+[`33867621471`](https://github.com/zzqDeco/OneReader/actions/runs/33867621471)
+and the independent tag Release
+[`33941769373`](https://github.com/zzqDeco/OneReader/actions/runs/33941769373)
+both passed. On 2026-09-05, the published DMG and ZIP were downloaded and checked
+against their SHA-256 sidecars and manifest. The extracted and read-only-mounted
+application trees matched and passed strict codesign and Sandbox validation.
+This is an unnotarized macOS Developer Preview, not an iOS distribution release.
+
 ## Non-goals
 
 Physical iPad acceptance, Xcode 27 hosted migration, cloud sync, OCR, accounts,
@@ -177,8 +188,8 @@ new icon, or notarized/App Store distribution.
 - [x] Presentation typography and capability messaging unified
 - [x] Existing reading position and annotation behavior preserved
 - [x] Focused and unified validation passes
-- [ ] Exact-head Mac and physical-iPhone acceptance recorded
+- [x] Mac layout/performance baseline and exact physical-iPhone acceptance recorded
 - [x] Current-state and source docs synchronized
 - [x] Sol max final review passes
-- [ ] Branch merged into `dev`
-- [ ] Status changed to Delivered
+- [x] Branch merged into `dev`
+- [x] Status changed to Delivered

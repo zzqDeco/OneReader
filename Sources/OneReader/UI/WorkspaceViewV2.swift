@@ -30,6 +30,16 @@ struct WorkspaceView: View {
 
     var body: some View {
         rootWorkspace
+#if DEBUG && os(iOS)
+        .overlay(alignment: .bottomLeading) {
+            if model.recoveryUITestReady, !model.isReadingWorkspaceOpen {
+                Text("Recovery fixtures ready")
+                    .font(.system(size: 8))
+                    .accessibilityIdentifier("recovery-fixture-ready")
+                    .allowsHitTesting(false)
+            }
+        }
+#endif
         .environment(
             \.readingPositionCaptureTargetID,
             readingPositionCaptureTargetID

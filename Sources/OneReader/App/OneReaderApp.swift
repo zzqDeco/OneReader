@@ -6,7 +6,9 @@ public struct OneReaderScene: Scene {
 
     public init() {
 #if DEBUG && os(iOS)
-        if let fixture = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_FIXTURE"] {
+        if let rawID = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_RECOVERY_ID"] {
+            _model = StateObject(wrappedValue: AppModel.makeRecoveryUITestFixture(rawID: rawID))
+        } else if let fixture = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_FIXTURE"] {
             _model = StateObject(wrappedValue: AppModel.makeUITestFixture(named: fixture))
         } else {
             _model = StateObject(wrappedValue: AppModel())

@@ -12,8 +12,6 @@ if [[ -z "$device_line" ]] || [[ "$device_line" != *"physical"* ]] || [[ "$devic
   exit 1
 fi
 
-device_library_space_id="${ONEREADER_DEVICE_LIBRARY_SPACE_ID:-}"
-
 xcodebuild \
   -project "$repo_root/OneReader.xcodeproj" \
   -scheme OneReader-iOS \
@@ -25,5 +23,4 @@ xcodebuild \
   -allowProvisioningUpdates \
   DEVELOPMENT_TEAM="$ONEREADER_DEVELOPMENT_TEAM" \
   CODE_SIGN_STYLE=Automatic \
-  ONEREADER_DEVICE_LIBRARY_SPACE_ID="$device_library_space_id" \
   test

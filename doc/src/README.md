@@ -21,6 +21,7 @@ architecture document.
 | Remote web and GitHub snapshots | [Remote source importer](Sources/OneReader/Sources/RemoteSourceImporter.swift.md) |
 | Unified native presentation safety | [Adapter presentation](Sources/OneReader/UI/AdapterPresentationView.swift.md) |
 | UIKit presentation bridges | [iOS adapter presentation](Sources/OneReader/UI/AdapterPresentationView+iOS.swift.md) |
+| Shared PDF viewport capture and restore | [PDF reading position](Sources/OneReader/UI/PDFReadingPosition.swift.md) |
 | Reading Agent session and turn lifecycle | [Reading Agent runtime](Sources/OneReader/Agent/ReadingAgentRuntime.swift.md) |
 | Agent domain records and hard budgets | [Agent models](Sources/OneReader/Agent/AgentModels.swift.md) |
 | SwiftAgent projection and bounded model bridge | [SwiftAgent model driver](Sources/OneReader/Agent/SwiftAgentModelDriver.swift.md) |

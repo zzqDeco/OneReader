@@ -24,7 +24,7 @@ while suppressing synthetic selection callbacks. The shared
 `PDFPageRectAnchor` parser rejects malformed, non-finite, empty, and out-of-page
 geometry before either platform bridge uses it.
 All readable surfaces emit normalized `ReadingPositionUpdate` values. PDFKit
-observes page changes and reports page fraction; native Markdown/text/code
+observes the native viewport and reports rotation-aware page fraction; native Markdown/text/code
 reports source range, line, quote, and text fraction; controlled WebKit reports
 the visible-element DOM path, a separate nearest outline-heading path, quote,
 and scroll fraction. Same-Snapshot restoration uses the fraction for the exact
@@ -32,6 +32,10 @@ viewport after resolving DOM/quote evidence; relocation can still use that
 evidence when layout changes. Directory/repository and EPUB child `path`/`href`
 identity stays in the Locator. Incoming anchors are applied only once rather
 than snapping the reader back after later scrolling.
+Native text viewport Locators additionally retain a source-anchor-relative line
+offset (`positionKind=textViewport`, `textViewportOffsetY`, `textViewportX`).
+The AppKit and UIKit bridges apply these only after layout and clear them from
+explicit selections. Existing quote-only Locators keep selection semantics.
 
 The AppKit text bridge uses one 150 ms coalescer for an entire live-scroll
 burst, rather than creating work or deriving a Locator on every bounds change.

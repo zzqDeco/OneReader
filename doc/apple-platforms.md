@@ -21,7 +21,7 @@ local `OneReader` package product and the same exact `Package.resolved` graph.
 There is no copied mobile module, second database schema, or format-specific
 mobile product mode.
 
-The v0.3.1 release gate covers macOS and the connected physical iPhone. The
+The v0.3.2 release gate covers macOS and the connected physical iPhone. The
 universal target remains compile-compatible with iPad, but physical iPad layout
 and gesture acceptance is deferred by product decision and is not claimed by
 this release.
