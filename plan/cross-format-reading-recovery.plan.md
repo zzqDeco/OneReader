@@ -1,6 +1,6 @@
 # Cross-format Reading Recovery
 
-Status: Active
+Status: Delivered
 
 Branch: `test/cross-format-reading-recovery`
 
@@ -66,7 +66,9 @@ before recording new, separately scoped evidence.
 
 ## Acceptance Evidence
 
-Implementation and local verification are in progress. Published v0.3.1
+Implementation and local/physical verification are complete; PR #15 merged
+to `dev` as `e0ca3b06ad0bcd6cb7ba879632a77694f3dbff18`. Publication is tracked
+separately in the [v0.3.2 release plan](release-v0.3.2.plan.md). Published v0.3.1
 evidence remains in [acceptance](../doc/acceptance.md). The first physical
 launch attempt on 2026-09-05 stopped in device preflight because the iPhone
 locked before the test runner launched; no physical test pass is claimed.
@@ -103,7 +105,8 @@ failures/skips/runtime warnings. Its result is retained in
 Production SQLite/WAL remain byte-identical after this final device run. There
 is no remaining OneReader test process or temporary UI Runner; the main App and
 Library were preserved, and the device window was handed back to the other
-task. PR #15 can leave Draft with the runtime/review/physical gates complete.
+task. Final evidence-only head `5b96f60` passed its required CI and Sol max
+evidence review before PR #15 merged with the runtime/physical gates complete.
 
 ## Non-goals
 
@@ -121,4 +124,4 @@ notarization, TestFlight, cloud sync, or changes to user Library content.
 - [x] Sol max review passes
 - [x] Supplemental nine hosted iPhone layout tests rerun after device unlock
 - [x] PR opened against `dev`: [#15](https://github.com/zzqDeco/OneReader/pull/15), tracked by [issue #14](https://github.com/zzqDeco/OneReader/issues/14) in `v0.3.2`
-- [ ] Branch merged and status changed to Delivered
+- [x] Branch merged and status changed to Delivered

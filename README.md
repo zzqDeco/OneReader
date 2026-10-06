@@ -31,7 +31,7 @@ scheme, or build the unsigned universal Simulator app with:
 scripts/build-ios-simulator.sh
 ```
 
-The shared target remains iPad-capable, but v0.3.1 release acceptance is scoped
+The shared target remains iPad-capable, but v0.3.2 release acceptance is scoped
 to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
 
 Run the bootstrap once before opening the project. It configures an ignored
@@ -54,6 +54,11 @@ Preview DMG and ZIP with SHA-256 sidecars and `release-manifest.json`. It does
 not publish, tag, or push anything.
 
 ## Current architecture
+
+The v0.3.2 release candidate focuses on cross-format reading-position recovery:
+PDF within-page viewports and layout-aware native text/Markdown restoration.
+See the [release notes](doc/release-v0.3.2.md) for evidence and distribution
+boundaries. A release candidate is not a published or notarized build.
 
 - Shared SwiftUI domain/application module with native AppKit and UIKit shells
 - Checked-in Xcode project generated from `project.yml`; no Catalyst target
