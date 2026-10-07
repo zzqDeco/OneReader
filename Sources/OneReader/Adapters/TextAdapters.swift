@@ -1,14 +1,14 @@
 import Foundation
 import Markdown
 
-struct PlainTextAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdapter,
+struct PlainTextAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, IndexingAdapter,
     SearchingAdapter, RenderingAdapter, ResolvingAdapter
 {
     static let id = "onereader.text"
 
     let descriptor = AdapterDescriptor(
         id: id,
-        version: "1.0.0",
+        version: "1.0.1",
         displayName: "Plain Text",
         probeRule: AdapterProbeRule(
             filenameExtensions: ["txt", "text", "log"],
@@ -88,7 +88,7 @@ struct PlainTextAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, Readin
     }
 }
 
-struct CodeAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdapter,
+struct CodeAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, IndexingAdapter,
     SearchingAdapter, RenderingAdapter, ResolvingAdapter
 {
     static let id = "onereader.code"
@@ -100,7 +100,7 @@ struct CodeAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
 
     let descriptor = AdapterDescriptor(
         id: id,
-        version: "1.0.0",
+        version: "1.0.1",
         displayName: "Source Code",
         probeRule: AdapterProbeRule(
             filenameExtensions: extensions,
@@ -180,14 +180,14 @@ struct CodeAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdap
     }
 }
 
-struct MarkdownAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, ReadingAdapter,
+struct MarkdownAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, IndexingAdapter,
     SearchingAdapter, RenderingAdapter, ResolvingAdapter
 {
     static let id = "onereader.markdown"
 
     let descriptor = AdapterDescriptor(
         id: id,
-        version: "1.0.0",
+        version: "1.0.1",
         displayName: "Markdown",
         probeRule: AdapterProbeRule(
             filenameExtensions: ["md", "markdown", "mdown", "mkd"],
@@ -304,6 +304,39 @@ struct MarkdownAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, Reading
     }
 }
 
+extension PlainTextAdapter {
+    func indexContent(
+        in context: AdapterContext,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws {
+        try await TextAdapterCore.index(
+            context, adapterID: descriptor.id, mediaType: "text/plain", emit: emit
+        )
+    }
+}
+
+extension CodeAdapter {
+    func indexContent(
+        in context: AdapterContext,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws {
+        try await TextAdapterCore.index(
+            context, adapterID: descriptor.id, mediaType: "text/x-source", emit: emit
+        )
+    }
+}
+
+extension MarkdownAdapter {
+    func indexContent(
+        in context: AdapterContext,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws {
+        try await TextAdapterCore.index(
+            context, adapterID: descriptor.id, mediaType: "text/markdown", emit: emit
+        )
+    }
+}
+
 private struct MarkdownHeadingCollector: MarkupWalker {
     struct HeadingValue {
         let title: String
@@ -337,6 +370,8 @@ private struct MarkdownHeadingCollector: MarkupWalker {
 
 enum TextAdapterCore {
     static let maximumTextBytes = 64 * 1_024 * 1_024
+    static let indexChunkCharacters = 64 * 1_024
+    static let indexOverlapCharacters = 512
 
     static func probe(
         _ context: AdapterContext,
@@ -396,6 +431,61 @@ enum TextAdapterCore {
         ]
     }
 
+    static func index(
+        _ context: AdapterContext,
+        adapterID: String,
+        mediaType: String,
+        chunkCharacters: Int = indexChunkCharacters,
+        overlapCharacters: Int = indexOverlapCharacters,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws {
+        let text = try loadText(context.managedURL)
+        let chunkSize = max(1, chunkCharacters)
+        let overlap = min(max(0, overlapCharacters), chunkSize - 1)
+        let path = locatorPath(context)
+        var lower = text.startIndex
+        var utf16Offset = 0
+        var line = 1
+        repeat {
+            try Task.checkCancellation()
+            let upper = text.index(lower, offsetBy: chunkSize, limitedBy: text.endIndex)
+                ?? text.endIndex
+            let body = String(text[lower..<upper])
+            let locator = Locator(
+                sourceID: context.source.id,
+                snapshotID: context.snapshot.id,
+                adapterID: adapterID,
+                payload: [
+                    "path": path,
+                    "indexTextRange": "utf16",
+                    "startUTF16": String(utf16Offset),
+                    "endUTF16": String(utf16Offset + body.utf16.count),
+                    "startLine": String(line),
+                    "endLine": String(line + lineBreakCount(body)),
+                ],
+                structuralPath: path,
+                textQuote: body.isEmpty ? nil : TextQuote(
+                    prefix: nil, exact: String(body.prefix(160)), suffix: nil
+                ),
+                fingerprint: AdapterUtilities.sha256(body)
+            )
+            try await emit(AdapterUtilities.makeObservation(
+                context: context,
+                adapterID: adapterID,
+                locator: locator,
+                mediaType: mediaType,
+                content: body,
+                maxCharacters: chunkSize
+            ))
+            guard upper != text.endIndex else { break }
+            let next = text.index(upper, offsetBy: -overlap)
+            let advanced = text[lower..<next]
+            utf16Offset += advanced.utf16.count
+            line += lineBreakCount(advanced)
+            lower = next
+        } while lower < text.endIndex
+    }
+
     static func read(
         _ context: AdapterContext,
         adapterID: String,
@@ -406,8 +496,19 @@ enum TextAdapterCore {
         try context.validate(locator, adapterID: adapterID)
         let text = try loadText(context.managedURL)
         let selected: String
-        if let lines = locator.lineRange {
-            let allLines = text.components(separatedBy: .newlines)
+        if locator.payload["indexTextRange"] == "utf16",
+           locator.payload["positionKind"] != "viewport" {
+            guard let start = locator.payload["startUTF16"].flatMap(Int.init),
+                  let end = locator.payload["endUTF16"].flatMap(Int.init),
+                  start >= 0, end >= start, end <= text.utf16.count,
+                  let range = Range(NSRange(location: start, length: end - start), in: text),
+                  range.lowerBound.samePosition(in: text) != nil,
+                  range.upperBound.samePosition(in: text) != nil else {
+                throw AdapterError.invalidLocator("索引文本范围超出内容或切断 Unicode 字符")
+            }
+            selected = String(text[range])
+        } else if let lines = locator.lineRange {
+            let allLines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             let lower = max(1, lines.lowerBound)
             let upper = min(allLines.count, lines.upperBound)
             guard lower <= upper else {
@@ -442,7 +543,7 @@ enum TextAdapterCore {
               let range = text.range(of: needle, options: [.caseInsensitive], range: searchRange) {
             try Task.checkCancellation()
             let prefix = text[..<range.lowerBound]
-            let line = prefix.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+            let line = 1 + lineBreakCount(prefix)
             let quote = AdapterUtilities.excerpt(from: text, matching: range)
             let locator = Locator(
                 sourceID: context.source.id,
@@ -518,7 +619,7 @@ enum TextAdapterCore {
         let text = try loadText(context.managedURL)
         let currentPath = locatorPath(context)
         let structuralMatch = locator.relativePath == currentPath
-        let quoteRange = locator.textQuote.flatMap { text.range(of: $0.exact) }
+        let quoteRange = try matchingQuote(in: text, locator: locator)
         let requiresQuoteRelocation = locator.lineRange != nil
         guard requiresQuoteRelocation ? quoteRange != nil : structuralMatch || quoteRange != nil else {
             return LocatorResolution(
@@ -531,14 +632,15 @@ enum TextAdapterCore {
         var payload = locator.payload
         payload["path"] = currentPath
         if let quoteRange, locator.lineRange != nil {
-            let startLine = text[..<quoteRange.lowerBound].reduce(1) {
-                $1 == "\n" ? $0 + 1 : $0
-            }
-            let endLine = text[quoteRange].reduce(startLine) {
-                $1 == "\n" ? $0 + 1 : $0
-            }
+            let startLine = 1 + lineBreakCount(text[..<quoteRange.lowerBound])
+            let endLine = startLine + lineBreakCount(text[quoteRange])
             payload["startLine"] = String(startLine)
             payload["endLine"] = String(endLine)
+            if locator.payload["indexTextRange"] == "utf16" {
+                let range = NSRange(quoteRange, in: text)
+                payload["startUTF16"] = String(range.location)
+                payload["endUTF16"] = String(NSMaxRange(range))
+            }
         }
         let relocated = Locator(
             sourceID: context.source.id,
@@ -555,6 +657,40 @@ enum TextAdapterCore {
             resolved: relocated,
             reason: quoteRange != nil ? "精确 quote 已在新文本中重新定位" : "结构路径仍存在"
         )
+    }
+
+    /// Swift Character treats CRLF as one grapheme, just like one source line break.
+    static func lineBreakCount(_ text: some StringProtocol) -> Int {
+        text.reduce(0) { $1.isNewline ? $0 + 1 : $0 }
+    }
+
+    private static func matchingQuote(in text: String, locator: Locator) throws -> Range<String.Index>? {
+        guard let quote = locator.textQuote, !quote.exact.isEmpty else { return nil }
+        let originalOffset = locator.payload["startUTF16"].flatMap(Int.init)
+        var searchRange = text.startIndex..<text.endIndex
+        var best: Range<String.Index>?
+        var bestContext = -1
+        var bestDistance = Int.max
+        var tied = false
+        while let range = text.range(of: quote.exact, range: searchRange) {
+            try Task.checkCancellation()
+            let context = (quote.prefix.map { text[..<range.lowerBound].hasSuffix($0) ? 1 : 0 } ?? 0)
+                + (quote.suffix.map { text[range.upperBound...].hasPrefix($0) ? 1 : 0 } ?? 0)
+            let distance = originalOffset.map {
+                abs(NSRange(range, in: text).location - max(0, $0))
+            } ?? 0
+            if context > bestContext || (context == bestContext && distance < bestDistance) {
+                best = range
+                bestContext = context
+                bestDistance = distance
+                tied = false
+            } else if context == bestContext && distance == bestDistance {
+                tied = true
+            }
+            searchRange = range.upperBound..<text.endIndex
+        }
+        // Never silently map an ambiguous repeated quote to its first occurrence.
+        return tied ? nil : best
     }
 
     static func loadText(

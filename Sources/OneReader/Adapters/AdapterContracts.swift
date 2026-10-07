@@ -178,6 +178,14 @@ protocol ReadingAdapter: ContentAdapter {
     ) async throws -> Observation
 }
 
+// Host-owned search projection; never exposed as an Agent tool or outline.
+protocol IndexingAdapter: ReadingAdapter {
+    func indexContent(
+        in context: AdapterContext,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws
+}
+
 protocol SearchingAdapter: ContentAdapter {
     func searchContent(
         in context: AdapterContext,

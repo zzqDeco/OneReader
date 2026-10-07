@@ -17,7 +17,8 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
-| [v0.3.2 reading recovery release](release-v0.3.2.plan.md) | Protected promotion, Developer Preview publication, and downloaded-artifact verification | Active |
+| [Markdown full-text search recovery](markdown-fulltext-index.plan.md) | Complete text indexing, existing-index rebuild, and anchored search acceptance for v0.3.3 | Active |
+| [v0.3.2 reading recovery release](release-v0.3.2.plan.md) | Protected promotion, Developer Preview publication, and downloaded-artifact verification | Delivered |
 | [Cross-format reading recovery](cross-format-reading-recovery.plan.md) | Physical PDF/EPUB/HTML gestures and visible-position restoration against isolated managed Library data | Delivered |
 | [Native Editorial Reader](native-editorial-reader.plan.md) | Release-quality macOS/iPhone Library, reader chrome, typography, and Reading Assistance | Delivered |
 | [GitHub remote bootstrap](github-remote-bootstrap.plan.md) | Public repository, hosted validation, branch protection, and project governance | Delivered |
