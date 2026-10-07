@@ -126,9 +126,16 @@ final class AdapterContractTests: XCTestCase {
         }
         let original = try XCTUnwrap(observations.first).locator
         var payload = original.payload
-        payload["positionKind"] = "viewport"
+        // Both AppKit/UIKit capture paths keep the index marker and write this
+        // production text-viewport discriminator ("viewport" belongs to PDF).
+        payload["positionKind"] = "textViewport"
+        payload["textViewportOffsetY"] = "4.5"
+        payload["textViewportX"] = "0"
         payload["startLine"] = "2"
         payload["endLine"] = "2"
+        let visibleRange = (text as NSString).range(of: "中")
+        payload["startUTF16"] = String(visibleRange.location)
+        payload["endUTF16"] = String(NSMaxRange(visibleRange))
         let viewport = replacingTestAnchor(original, payload: payload)
         let read = try TextAdapterCore.read(
             fixture.context, adapterID: PlainTextAdapter.id, locator: viewport,

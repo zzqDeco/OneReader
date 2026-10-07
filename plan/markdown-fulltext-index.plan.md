@@ -112,8 +112,11 @@ Implementation and isolated shared verification (2026-10-07):
   slots), generated-project drift, release-policy and entitlement rejection
   tests, and whitespace checks pass. GRDB cursor lifetime/row-reuse guidance was
   checked against its primary documentation through Context7.
-- Sol max patch review, release build, protected CI, and fresh native acceptance
-  are pending. Unit/AppModel position evidence is not visible scrolling evidence.
+- Local release build passed. Sol max patch review identified the production
+  `textViewport` discriminator; the range-read guard and regression fixture now
+  use that actual AppKit/UIKit payload, with rereview pending. Protected CI and
+  fresh native acceptance remain pending. Unit/AppModel position evidence is not
+  visible scrolling evidence.
 - GitHub issue #19 is assigned to the open [v0.3.3 milestone](https://github.com/zzqDeco/OneReader/milestone/3).
 
 Baseline v0.3.2 main is

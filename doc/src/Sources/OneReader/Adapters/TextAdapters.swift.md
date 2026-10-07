@@ -6,7 +6,8 @@ search, and quote-based relocation. Markdown AST headings remain an outline.
 Host indexing reads permitted UTF-8 once, emits overlapping 64K-grapheme chunks
 serially, and carries absolute UTF-16/line ranges. `indexTextRange=utf16` opts into
 exact indexed-range reads without reinterpreting pre-existing outline or viewport
-locators. Reads reject out-of-bounds or split-grapheme ranges. CRLF/CR/LF are
+locators (`positionKind=textViewport` on AppKit and UIKit). Reads reject
+out-of-bounds or split-grapheme ranges. CRLF/CR/LF are
 handled as source line breaks, preserving original content bytes.
 
 Cross-revision quote resolution ranks prefix/suffix context before original

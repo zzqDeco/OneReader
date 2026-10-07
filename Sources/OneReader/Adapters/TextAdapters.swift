@@ -497,7 +497,7 @@ enum TextAdapterCore {
         let text = try loadText(context.managedURL)
         let selected: String
         if locator.payload["indexTextRange"] == "utf16",
-           locator.payload["positionKind"] != "viewport" {
+           locator.payload["positionKind"] != "textViewport" {
             guard let start = locator.payload["startUTF16"].flatMap(Int.init),
                   let end = locator.payload["endUTF16"].flatMap(Int.init),
                   start >= 0, end >= start, end <= text.utf16.count,
