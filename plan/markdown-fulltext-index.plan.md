@@ -94,6 +94,19 @@ derived projections, and preserve existing source/position identities.
 - macOS visual and physical-iPhone search -> original text -> restart/resume
   acceptance require actual visible evidence, isolated data, and available
   permissions/device ownership. Do not relabel historical device results as new.
+- Physical search acceptance starts from the separate HTML Space and selects
+  the Library scope (so a failed scope switch cannot pass via a direct-adapter
+  fallback), searches the body-only `Visible marker 90` in the managed Markdown
+  fixture, observes the mounted TextKit viewport against independent source
+  offsets, captures the visible result/original, and verifies process recovery.
+  Each launch uses a UUID-isolated Library; native scrolling/recovery cases also
+  rerun on the currently authorized iPhone. No production Library is opened.
+- For native Markdown, recovery compares the source UTF-16 anchor and the
+  visible glyph line's viewport-relative Y (same 64-UTF-16-unit/16-point
+  tolerances), not the whole document's absolute scroll offset. TextKit layout
+  can change absolute coordinates after a deep jump while leaving the visible
+  text unchanged. This read-only test metric comes from mounted glyph geometry,
+  not the persisted position; PDF/Web assertions keep their existing geometry.
 
 ## Acceptance Evidence
 
@@ -114,17 +127,39 @@ Implementation and isolated shared verification (2026-10-07):
   checked against its primary documentation through Context7.
 - Local release build passed. Sol max patch review identified the production
   `textViewport` discriminator; the range-read guard and regression fixture now
-  use that actual AppKit/UIKit payload, with rereview pending. Protected CI and
-  fresh native acceptance remain pending. Unit/AppModel position evidence is not
-  visible scrolling evidence.
+  use that actual AppKit/UIKit payload. Sol max approved `d58b57a` without
+  blockers, and its [protected CI](https://github.com/zzqDeco/OneReader/actions/runs/37576349149)
+  passed. Sol max also approved the native acceptance changes without blockers;
+  their new commit still requires its own exact-head CI. Unit/AppModel position
+  evidence is not visible scrolling evidence.
 - GitHub issue #19 is assigned to the open [v0.3.3 milestone](https://github.com/zzqDeco/OneReader/milestone/3).
+- Fresh physical-iPhone acceptance (2026-10-07): the user completed Developer
+  Mode, certificate trust, and UI-automation consent on the authorized iPhone.
+  The first two attempts stopped before any test executed. The third reached
+  the cross-Space body-search hit and restored the same visible text, but exposed
+  an invalid absolute-scroll-Y assertion (15,815 versus 8,534 despite matching
+  source anchors and visually identical viewports). The read-only TextKit metric
+  now checks visible-line geometry with unchanged tolerances; Apple container
+  coordinates were verified through Context7. The focused fourth attempt passed,
+  with three retained screenshots confirming Library scope, original text, and
+  restoration. The complete physical-iPhone suite then passed all 11 tests,
+  zero failures/skips, in 403.6 s: seven search/recovery cases and four Library,
+  text, Markdown and code gesture cases. Source/test hashes matched before and
+  after the run; 21 screenshots were retained. The 244 shared tests, local
+  release build, Sandbox packaging, strict codesign and entitlement validation
+  were repeated successfully. macOS visible acceptance still requires restored
+  permission or user verification. UUID-isolated Libraries only; no trust
+  setting was bypassed and no Simulator was booted or created. Post-run read-only
+  inspection found an existing production database with a September 7 timestamp
+  and no WAL; it was not used by the tests. No pre-run byte-hash baseline was
+  captured, so byte-for-byte preservation is not asserted.
 
 Baseline v0.3.2 main is
 `d189d2cc5d91ed86e3bb66ba69931b411fa18aa6`; dev is `e143aea` with an identical
 tree. GitHub REST confirmed both current heads after a Git HTTPS fetch failed.
 The new branch includes the main promotion without a file change.
 
-Only about 14 GiB is currently free. Reuse existing locked dependencies for
+Only about 13 GiB is currently free. Reuse existing locked dependencies for
 incremental checks; do not initiate a cold dependency resolution below 15 GiB.
 Do not work around the previous host rejection of cache deletion or remove user
 Sources. Hosted CI remains available for authoritative full rebuilds.
@@ -140,8 +175,9 @@ provider credentials, rewriting v0.3.2, or modifying the production Library.
 - [x] Full-text indexing and anchored search implemented
 - [x] Existing completed indexes safely rebuilt
 - [x] Focused and full shared tests pass
-- [ ] Sol max review concludes without blockers
-- [ ] Native acceptance recorded with honest permission/device boundaries
+- [x] Sol max review concludes without blockers
+- [x] Physical-iPhone search, gestures and position recovery accepted
+- [ ] macOS visible acceptance recorded with honest permission boundaries
 - [x] Current-state and source docs synchronized
 - [ ] Exact-head protected CI passes and PR merges to dev
 - [ ] New release promotion/artifact gates pass before publication
