@@ -74,11 +74,21 @@ booted. Sol max final-only review finds no confirmed defect and accepts code ris
 Red/green and build logs are separate ignored local files under
 `.onereader/acceptance/pdf-native-order-viewport-*.log`. New isolated acceptance
 is recorded in `.onereader/acceptance/v033-pdf-order-viewport-repair/acceptance.md`:
-the empty Library is visible, but native control times out after the normal
-public-PDF import action, including after reconnect. Read-only data confirms
-one imported Source and page-1 initial progress; it does not prove actual reader
-placement. Real first-open, 150% zoom/pan, relaunch and source-switch visible
-gates remain pending. The user has been asked to foreground the independent app.
+after control resumed, the real 252-page PDF visibly opens its cover/page 1.
+At 150% on a narrow tail page with non-endpoint horizontal pan, normal quit
+and relaunch returns to page 249/252 and retains actual horizontal/vertical
+content placement. At unchanged 1440x900 geometry, the PDF surface pixels in
+the foreground recheck are identical to the pre-quit surface; this is bounded
+static position evidence, not FPS or smoothness evidence. Settings confirm
+150% survived relaunch. Full native/scroller readback is distinguished from
+the pre-quit capture's menu-only AX and the foreground recheck's title-only
+AX. The sparse captures are not used as numeric scrollbar evidence. Sol max
+independently recomputed the pixel comparison and accepts these two bounded
+PDF visible gates, not the supplemental checks or publication.
+Supplemental source-switch, Markdown search/recovery and Paper/Dark wide/narrow
+checks are still pending at the generated Markdown's normal file picker:
+AX selection works, but Import is disabled and the coordinate controller
+returns `noWindowsAvailable`. The user was asked to select/confirm with a mouse.
 Four production SQLite/WAL hashes match; no production Library was opened.
 
 Historical failure evidence stays in
@@ -92,11 +102,12 @@ credential changes, performance claims, main promotion and publication.
 
 ## Delivery Checklist
 
-- [ ] Both user-visible defects repaired
+- [x] Both PDF repair visible gates pass at unchanged geometry
 - [x] Red/green focused regressions recorded
 - [x] Complete local validation passes
-- [ ] Independent macOS visible acceptance recorded
-- [ ] Production data unchanged after acceptance
+- [x] Independent PDF repair visible acceptance recorded
+- [x] Production data unchanged during PDF acceptance
+- [ ] Supplemental macOS acceptance and test-preference cleanup completed
 - [x] Current-state/source docs and indexes synchronized
 - [x] Sol max final conclusions addressed
 - [ ] Separate authorization before merge/release
