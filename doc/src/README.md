@@ -17,6 +17,8 @@ architecture document.
 | Database and migrations | [Library database](Sources/OneReader/Persistence/LibraryDatabase.swift.md) |
 | Atomic managed import | [Managed Library](Sources/OneReader/Persistence/ManagedLibrary.swift.md) |
 | Adapter probing and capability routing | [Adapter registry](Sources/OneReader/Adapters/AdapterRegistry.swift.md) |
+| Bounded atomic search-index orchestration | [Adapter coordinator](Sources/OneReader/Adapters/AdapterCoordinator.swift.md) |
+| Text chunks, navigation, and stable ranges | [Text adapters](Sources/OneReader/Adapters/TextAdapters.swift.md) |
 | Secure ZIP/EPUB extraction | [Secure archive extractor](Sources/OneReader/Adapters/SecureArchiveExtractor.swift.md) |
 | Remote web and GitHub snapshots | [Remote source importer](Sources/OneReader/Sources/RemoteSourceImporter.swift.md) |
 | Unified native presentation safety | [Adapter presentation](Sources/OneReader/UI/AdapterPresentationView.swift.md) |

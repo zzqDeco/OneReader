@@ -15,6 +15,9 @@ registry edge. `AdapterCoordinator.swift` reconstructs contexts from managed
 database records, persists plans and Observations, composes directory child
 adapters, expands every PDF page and EPUB spine item during indexing, and owns
 the active-plan-bound FTS projection.
+The optional host-only `IndexingAdapter` conformance is dispatched behind an
+already selected read adapter. It neither expands model-visible capabilities
+nor changes navigation listing into a full-text index.
 
 Locators are accepted only for their exact Source, Snapshot, adapter, and schema.
 Cross-revision work must call Resolve and receives an explicit current,

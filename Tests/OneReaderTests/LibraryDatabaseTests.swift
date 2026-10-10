@@ -16,7 +16,7 @@ final class LibraryDatabaseTests: XCTestCase {
             [
                 "adapter_schema": "1",
                 "agent_runtime_schema": "5",
-                "database_schema": "9",
+                "database_schema": "10",
             ]
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))

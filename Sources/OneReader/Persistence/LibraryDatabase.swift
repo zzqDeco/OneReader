@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 9
+    static let schemaVersion = 10
     static let adapterSchemaVersion = 1
     static let agentRuntimeSchemaVersion = 5
 
@@ -1057,6 +1057,7 @@ final class LibraryDatabase: @unchecked Sendable {
         }
         guard !terms.isEmpty else { return [] }
         let matchQuery = terms.joined(separator: " AND ")
+        let resultLimit = min(max(1, limit), 20)
         return try pool.read { db in
             var sql = """
                 SELECT search_documents.locator_json,
@@ -1093,42 +1094,46 @@ final class LibraryDatabase: @unchecked Sendable {
                 sql += " AND search_documents.plan_id = ?"
                 arguments += [planID]
             }
-            sql += " ORDER BY score LIMIT ?"
-            arguments += [min(max(1, limit), 20)]
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            if !rows.isEmpty {
-                return try rows.enumerated().map { index, row in
-                    let locatorData: Data = row["locator_json"]
-                    let rootLocator = try JSONDecoder.databaseDecoder.decode(
-                        Locator.self,
-                        from: locatorData
-                    )
-                    let sourceID: String = row["source_id"]
-                    let rowSnapshotID: String = row["snapshot_id"]
-                    let adapterID: String = row["adapter_id"]
-                    let title: String = row["title"]
-                    let body: String = row["body"]
-                    let indexedContext: String = row["context"]
-                    let score: Double = row["score"]
-                    let anchored = Self.searchAnchor(
-                        rootLocator: rootLocator,
-                        body: body,
-                        query: query
-                    )
-                    let locator = anchored?.locator ?? rootLocator
-                    let context = anchored?.context ?? indexedContext
-                    return ContentSearchHit(
-                        id: "fts:\(locator.stableID):\(anchored?.utf16Offset ?? -1):\(index)",
-                        sourceID: sourceID,
-                        snapshotID: rowSnapshotID,
-                        adapterID: adapterID,
-                        locator: locator,
-                        title: title,
-                        context: context,
-                        rank: -score
-                    )
-                }
+            sql += " ORDER BY score, search_documents.document_key"
+            let rows = try Row.fetchCursor(db, sql: sql, arguments: arguments)
+            var hits: [ContentSearchHit] = []
+            var seen: Set<String> = []
+            // Consume/copy values inside this database access. Row cursors reuse
+            // storage, and overlap deduplication must precede the final limit.
+            while hits.count < resultLimit, let row = try rows.next() {
+                try Task.checkCancellation()
+                let locatorData: Data = row["locator_json"]
+                let rootLocator = try JSONDecoder.databaseDecoder.decode(
+                    Locator.self,
+                    from: locatorData
+                )
+                let sourceID: String = row["source_id"]
+                let rowSnapshotID: String = row["snapshot_id"]
+                let adapterID: String = row["adapter_id"]
+                let title: String = row["title"]
+                let body: String = row["body"]
+                let indexedContext: String = row["context"]
+                let score: Double = row["score"]
+                let anchored = Self.searchAnchor(
+                    rootLocator: rootLocator,
+                    body: body,
+                    query: query
+                )
+                let locator = anchored?.locator ?? rootLocator
+                let context = anchored?.context ?? indexedContext
+                guard seen.insert(Self.searchHitKey(locator)).inserted else { continue }
+                hits.append(ContentSearchHit(
+                    id: "fts:\(locator.stableID):\(anchored?.utf16Offset ?? -1)",
+                    sourceID: sourceID,
+                    snapshotID: rowSnapshotID,
+                    adapterID: adapterID,
+                    locator: locator,
+                    title: title,
+                    context: context,
+                    rank: -score
+                ))
             }
+            if !hits.isEmpty { return hits }
 
             // unicode61 tokenizes long CJK runs as a single token. Keep FTS as the
             // fast path, then use a bounded exact-substring query so Chinese and
@@ -1167,14 +1172,14 @@ final class LibraryDatabase: @unchecked Sendable {
                 fallbackSQL += " AND search_documents.plan_id = ?"
                 fallbackArguments += [planID]
             }
-            fallbackSQL += " ORDER BY search_documents.created_at DESC, search_documents.document_key LIMIT ?"
-            fallbackArguments += [min(max(1, limit), 20)]
-            let fallbackRows = try Row.fetchAll(
+            fallbackSQL += " ORDER BY search_documents.created_at DESC, search_documents.document_key"
+            let fallbackRows = try Row.fetchCursor(
                 db,
                 sql: fallbackSQL,
                 arguments: fallbackArguments
             )
-            return try fallbackRows.enumerated().map { index, row in
+            while hits.count < resultLimit, let row = try fallbackRows.next() {
+                try Task.checkCancellation()
                 let locatorData: Data = row["locator_json"]
                 let rootLocator = try JSONDecoder.databaseDecoder.decode(
                     Locator.self,
@@ -1192,18 +1197,37 @@ final class LibraryDatabase: @unchecked Sendable {
                 )
                 let locator = anchored?.locator ?? rootLocator
                 let context = anchored?.context ?? title
-                return ContentSearchHit(
-                    id: "substring:\(locator.stableID):\(anchored?.utf16Offset ?? -1):\(index)",
+                guard seen.insert(Self.searchHitKey(locator)).inserted else { continue }
+                hits.append(ContentSearchHit(
+                    id: "substring:\(locator.stableID):\(anchored?.utf16Offset ?? -1)",
                     sourceID: sourceID,
                     snapshotID: rowSnapshotID,
                     adapterID: adapterID,
                     locator: locator,
                     title: title,
                     context: context,
-                    rank: 0.5 / Double(index + 1)
-                )
+                    rank: 0.5 / Double(hits.count + 1)
+                ))
             }
+            return hits
         }
+    }
+
+    private static func searchHitKey(_ locator: Locator) -> String {
+        // Overlapping chunks can quote the same absolute match with different
+        // context. Keep all format/path coordinates, but not quote context.
+        return Locator(
+            sourceID: locator.sourceID,
+            snapshotID: locator.snapshotID,
+            adapterID: locator.adapterID,
+            schemaVersion: locator.schemaVersion,
+            payload: locator.payload,
+            structuralPath: locator.structuralPath,
+            textQuote: locator.textQuote.map {
+                TextQuote(prefix: nil, exact: $0.exact, suffix: nil)
+            },
+            fingerprint: locator.fingerprint
+        ).stableID
     }
 
     private static func searchAnchor(
@@ -1217,12 +1241,18 @@ final class LibraryDatabase: @unchecked Sendable {
             .split(whereSeparator: \Character.isWhitespace)
             .map(String.init)
             .filter { $0 != normalized }
-        guard let range = candidates.lazy.compactMap({ candidate in
+        guard let match = candidates.lazy.compactMap({ candidate in
             body.range(
                 of: candidate,
                 options: [.caseInsensitive, .diacriticInsensitive]
             )
         }).first else { return nil }
+        // Foundation ranges may end inside a composed Character. Quote/read the
+        // complete grapheme instead of manufacturing an invalid UTF-16 anchor.
+        let composed = (body as NSString).rangeOfComposedCharacterSequences(
+            for: NSRange(match, in: body)
+        )
+        guard let range = Range(composed, in: body) else { return nil }
 
         let exact = String(body[range])
         let prefixStart = body.index(
@@ -1238,15 +1268,13 @@ final class LibraryDatabase: @unchecked Sendable {
         let prefix = String(body[prefixStart..<range.lowerBound])
         let suffix = String(body[range.upperBound..<suffixEnd])
         let utf16Range = NSRange(range, in: body)
-        let startLine = body[..<range.lowerBound].reduce(1) { partial, character in
-            character == "\n" ? partial + 1 : partial
-        }
-        let endLine = body[range].reduce(startLine) { partial, character in
-            character == "\n" ? partial + 1 : partial
-        }
+        let baseUTF16 = max(0, Int(rootLocator.payload["startUTF16"] ?? "") ?? 0)
+        let baseLine = max(1, rootLocator.lineRange?.lowerBound ?? 1)
+        let startLine = baseLine + TextAdapterCore.lineBreakCount(body[..<range.lowerBound])
+        let endLine = startLine + TextAdapterCore.lineBreakCount(body[range])
         var payload = rootLocator.payload
-        payload["startUTF16"] = String(utf16Range.location)
-        payload["endUTF16"] = String(NSMaxRange(utf16Range))
+        payload["startUTF16"] = String(baseUTF16 + utf16Range.location)
+        payload["endUTF16"] = String(baseUTF16 + NSMaxRange(utf16Range))
         payload["startLine"] = String(startLine)
         payload["endLine"] = String(endLine)
         let locator = Locator(
@@ -1266,7 +1294,7 @@ final class LibraryDatabase: @unchecked Sendable {
         return (
             locator,
             AdapterUtilities.excerpt(from: body, matching: range),
-            utf16Range.location
+            baseUTF16 + utf16Range.location
         )
     }
 
@@ -1352,6 +1380,18 @@ final class LibraryDatabase: @unchecked Sendable {
     static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         registerMigrations(&migrator)
+        migrator.registerMigration("v10-complete-text-search-index") { db in
+            // Search is derived state. Never rewrite source versions, evidence,
+            // annotations, or progress to repair a heading-only projection.
+            try db.execute(sql: """
+                DELETE FROM search_document_fts;
+                DELETE FROM search_documents;
+                DELETE FROM observation_index_staging;
+                DELETE FROM observation_index_runs;
+                UPDATE library_metadata SET value = '10' WHERE key = 'database_schema';
+                """)
+        }
+
         return migrator
     }
 

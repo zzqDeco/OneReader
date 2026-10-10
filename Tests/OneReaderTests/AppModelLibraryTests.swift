@@ -1332,6 +1332,99 @@ final class AppModelLibraryTests: XCTestCase {
         }
     }
 
+    func testMarkdownFullTextAcrossScopesOpensExactHitAndRestoresPosition() async throws {
+        let root = temporaryRoot("FullTextScopes")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Book")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("# sharedneedle heading\n\nA heading match.".utf8).write(to: folder.appendingPathComponent("heading.md"))
+        let body = "Preamble.\n\n# Other title\n\nBody contains sharedneedle and paragraphonly."
+        try Data(body.utf8).write(to: folder.appendingPathComponent("body.md"))
+        let suite = "OneReaderTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let libraryRoot = root.appendingPathComponent("Library")
+        let model = AppModel(libraryRootURL: libraryRoot, defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([folder])
+        try await waitUntil(timeout: .seconds(8)) { model.activePendingImportCount == 0 && model.adapterPlan != nil }
+        let plan = try XCTUnwrap(model.adapterPlan)
+        let verification = try LibraryDatabase(rootURL: libraryRoot)
+        XCTAssertTrue(try verification.isObservationIndexComplete(snapshotID: plan.snapshotID, planID: plan.id))
+        // Check the projection directly before exercising scopes with adapter fallbacks.
+        XCTAssertEqual(try verification.searchObservations(query: "sharedneedle").count, 2)
+        XCTAssertEqual(try verification.searchObservations(query: "paragraphonly").count, 1)
+        for scope in [ReaderSearchScope.library, .space, .source] {
+            model.searchScope = scope
+            model.searchText = "sharedneedle"
+            model.performSearch()
+            try await waitUntil(timeout: .seconds(5)) { !model.isSearching }
+            XCTAssertEqual(Set(model.searchResults.compactMap { $0.locator.relativePath }), ["heading.md", "body.md"])
+        }
+        let hit = try XCTUnwrap(model.searchResults.first { $0.locator.relativePath == "body.md" })
+        model.openSearchHit(hit)
+        try await waitUntil { model.presentationDocument?.locator == hit.locator }
+        XCTAssertEqual(model.presentationDocument?.content, body)
+        XCTAssertEqual(hit.locator.payload["startUTF16"], String((body as NSString).range(of: "sharedneedle").location))
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+        model.updateReadingPosition(ReadingPositionUpdate(
+            locator: hit.locator, progressFraction: 0.7, granularity: .text, displayLabel: "search position"
+        ))
+        try await waitUntil {
+            model.currentProgress.sourcePositions[hit.sourceID]?.locator == hit.locator
+                && model.currentProgress.sourcePositions[hit.sourceID]?.progressFraction == 0.7
+        }
+        let restored = AppModel(libraryRootURL: libraryRoot, defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { restored.isBootstrapComplete }
+        restored.openSpace(spaceID)
+        try await waitUntil(timeout: .seconds(5)) { restored.presentationDocument?.locator == hit.locator }
+        XCTAssertEqual(restored.currentProgress.sourcePositions[hit.sourceID]?.progressFraction, 0.7)
+        XCTAssertEqual(restored.presentationDocument?.content, body)
+    }
+
+    func testV9HeadingOnlyMigrationRebuildsWithoutOpeningSpaceAndPreservesUserData() async throws {
+        let root = temporaryRoot("V9SearchRebuild")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try prepareVersion8SearchFixture(
+            libraryRoot: root.appendingPathComponent("Library"), version: 9
+        )
+        let prior = try DatabasePool(path: fixture.databaseURL.path)
+        let oldRows = try await prior.read { db in
+            try String.fetchAll(db, sql: "SELECT body FROM search_documents")
+        }
+        XCTAssertEqual(oldRows, ["# migration-evidence"])
+        let before = try await prior.read { db in
+            try Data.fetchOne(db, sql: "SELECT payload_json FROM reading_progress")
+        }
+        let managedURL = fixture.libraryRoot.appendingPathComponent("Sources/legacy-v8/payload")
+        let sourceBytes = try Data(contentsOf: managedURL)
+        try prior.close()
+
+        let migrated = try LibraryDatabase(rootURL: fixture.libraryRoot)
+        XCTAssertEqual(try migrated.schemaMetadata()["database_schema"], "10")
+        XCTAssertEqual(try migrated.searchDocumentCount(), 0)
+        XCTAssertEqual(try migrated.adapterPlansRequiringSearchIndex().map(\.id), [fixture.planID])
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: fixture.libraryRoot, defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil(timeout: .seconds(8)) {
+            model.isBootstrapComplete && (try? migrated.isObservationIndexComplete(snapshotID: fixture.snapshotID, planID: fixture.planID)) == true
+        }
+        XCTAssertNil(model.selectedSpaceID)
+        XCTAssertFalse(model.isReadingWorkspaceOpen)
+        XCTAssertEqual(try migrated.searchObservations(query: "globally searchable").count, 1)
+        XCTAssertTrue(try migrated.adapterPlansRequiringSearchIndex().isEmpty)
+        XCTAssertEqual(try migrated.observationCount(snapshotID: fixture.snapshotID), 1)
+        XCTAssertEqual(try migrated.fetchSources().map(\.id), ["source-v8-search"])
+        XCTAssertEqual(try migrated.fetchSnapshots(sourceID: "source-v8-search").map(\.id), [fixture.snapshotID])
+        XCTAssertEqual(try migrated.fetchAnnotations(spaceID: "space-v8-search").first?.note, "preserve this note")
+        XCTAssertEqual(try migrated.fetchReadingHistory(spaceID: "space-v8-search").first?.id, "history-v9")
+        let after = try await migrated.pool.read { db in
+            try Data.fetchOne(db, sql: "SELECT payload_json FROM reading_progress")
+        }
+        XCTAssertEqual(before, after)
+        XCTAssertEqual(try Data(contentsOf: managedURL), sourceBytes)
+    }
+
     func testV8MigrationRebuildsLibrarySearchWithoutOpeningSpace() async throws {
         let root = temporaryRoot("V8SearchRebuild")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1371,12 +1464,13 @@ final class AppModelLibraryTests: XCTestCase {
         try observer.close()
 
         let verification = try LibraryDatabase(rootURL: fixture.libraryRoot)
-        XCTAssertEqual(try verification.schemaMetadata()["database_schema"], "9")
+        XCTAssertEqual(try verification.schemaMetadata()["database_schema"], "10")
         XCTAssertEqual(
             try verification.searchObservations(query: "migration-evidence").count,
             1
         )
         XCTAssertTrue(try verification.adapterPlansRequiringSearchIndex().isEmpty)
+        XCTAssertEqual(try verification.searchObservations(query: "globally searchable").count, 1)
     }
 
     func testInvalidLibraryRootFailsClosedAndPreservesUnrelatedFile() async throws {
@@ -1544,7 +1638,8 @@ final class AppModelLibraryTests: XCTestCase {
     }
 
     private func prepareVersion8SearchFixture(
-        libraryRoot: URL
+        libraryRoot: URL,
+        version: Int = 8
     ) throws -> AppV8SearchFixture {
         let layout = ApplicationSupportLayout(rootURL: libraryRoot)
         try layout.prepare()
@@ -1692,6 +1787,47 @@ final class AppModelLibraryTests: XCTestCase {
                 sql: "SELECT value FROM library_metadata WHERE key = 'database_schema'"
             )
         }, "8")
+        if version == 9 {
+            try LibraryDatabase.makeMigrator().migrate(pool, upTo: "v9-plan-bound-search-projection")
+            var progress = ReadingProgress.empty
+            progress.sourcePositions[sourceID] = SourcePosition(
+                sourceID: sourceID, locator: locator, updatedAt: .now,
+                progressFraction: 0.4, granularity: .text, displayLabel: "kept position"
+            )
+            let progressJSON = try encoder.encode(progress)
+            try pool.write { db in
+                try db.execute(sql: """
+                    INSERT INTO observation_index_runs
+                      (snapshot_id, plan_id, generation_id, state, observation_count, started_at, completed_at)
+                    VALUES (?, ?, 'generation-v9', 'completed', 1, ?, ?)
+                    """, arguments: [snapshotID, planID, Date.now, Date.now])
+                try db.execute(sql: """
+                    INSERT INTO search_documents
+                      (document_key, plan_id, observation_id, source_id, snapshot_id, adapter_id,
+                       locator_json, media_type, title, body, digest, truncated, created_at)
+                    VALUES ('heading-only-v9', ?, 'heading-v9', ?, ?, ?, ?, 'text/markdown',
+                            'legacy.md', '# migration-evidence', 'heading-digest', 0, ?)
+                    """, arguments: [planID, sourceID, snapshotID, MarkdownAdapter.id, locatorJSON, Date.now])
+                try db.execute(sql: """
+                    INSERT INTO search_document_fts (document_key, plan_id, source_id, snapshot_id, title, body)
+                    SELECT document_key, plan_id, source_id, snapshot_id, title, body FROM search_documents
+                    """)
+                try db.execute(sql: """
+                    INSERT INTO reading_progress (space_id, schema_version, payload_json, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """, arguments: [spaceID, progress.schemaVersion, progressJSON, Date.now])
+                try db.execute(sql: """
+                    INSERT INTO annotations
+                      (id, space_id, source_id, snapshot_id, kind, locator_json, anchor_state, note, created_at, updated_at)
+                    VALUES ('note-v9', ?, ?, ?, 'note', ?, 'current', 'preserve this note', ?, ?)
+                    """, arguments: [spaceID, sourceID, snapshotID, locatorJSON, Date.now, Date.now])
+                try db.execute(sql: """
+                    INSERT INTO reading_history
+                      (id, space_id, source_id, snapshot_id, locator_json, opened_at)
+                    VALUES ('history-v9', ?, ?, ?, ?, ?)
+                    """, arguments: [spaceID, sourceID, snapshotID, locatorJSON, Date.now])
+            }
+        }
         try pool.close()
         return AppV8SearchFixture(
             libraryRoot: libraryRoot,
