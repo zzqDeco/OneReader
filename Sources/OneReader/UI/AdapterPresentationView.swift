@@ -82,12 +82,27 @@ struct AdapterPresentationView: View {
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var pdfZoomRequest: PDFZoomRequest? = nil
+    var onPDFZoomChange: ((Double) -> Void)? = nil
 
     var body: some View {
         Group {
             switch document.surface {
             case .pdfKit:
                 if let url = document.contentURL {
+#if os(iOS)
+                    ManagedPDFPresentation(
+                        url: url,
+                        documentLocator: document.locator,
+                        captureTargetID: captureTargetID,
+                        pageIndex: document.locator.pdfPageIndex ?? 0,
+                        scale: preferences.pdfScale,
+                        onSelectionChange: onSelectionChange,
+                        onPositionChange: onPositionChange,
+                        zoomRequest: pdfZoomRequest,
+                        onZoomChange: onPDFZoomChange
+                    )
+#else
                     ManagedPDFPresentation(
                         url: url,
                         documentLocator: document.locator,
@@ -97,6 +112,7 @@ struct AdapterPresentationView: View {
                         onSelectionChange: onSelectionChange,
                         onPositionChange: onPositionChange
                     )
+#endif
                 } else {
                     unavailable("PDF 内容不可用")
                 }

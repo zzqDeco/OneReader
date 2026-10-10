@@ -1,6 +1,6 @@
 # Markdown Full-text Search Recovery
 
-Status: Active
+Status: Delivered
 
 Branch: `fix/markdown-fulltext-index`
 
@@ -154,13 +154,40 @@ Implementation and isolated shared verification (2026-10-07):
   and no WAL; it was not used by the tests. No pre-run byte-hash baseline was
   captured, so byte-for-byte preservation is not asserted.
 
+macOS visible continuation and dev delivery (2026-10-10):
+
+- The identity-isolated Sandbox app from exact `4daf806` used only generated
+  Markdown/HTML Spaces. Whole-Library body search from the separate HTML Space
+  visibly selected and highlighted Markdown marker 90. Exposed native AX
+  Scroll Down/Up moved the body; the user separately confirmed direct
+  mouse/trackpad up/down scrolling. Normal Cmd-Q ended the old process and a
+  new launch restored the same marker-93/sections-94–98 viewport through
+  Library Continue Reading, without another search or outline jump.
+- Paper/Dark native reader and controls were legible at 1440×900 and actual
+  compact 900×702 logical points. Strict 900×650 outer-frame acceptance is not
+  claimed: the 650-point content minimum plus native chrome clamps the height.
+  Automated wheel injection still fails at the controller. No frame-rate,
+  all-format, VoiceOver, Reduce Motion, or automatic OS-theme pass is inferred.
+- Paired screenshots/AX text and a verified image hash manifest remain under
+  ignored `.onereader/acceptance/v033-macos/oct10/`. All four fresh production
+  DB/WAL hashes matched through cleanup. The independent app's Follow System
+  preference was restored through UI and it quit normally. The identity-modified
+  ad-hoc signed app is not byte-identical release-artifact proof.
+- Sol max independently approved these bounded visible-evidence claims. The
+  exact-head required [CI](https://github.com/zzqDeco/OneReader/actions/runs/37581649674)
+  succeeded; [PR #20](https://github.com/zzqDeco/OneReader/pull/20) merged to dev
+  at `45e44ec77c45560fc15ad7144682b0a05ca8a327`. Delivery here is the accepted
+  implementation slice, not main promotion or publication. Issue #19 and the
+  v0.3.3 milestone remain open until the separate release gates are observed.
+
 Baseline v0.3.2 main is
 `d189d2cc5d91ed86e3bb66ba69931b411fa18aa6`; dev is `e143aea` with an identical
 tree. GitHub REST confirmed both current heads after a Git HTTPS fetch failed.
 The new branch includes the main promotion without a file change.
 
-Only about 13 GiB is currently free. Reuse existing locked dependencies for
-incremental checks; do not initiate a cold dependency resolution below 15 GiB.
+At the October 7 implementation baseline only about 13 GiB was free. The
+October 10 integration preflight found 42 GiB available. Continue reusing locked
+dependencies; do not initiate a cold dependency resolution below 15 GiB.
 Do not work around the previous host rejection of cache deletion or remove user
 Sources. Hosted CI remains available for authoritative full rebuilds.
 
@@ -177,8 +204,8 @@ provider credentials, rewriting v0.3.2, or modifying the production Library.
 - [x] Focused and full shared tests pass
 - [x] Sol max review concludes without blockers
 - [x] Physical-iPhone search, gestures and position recovery accepted
-- [ ] macOS visible acceptance recorded with honest permission boundaries
+- [x] macOS visible acceptance recorded with honest permission boundaries
 - [x] Current-state and source docs synchronized
-- [ ] Exact-head protected CI passes and PR merges to dev
+- [x] Exact-head protected CI passes and PR merges to dev
 - [ ] New release promotion/artifact gates pass before publication
 - [ ] Issue/milestone and plan status reflect observed delivery

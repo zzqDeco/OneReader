@@ -498,3 +498,14 @@ struct ReaderPreferences: Codable, Equatable, Sendable {
     var theme: ReaderThemePreference = .system
     var pdfScale: Double = 1
 }
+
+enum PDFZoomAction: Equatable, Sendable {
+    case zoomIn
+    case zoomOut
+    case fitWidth
+}
+
+struct PDFZoomRequest: Identifiable, Sendable {
+    let id = UUID()
+    let action: PDFZoomAction
+}

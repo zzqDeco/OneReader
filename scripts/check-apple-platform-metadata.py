@@ -33,7 +33,8 @@ def main() -> int:
     ios_info = plistlib.loads((ROOT / "Resources/Info-iOS.plist").read_bytes())
 
     for label, payload in (("macOS Info", mac_info), ("iOS Info", ios_info)):
-        add_equal(errors, f"{label} bundle id", payload.get("CFBundleIdentifier"), BUNDLE_ID)
+        expected_id = "$(PRODUCT_BUNDLE_IDENTIFIER)" if label == "iOS Info" else BUNDLE_ID
+        add_equal(errors, f"{label} bundle id", payload.get("CFBundleIdentifier"), expected_id)
         add_equal(
             errors,
             f"{label} marketing version",
@@ -57,6 +58,15 @@ def main() -> int:
 
     package = (ROOT / "Package.swift").read_text(encoding="utf-8")
     project = (ROOT / "project.yml").read_text(encoding="utf-8")
+    for expected in (
+        f"ONEREADER_IOS_BUNDLE_IDENTIFIER: {BUNDLE_ID}",
+        "ONEREADER_IOS_DISPLAY_NAME: OneReader",
+        "PRODUCT_BUNDLE_IDENTIFIER: $(ONEREADER_IOS_BUNDLE_IDENTIFIER)",
+    ):
+        if expected not in project:
+            errors.append(f"project.yml is missing default identity setting {expected}")
+    add_equal(errors, "iOS Documents sharing", ios_info.get("UIFileSharingEnabled"), True)
+    add_equal(errors, "iPhone ProMotion opt-in", ios_info.get("CADisableMinimumFrameDurationOnPhone"), True)
     for expected in (
         '.macOS("26.1")',
         '.iOS("26.1")',

@@ -970,6 +970,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     let scale: Double
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var zoomRequest: PDFZoomRequest? = nil
+    var onZoomChange: ((Double) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -979,6 +981,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .clear
+        view.onViewportLayout = { [weak coordinator = context.coordinator] view in
+            coordinator?.updateZoom(in: view)
+        }
         context.coordinator.observe(view)
         return view
     }
@@ -989,9 +994,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
             context.coordinator.appliedAnchorSignature = nil
+            context.coordinator.zoomController.reset()
         }
-        let requestedScale = min(max(scale, 0.5), 3)
-        if abs(view.scaleFactor - requestedScale) > 0.001 { view.scaleFactor = requestedScale }
+        context.coordinator.updateZoom(in: view)
         context.coordinator.positionObserver.refreshScrollObservation()
         let signature = [
             documentLocator.stableID,
@@ -1027,6 +1032,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
                 } else {
                     view.go(to: page)
                 }
+                coordinator.zoomController.refitAfterNavigation(to: page, in: view)
+                coordinator.updateZoom(in: view)
                 DispatchQueue.main.async {
                     guard coordinator.appliedAnchorSignature == signature else { return }
                     coordinator.isApplyingAnchor = false
@@ -1040,6 +1047,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
     static func dismantleUIView(_ view: ReadingPDFView, coordinator: Coordinator) {
         view.pendingAnchor = nil
+        view.onViewportLayout = nil
+        coordinator.stopZoomPublication()
         coordinator.positionObserver.captureImmediately()
         coordinator.positionObserver.stop()
     }
@@ -1050,6 +1059,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false
+        let zoomController = PDFZoomController()
+        private var zoomPublishTask: Task<Void, Never>?
+        private var publishedZoom: Double?
         lazy var positionObserver = PDFReadingPositionObserver(
             base: { [weak self] in self?.parent.documentLocator },
             targetID: { [weak self] in self?.parent.captureTargetID },
@@ -1059,10 +1071,42 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
         init(parent: ManagedPDFPresentation) { self.parent = parent }
 
-        deinit { NotificationCenter.default.removeObserver(self) }
+        deinit {
+            zoomPublishTask?.cancel()
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func updateZoom(in view: PDFView) {
+            zoomController.update(view, defaultScale: parent.scale, request: parent.zoomRequest, pageIndex: parent.pageIndex)
+            publishZoom(from: view)
+        }
+
+        func stopZoomPublication() {
+            zoomPublishTask?.cancel()
+            zoomPublishTask = nil
+        }
+
+        private func publishZoom(from view: PDFView) {
+            guard let relative = zoomController.relativeScale(in: view),
+                  publishedZoom.map({ abs($0 - relative) > 0.001 }) ?? true else { return }
+            publishedZoom = relative
+            zoomPublishTask?.cancel()
+            zoomPublishTask = Task { @MainActor [weak self, weak view] in
+                await Task.yield()
+                guard !Task.isCancelled, let self, let view,
+                      let current = zoomController.relativeScale(in: view) else { return }
+                parent.onZoomChange?(current)
+            }
+        }
+
+        @objc private func scaleDidChange(_ notification: Notification) {
+            guard !zoomController.isUpdating, let view = notification.object as? PDFView else { return }
+            publishZoom(from: view)
+        }
 
         func observe(_ view: PDFView) {
             positionObserver.observe(view)
+            NotificationCenter.default.addObserver(self, selector: #selector(scaleDidChange(_:)), name: .PDFViewScaleChanged, object: view)
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(selectionDidChange(_:)),

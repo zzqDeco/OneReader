@@ -21,6 +21,189 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## v0.3.3 macOS Markdown behavioral record
+
+On 2026-10-10, the independent Sandbox acceptance app from exact
+`4daf80643198a0cf8da586684061a7ca87cf6361` completed the requested Markdown
+behavioral slice. From the separate generated HTML Space, whole-Library search
+selected and visibly highlighted Markdown marker 90. Exposed native AX
+Scroll Down/Up moved the body. Normal Cmd-Q, a new app process and Library
+Continue Reading restored the same marker-93/sections-94–98 viewport without
+another search/outline jump. Paper/Dark reader and controls were legible in
+wide and compact captures. The user separately confirmed direct mouse/trackpad
+up/down scrolling.
+
+Retained paired screenshots/AX text and a verified screenshot SHA-256 manifest
+are under ignored `.onereader/acceptance/v033-macos/oct10/`. Wide captures are
+1440×900 logical points; compact captures are actually 900×702. The 650-point
+content minimum plus native chrome prevents this from establishing a strict
+900×650 outer-window pass. Automated wheel injection still returned
+`noWindowsAvailable`; no automatic wheel, frame-rate, all-format, VoiceOver,
+Reduce Motion, or global OS appearance-transition acceptance is inferred.
+Closing Settings interrupted controller observation, restored by foreground
+handoff; no app/controller root cause was established. Initial HTML output was
+blank before it visibly rendered during Search; the timing remains undiagnosed.
+
+The identity-modified ad-hoc signed copy is not a byte-identical release
+artifact. Its executable hash/signature stayed valid; all four fresh production
+DB/WAL hashes matched through cleanup. Follow System was restored through the
+App UI and the isolated App quit normally. Sol max approved the bounded visible
+evidence, and [PR #20](https://github.com/zzqDeco/OneReader/pull/20) merged to
+dev at `45e44ec77c45560fc15ad7144682b0a05ca8a327`. This does not replace
+combined-build or release-artifact acceptance.
+
+## iPhone file import and PDF zoom regressions
+
+`scripts/test-ios-device-import-zoom.sh` requires an available physical iPhone
+and a command-line development team. It builds an independent app identity,
+`io.github.zzqDeco.OneReader.ImportZoomAcceptance`, leaving the production app
+and its managed Library untouched. No Simulator is created or booted.
+
+The dedicated device suite tests real PDFView layout/scale ownership and actual
+system-picker selection, cancellation, retry, existing-Space import, relaunch,
+native two-finger zoom, and zoom-out/zoom-in/fit-width buttons. The fixture only
+generates Files-visible inputs; the empty Library cannot become readable until
+the system picker completes the normal import. PDF assertions use independently
+observed native scale and page/viewport width, not preferences or stored progress.
+Result bundles retain screenshots for each transition. The corresponding shared
+AppModel regressions reproduce SwiftUI's dismissal-before-completion ordering.
+The same suite records OS PDF scrolling/deceleration performance metrics, and a
+host-plist test plus metadata gate check ProMotion opt-in. A passing benchmark
+on generated material is not a claim of constant 120 FPS for arbitrary Sources.
+The zoomed-scroll pressure case alternates slow/fast gestures and pauses past
+the position-capture/save delays, then checks the mounted scale independently.
+
+2026-10-10 acceptance, implementation commit
+`8a448c1f1b517ed24b5290b42cadb9545c09de8c`, physical iPhone 18 Pro Max
+(iPhone19,7), iOS 27.0.1, local Xcode 27 beta 6:
+
+- `native-validation-8a448c1.log` passed 238 shared tests, release build,
+  Sandbox/signature/entitlement, dependency, docs, metadata, generated-project
+  and release gates, plus generic iOS SDK compilation without a Simulator boot.
+- `device-final/device-tests.xcresult` passed 18 native tests and 15 UI cases:
+  five Files-import/PDF-zoom cases, six cross-format position-recovery cases,
+  and four Library/text/Markdown/code touch cases.
+- `device-pressure.xcresult` reran the 18 native tests and passed the additional
+  zoomed-PDF repeated-scroll/pause case. It proved actual viewport movement,
+  matching persisted page/geometry, preserved native scale, and working fit
+  width. There are 16 distinct passing physical UI cases across these bundles.
+- Before ProMotion plist opt-in, with the zoom runtime repair already applied,
+  the short generated-PDF OS scroll metric averaged 86.083 FPS. After opt-in it
+  averaged 85.848 FPS in `device-04` and 86.143 FPS in `device-final`; these short
+  cases recorded no hitch. The longer zoomed case averaged 82.986 FPS and
+  recorded two 8.333 ms hitches across six measured iterations (mean hitch ratio
+  1.230 ms/s). Passing functional assertions does not constitute smoothness
+  acceptance.
+
+Logs, xcresults and transition screenshots remain under ignored
+`.onereader/acceptance/ios-import-pdf-zoom/`. The attempted follow-up frame trace
+was blocked before test launch by a lost CoreDevice connection; it is not a
+passing profiling result or an app failure. The original app/Library have not
+been replaced, including its newer unmerged index migration.
+
+After the physical connection was restored, `device-profile-02.xcresult` passed
+the same six-iteration scroll/pause test (81.996 FPS and no OS-scroll hitch).
+The simultaneous `pdf-hitches-02.trace` nevertheless recorded 13 frame hitches
+of 8.333–25 ms over 85.504 seconds. Ten were marked as potentially expensive
+app updates (7.66–18.51 ms), with frame-correlated SwiftUI/AttributeGraph work
+after global live-position or durable-progress publication. One explicit
+viewport-capture chain led through the published Locator setter into a 17.7 ms
+app update. The other three had sub-1.11 ms app updates; the trace does not prove
+the same cause for them. There was no thermal escalation or >33 ms potential
+hang. The OS-scroll metric and frame trace cover different events and must not
+be treated as interchangeable hitch counts.
+
+A first experiment isolated only live Locators and their badge. Its pressure
+test passed, but costly frames still coincided with global progress saves.
+It did not establish an overall smoothness improvement. A subsequent experiment
+also isolates position-only durability while reading, with the exact cache,
+350 ms save/flush boundary, immediate navigation availability, failure fallback
+and Library return covered by four additional model regressions. Its 242 shared
+tests and native validation passed, but the full physical gate exposed a
+cross-format regression, described below. Generated Debug fixtures with Instruments are
+not a substitute for non-test scrolling of real, image-heavy PDFs.
+
+`device-position-isolation-v3.xcresult` passed the same pressure case. Its OS
+scroll metric averaged 82.356 FPS and reported two 8.333 ms hitches; there is no
+claimed average-FPS gain. The simultaneous `pdf-position-isolation-v3.trace`
+completed over 81.084 seconds with three 8.333 ms frame hitches. All three app
+updates were 0.770–1.053 ms, none marked expensive, and no thermal escalation or
+>33 ms potential hang was recorded.
+
+`hitch-trace-comparison.jsonl` compares the fully captured measured iterations
+2–6 in every recording, excluding warm-up, the partially captured first
+iteration and final controls:
+
+| Variant | Recorded measured interval | Frame hitches | Expensive app updates | Total hitch time |
+| --- | --- | --- | --- | --- |
+| Before isolation | 62.35 s | 11 | 8 | approximately 125 ms |
+| Live-Locator-only experiment | 63.71 s | 9 | 9 | approximately 125 ms |
+| Live plus position-save isolation | 61.72 s | 3 | 0 | approximately 25 ms |
+
+This controlled run supports retaining the scoped notification change; it does
+not classify the remaining render/display delays, prove a fixed refresh rate,
+or establish smoothness for every real PDF. The raw recordings and bounded XML
+exports remain local; no user PDF or private notification content is committed.
+
+The broad experiment's final physical suite retained all 34 cases: 32 passed,
+including 18 native tests and every import/pinch/button/pressure case. EPUB
+second-spine Library-back failed amid notification interruptions and passed on
+the separate unchanged recheck. Managed Markdown's first drag remained at
+`y=0` twice despite native content height 9,892 pt versus a 747 pt viewport.
+With only the two notification-isolation code files restored to `fc8350e`, the
+same fixture, original gesture and recovery assertions passed on the same
+iPhone (`device-markdown-before-isolation.xcresult`). This establishes a strong
+regression association, not a proven TextKit internal cause.
+
+The retained implementation therefore limits quiet live/durable updates to the
+active PDF's matching Source/Snapshot/Adapter. Other surfaces keep both original
+global refreshes. A fifth model regression explicitly protects the non-PDF
+contract; the PDF-specific test uses a real generated PDF, not a text surface.
+`device-pdf-scoped-recovery.xcresult` passes EPUB second-spine and the unchanged
+Markdown movement/persistence/relaunch gate. The final
+`device-pdf-scoped-final/device-tests.xcresult` passes all 34 tests (18 native,
+16 UI), with zero failures or skips. It includes all six cross-format recovery
+cases, real Files import/cancel/retry/add-to-Space, native pinch/buttons,
+mixed-width relaunch, zoomed scroll/pause pressure and four complete-workspace
+touch cases. The OS metrics report 85.973 FPS for short scroll and 82.446 FPS
+for pressure, with zero OS-scroll hitches; frame-level results remain a separate
+gate. `native-validation-pdf-scope.log` passes all 243 shared tests plus release,
+Sandbox signature/entitlement, dependency/doc/metadata/project/release checks
+and generic iOS SDK compilation. No Simulator was created or booted. Sol max
+code review approves the PDF-only boundary, not an unmeasured all-document
+smoothness claim.
+
+The first PDF-only 90-second recording failed while saving with `No space left
+on device` (exit 134). Its partial `pdf-scoped-final.trace` is not usable
+performance evidence. Only this failed recording's temporary files and verified
+inactive OneReader build caches were removed; original materials, Git state,
+test results, active device build and prior valid recordings remain intact.
+
+The successful retry `pdf-scoped-short-02.trace` is a complete 61.188-second
+Animation Hitches + Time Profiler recording attached to the isolated preview
+process. It contains one 8.333 ms frame hitch, a 0.913 ms app update, a 4.77 ms
+render, no expensive-update markers, nominal thermal state and no >33 ms hang.
+Position capture and durable saves are present in the CPU samples; they were
+not disabled to obtain the result. The remaining gesture/render/display delay
+is not claimed to have a fully proven internal cause. The accompanying pressure
+test passes, averages 83.064 FPS and reports one 8.333 ms OS-scroll hitch.
+
+`hitch-trace-pdf-scoped-comparison.jsonl` restricts both recordings to fully
+captured measured iterations 1–3, excluding initial warm-up and final controls:
+
+| Variant | Matched measured interval | Frame hitches | Expensive app updates | Total hitch time |
+| --- | --- | --- | --- | --- |
+| Before isolation | 35.96 s | 5 | 4 | approximately 66.7 ms |
+| Retained PDF-only isolation | 36.22 s | 1 | 0 | approximately 8.3 ms |
+
+This supports removal of the measured application notification hotspot. The
+shorter recording does not capture measured iterations 4–6; the earlier
+five-iteration experiment is kept separate, not presented as this final code's
+result. It cannot establish zero hitches, permanent 120 FPS or performance for
+arbitrary real PDFs. `native-validation-pdf-scope-final.log` repeats all 243
+shared tests and the complete native validation after the final PDF regression
+uses valid viewport/rect payloads.
+
 ## v0.3.1 Native Editorial Reader record
 
 Runtime implementation commit

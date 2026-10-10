@@ -19,6 +19,8 @@ settings:
     MARKETING_VERSION: 0.3.2
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_VERSION: 6.0
+    ONEREADER_IOS_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader
+    ONEREADER_IOS_DISPLAY_NAME: OneReader
 
 targets:
   OneReader-macOS:
@@ -89,7 +91,8 @@ targets:
       path: Resources/Info-iOS.plist
       properties:
         CFBundleDevelopmentRegion: zh_CN
-        CFBundleDisplayName: OneReader
+        CFBundleDisplayName: $(ONEREADER_IOS_DISPLAY_NAME)
+        CADisableMinimumFrameDurationOnPhone: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Readable material
             CFBundleTypeRole: Viewer
@@ -103,7 +106,7 @@ targets:
               - public.source-code
               - public.data
         CFBundleExecutable: OneReader
-        CFBundleIdentifier: io.github.zzqDeco.OneReader
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
         CFBundleInfoDictionaryVersion: "6.0"
         CFBundleName: OneReader
         CFBundlePackageType: APPL
@@ -111,6 +114,7 @@ targets:
         CFBundleVersion: "5"
         LSRequiresIPhoneOS: true
         LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: OneReader 仅在你配置 Ollama 等本地模型服务时访问局域网端点。
@@ -129,7 +133,7 @@ targets:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Resources/OneReader-iOS.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader
+        PRODUCT_BUNDLE_IDENTIFIER: $(ONEREADER_IOS_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: OneReaderMobileApp
         PRODUCT_NAME: OneReader
         SUPPORTS_MACCATALYST: false

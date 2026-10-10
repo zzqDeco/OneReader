@@ -34,9 +34,11 @@ final class RecoveryObservablePDFView: ReadingPDFView {
                 return super.accessibilityValue
             }
             let point = convert(CGPoint(x: bounds.minX, y: bounds.minY), to: page)
+            let displayedPage = convert(page.bounds(for: displayBox), from: page)
             let fields: [String: Double] = [
                 "page": Double(document.index(for: page)), "x": point.x, "y": point.y,
-                "height": bounds.height, "scale": scaleFactor,
+                "height": bounds.height, "width": bounds.width, "scale": scaleFactor,
+                "pageWidth": displayedPage.width,
             ]
             return (try? JSONEncoder().encode(fields)).map { String(decoding: $0, as: UTF8.self) }
         }

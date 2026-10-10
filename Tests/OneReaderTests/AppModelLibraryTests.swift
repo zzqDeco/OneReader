@@ -1,3 +1,5 @@
+import Combine
+import CoreGraphics
 import Foundation
 import GRDB
 import XCTest
@@ -121,6 +123,77 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testPickedFileImportsAfterSystemDismissesPicker() async throws {
+        let root = temporaryRoot("PickerCompletion")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let input = root.appendingPathComponent("picked.txt")
+        try Data("The selected file must become a managed source.".utf8).write(to: input)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "Picker.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: root.appendingPathComponent("Library"), defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+
+        model.requestPlatformFileImport(.add(.newSpace))
+        // SwiftUI resets its presentation binding before invoking completion.
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.success([input]))
+        try await waitUntil { model.sources.count == 1 && model.presentationDocument != nil }
+        XCTAssertEqual(model.sources.first?.displayName, "picked.txt")
+        XCTAssertEqual(model.spaces.count, 1)
+        XCTAssertNil(model.platformFileImportPurpose)
+        XCTAssertEqual(model.presentationDocument?.surface, .nativeText)
+    }
+
+    func testPickedFileJoinsCurrentSpaceAfterSystemDismissesPicker() async throws {
+        let root = temporaryRoot("PickerCurrentSpace")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputs = [root.appendingPathComponent("first.txt"), root.appendingPathComponent("second.txt")]
+        for input in inputs { try Data(input.lastPathComponent.utf8).write(to: input) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "Picker.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: root.appendingPathComponent("Library"), defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([inputs[0]])
+        try await waitUntil { model.presentationDocument != nil }
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+
+        model.requestPlatformFileImport(.add(.currentSpace))
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.success([inputs[1]]))
+        try await waitUntil { model.sources.count == 2 && model.selectedSpaceSources.count == 2 }
+        XCTAssertEqual(model.spaces.count, 1)
+        XCTAssertEqual(model.selectedSpaceID, spaceID)
+    }
+
+    func testPickerCancellationCanRetryAndFailureIsNotSilentlyDiscarded() {
+        let model = AppModel(automaticBootstrap: false)
+        model.requestPlatformFileImport(.add(.currentSpace))
+        model.isPlatformFileImporterPresented = false
+        model.cancelPlatformFileImport()
+        XCTAssertNil(model.platformFileImportPurpose)
+
+        model.requestPlatformFileImport(.add(.newSpace))
+        XCTAssertTrue(model.isPlatformFileImporterPresented)
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.failure(NSError(domain: "PickerRegression", code: 7)))
+        XCTAssertEqual(model.notice?.title, "无法读取所选材料")
+        XCTAssertNil(model.platformFileImportPurpose)
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+    }
+
+    func testImportSheetHandsOffPickerOnlyAfterDismissal() {
+        let model = AppModel(automaticBootstrap: false)
+        model.isImportSheetPresented = true
+        model.requestPlatformFileImport(.add(.newSpace))
+        XCTAssertFalse(model.isImportSheetPresented)
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+        model.importSheetDidDismiss()
+        XCTAssertTrue(model.isPlatformFileImporterPresented)
+        model.cancelPlatformFileImport()
+        model.importSheetDidDismiss()
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+    }
+
     func testMobileOriginalSourcePolicyExposesOnlyExplicitWebLinks() {
         XCTAssertTrue(
             OriginalSourceOpenPolicy.allows(
@@ -234,6 +307,191 @@ final class AppModelLibraryTests: XCTestCase {
             restored.resumeDescription(for: spaceID),
             "long-note.txt · 第 3 行 · 46%"
         )
+    }
+
+    func testPDFPositionUpdatesOnlyLocalBadgeBeforeDurableSave() async throws {
+        let (model, root) = try await positionPublicationFixture("LocalPositionPublication", pdf: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertEqual(model.presentationDocument?.surface, .pdfKit)
+        let base = try XCTUnwrap(model.presentationDocument?.locator)
+        var payload = base.payload
+        payload["positionKind"] = "viewport"
+        payload["viewportX"] = "0"
+        payload["viewportY"] = "1500"
+        payload["rect"] = "0,1100,420,400"
+        let first = Locator(
+            sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: payload, structuralPath: base.structuralPath
+        )
+        var globalPublications = 0
+        var badgePublications = 0
+        let globalSubscription = model.objectWillChange.sink { globalPublications += 1 }
+        let badgeSubscription = model.readingPositionDisplayState.objectWillChange.sink { badgePublications += 1 }
+        defer {
+            globalSubscription.cancel()
+            badgeSubscription.cancel()
+        }
+
+        model.updateReadingPosition(ReadingPositionUpdate(
+            locator: first, progressFraction: 0.4, granularity: .page,
+            displayLabel: "第 1 页 · 40%"
+        ))
+        XCTAssertEqual(model.currentPositionLocator, first)
+        XCTAssertEqual(model.currentPositionDescription, "第 1 页 · 40%")
+        XCTAssertEqual(model.readingPositionDisplayState.positionDescription, "第 1 页 · 40%")
+        XCTAssertEqual(globalPublications, 0, "A live viewport must not invalidate the entire Library/reader")
+        XCTAssertEqual(badgePublications, 1)
+
+        payload["viewportY"] = "1496"
+        payload["rect"] = "0,1096,420,400"
+        let latest = Locator(
+            sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: payload, structuralPath: base.structuralPath
+        )
+        model.updateReadingPosition(ReadingPositionUpdate(
+            locator: latest, progressFraction: 0.4, granularity: .page,
+            displayLabel: "第 1 页 · 40%"
+        ))
+        XCTAssertEqual(model.currentPositionLocator, latest, "Identical badge text must not discard exact geometry")
+        XCTAssertEqual(PDFViewportAnchor.point(in: latest, pageBounds: CGRect(x: 0, y: 0, width: 420, height: 1600))?.y, 1496)
+        XCTAssertEqual(globalPublications, 0)
+        XCTAssertEqual(badgePublications, 1, "Unchanged badge text is deduplicated")
+        model.addBookmark()
+        XCTAssertEqual(model.annotations.last?.locator, latest, "Annotations must use the exact live position before debounce")
+        let publicationsAfterBookmark = globalPublications
+        try await waitUntil(timeout: .seconds(2)) {
+            model.currentProgress.sourcePositions[base.sourceID]?.locator == latest
+        }
+        XCTAssertEqual(model.readingPositionDisplayState.positionDescription, "第 1 页 · 40%")
+        XCTAssertEqual(model.readingPositionDisplayState.durablePosition?.locator, latest)
+        XCTAssertEqual(globalPublications, publicationsAfterBookmark, "Position-only durability must not invalidate the mounted reader")
+        model.closeReadingWorkspace()
+        XCTAssertGreaterThan(globalPublications, publicationsAfterBookmark, "Library return publishes the fresh progress cache")
+        XCTAssertNil(model.currentPositionLocator)
+        XCTAssertNil(model.readingPositionDisplayState.positionDescription)
+        XCTAssertNil(model.readingPositionDisplayState.durablePosition)
+    }
+
+    func testNonPDFPositionUpdatesRetainGlobalRefreshContract() async throws {
+        let (model, root) = try await positionPublicationFixture("NonPDFPositionPublication")
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertEqual(model.presentationDocument?.surface, .nativeMarkdown)
+        let base = try XCTUnwrap(model.presentationDocument?.locator)
+        var payload = base.payload
+        payload["textViewportOffsetY"] = "8"
+        let latest = Locator(
+            sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: payload, structuralPath: base.structuralPath
+        )
+        var publications = 0
+        let subscription = model.objectWillChange.sink { publications += 1 }
+        defer { subscription.cancel() }
+        model.updateReadingPosition(latest)
+        XCTAssertEqual(model.currentPositionLocator, latest)
+        XCTAssertEqual(publications, 1, "A non-PDF capture keeps its original global refresh")
+        try await waitUntil(timeout: .seconds(2)) {
+            model.currentProgress.sourcePositions[base.sourceID]?.locator == latest
+        }
+        XCTAssertEqual(publications, 2, "A non-PDF durable save keeps its original global refresh")
+        XCTAssertEqual(model.readingPositionDisplayState.durablePosition?.locator, latest)
+    }
+
+    func testLivePositionPublishesNavigationBoundaryBeforeSave() async throws {
+        let (model, root) = try await positionPublicationFixture("NavigationBoundary", pdf: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertEqual(model.presentationDocument?.surface, .pdfKit)
+        let nodes = ReaderContentNavigation.readableNodes(from: model.contentNodes)
+        XCTAssertGreaterThanOrEqual(nodes.count, 3)
+        let first = try XCTUnwrap(nodes.first?.locator)
+        let last = try XCTUnwrap(nodes.last?.locator)
+        model.updateReadingPosition(first)
+        model.flushReadingPosition()
+        XCTAssertFalse(model.canSelectPreviousNode)
+        XCTAssertTrue(model.canSelectNextNode)
+        var publications = 0
+        let subscription = model.objectWillChange.sink { publications += 1 }
+        defer { subscription.cancel() }
+        model.updateReadingPosition(last)
+        XCTAssertTrue(model.canSelectPreviousNode)
+        XCTAssertFalse(model.canSelectNextNode)
+        XCTAssertEqual(publications, 1, "Navigation controls and menu commands must refresh before the delayed save")
+        XCTAssertEqual(model.currentProgress.sourcePositions[last.sourceID]?.locator, first)
+    }
+
+    func testFailedPositionSaveRestoresDurableBadge() async throws {
+        let (model, root) = try await positionPublicationFixture("FailedPositionBadge", pdf: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+        let sourceID = try XCTUnwrap(model.selectedSourceID)
+        let durableDescription = model.readingPositionDisplayState.positionDescription
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let saved = try XCTUnwrap(database.fetchReadingProgress(spaceID: spaceID).sourcePositions[sourceID])
+        try await database.pool.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_position_save BEFORE INSERT ON reading_progress
+                BEGIN SELECT RAISE(ABORT, 'forced position save failure'); END
+                """)
+        }
+        let latest = try XCTUnwrap(ReaderContentNavigation.readableNodes(from: model.contentNodes).last?.locator)
+        model.updateReadingPosition(ReadingPositionUpdate(
+            locator: latest, progressFraction: 0.8, granularity: .page,
+            displayLabel: "未落盘测试位置"
+        ))
+        XCTAssertEqual(model.readingPositionDisplayState.positionDescription, "未落盘测试位置")
+        model.flushReadingPosition()
+        XCTAssertEqual(model.notice?.title, "无法保存阅读位置")
+        XCTAssertEqual(model.readingPositionDisplayState.positionDescription, durableDescription)
+        XCTAssertEqual(model.currentPositionLocator, latest, "Failed durability must not falsify the actual live viewport")
+        XCTAssertEqual(model.readingPositionDisplayState.durablePosition?.locator, saved.locator)
+        XCTAssertEqual(try database.fetchReadingProgress(spaceID: spaceID).sourcePositions[sourceID], saved)
+    }
+
+    func testRemovingLastSelectedSourceClearsLocalPositionBadge() async throws {
+        let (model, root) = try await positionPublicationFixture("RemovedPositionBadge", pdf: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceID = try XCTUnwrap(model.selectedSourceID)
+        XCTAssertNotNil(model.readingPositionDisplayState.positionDescription)
+        model.requestSourceRemoval(sourceID)
+        model.confirmSourceRemoval()
+        try await waitUntil(timeout: .seconds(5)) {
+            model.selectedSourceID == nil && model.presentationState == .empty
+        }
+        XCTAssertNil(model.currentPositionLocator)
+        XCTAssertNil(model.currentPositionDescription)
+        XCTAssertNil(model.readingPositionDisplayState.positionDescription)
+        XCTAssertNil(model.readingPositionDisplayState.durablePosition)
+        XCTAssertFalse(model.canSelectPreviousNode)
+        XCTAssertFalse(model.canSelectNextNode)
+    }
+
+    private func positionPublicationFixture(_ suffix: String, pdf: Bool = false) async throws -> (AppModel, URL) {
+        let root = temporaryRoot(suffix)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sourceURL = root.appendingPathComponent(pdf ? "positions.pdf" : "positions.md")
+        if pdf {
+            var bounds = CGRect(x: 0, y: 0, width: 420, height: 1600)
+            let context = try XCTUnwrap(CGContext(sourceURL as CFURL, mediaBox: &bounds, nil))
+            for _ in 0..<3 {
+                context.beginPDFPage(nil)
+                context.setFillColor(CGColor(gray: 0, alpha: 1))
+                context.fill(CGRect(x: 40, y: 40, width: 80, height: 80))
+                context.endPDFPage()
+            }
+            context.closePDF()
+        } else {
+            try Data("# First\n\nFirst text.\n\n# Second\n\nSecond text.\n\n# Last\n\nLast text.".utf8).write(to: sourceURL)
+        }
+        let model = AppModel(
+            libraryRootURL: root.appendingPathComponent("Library"),
+            defaults: try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)")),
+            secretStore: InMemoryProviderSecretStore()
+        )
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([sourceURL])
+        try await waitUntil(timeout: .seconds(5)) {
+            model.presentationDocument != nil && model.activePendingImportCount == 0
+        }
+        return (model, root)
     }
 
     func testPendingReadingPositionFlushesBeforeSourceSwitch() async throws {

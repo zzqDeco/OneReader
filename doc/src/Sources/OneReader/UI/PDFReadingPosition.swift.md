@@ -17,6 +17,9 @@ Page fraction is measured on the displayed vertical axis, so rotations of
 `ReadingPDFView` waits for a nonzero laid-out viewport before applying a pending
 destination once. Teardown discards pending restoration; capture stays suspended
 until it completes. Repeated equal zoom values do not reset PDFKit layout.
+The UIKit view also reports post-layout viewport bounds to its PDF zoom
+coordinator. That callback does not intercept gestures; initial fitting waits
+for usable bounds and ordinary position updates cannot reset native pinch zoom.
 
 A saved viewport is not a text selection. A quote-bearing Locator still uses
 selection geometry, and new PDF selections remove viewport-only metadata.

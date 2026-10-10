@@ -31,6 +31,17 @@ Source ID, Snapshot ID, AdapterPlan ID, and a generation token. A second request
 for the same plan attaches to the existing job; a new Snapshot or plan cancels
 the obsolete generation and discards its late result.
 
+On iOS the system file picker's presentation flag is independent of its pending
+import purpose. Dismissing the picker must not discard that purpose: SwiftUI
+closes the picker before delivering the selected URLs. Completion consumes the
+purpose exactly once; cancellation clears it explicitly. Choosing a local file
+from the Add Materials sheet first dismisses that sheet and opens the system
+picker from its `onDismiss` callback, avoiding overlapping modal presentations.
+The selected security-scoped URLs still pass through the normal atomic managed
+import, including the existing-Space destination and reauthorization paths.
+Only the app's Documents folder is exposed in Files; managed Library content
+remains private in Application Support.
+
 When a directory or repository opens without a saved Locator, the reader
 prefers a root README, then common index/summary/TOC names, before falling back
 to the first readable child. Incidental license or asset files therefore do not
@@ -63,6 +74,38 @@ Locator are retained and are never rewritten to look current.
 | Code | monospaced `NSTextView`/`UITextView` | selectable with horizontal scrolling |
 | HTML/EPUB/web snapshot | controlled WKWebView | app-served sanitized bytes and explicit external-link handoff |
 | Unknown file | Quick Look | source-level bookmark/note only, with the limitation shown |
+
+iPhone PDF reading starts at fit width. The PDF preference is a multiplier of
+that width (100% means fit width), not an absolute one-point-to-one-point scale.
+Native PDFKit owns the live pinch scale; reading-position publication and
+unrelated SwiftUI updates never reapply the preference. A changed preference,
+viewport width, or explicit zoom command is the only host-owned scale update.
+Width changes retain the current relative zoom. PDF controls expose zoom out,
+the live percentage, zoom in, and fit width; each command uses the current
+native scale and is consumed once. Pinch zoom remains native and does not
+change persisted global defaults. macOS PDF scale behavior is unchanged.
+
+The iOS bundle opts into ProMotion with
+`CADisableMinimumFrameDurationOnPhone=true`. Native scroll views continue to let
+UIKit/Core Animation choose the actual rate according to interaction, hardware,
+power, and thermal policy; OneReader does not run a permanent 120 Hz display
+link. High-refresh configuration is separate from rendering-hitch acceptance.
+Physical-device performance tests record the OS scrolling/deceleration frame
+rate and hitch metrics on generated PDF material; those numbers do not prove
+every large or image-heavy document stays at 120 FPS.
+
+PDF viewport captures retain their exact Locator without broadcasting that
+capture through the global application model unless navigation availability
+changes at a content boundary. Small position consumers observe a separate
+deduplicated projection. The existing 350 ms save boundary still updates the
+database and synchronous progress cache, but PDF position-only saves while reading
+do not rebuild the whole reader or the hidden Library shelf. Library return,
+route/unit changes and reloads publish normally. Source/Space transitions still
+flush the exact position. Navigation buttons/shortcuts remain immediate, and
+failed saves revert the badge to its durable position. This scoped notification
+is limited to the active PDF's Source/Snapshot/Adapter identity; Markdown, text,
+code, Web and Quick Look keep their existing global refresh behavior. It is a
+performance boundary, not an assertion that every frame hitch has been eliminated.
 
 Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
 Relative images are resolved from the Markdown document directory and then
@@ -234,6 +277,9 @@ Outline/Sources/Route/Search and Reading Assistance in separate medium/large
 sheets. It has one system inline navigation title and one stable bottom bar
 with four minimum-44-point actions: directory, previous item, next item, and
 notes. There is no second custom title bar or horizontally scrolling toolbar.
+PDF adds a dedicated zoom row immediately above that four-action bar; text and
+other presentations do not show PDF-only controls. Interactive PDF controls
+have at least 44-point targets and explicit accessibility labels.
 
 macOS commands expose import, Space import, search, previous/next content,
 bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and
