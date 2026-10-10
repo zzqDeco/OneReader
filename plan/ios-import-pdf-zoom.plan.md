@@ -91,8 +91,22 @@ the production application and its newer database schema are not overwritten.
   not establish a measurable frame-rate improvement, a fixed 120 FPS, or the
   absence of intermittent hitches on real material. The OS frame-count field is
   zero in these bundles and is not used as a displayed-frame counter.
-- Full cross-format/touch rerun and the additional zoomed-scroll pressure case
-  are pending. Sol max code review has no remaining findings.
+- Implementation commit `8a448c1f1b517ed24b5290b42cadb9545c09de8c` passed the
+  same authoritative validation in `native-validation-8a448c1.log`.
+- `device-final/device-tests.xcresult`: full 18-native/15-UI rerun passed,
+  including six cross-format position cases and four Library/text/code touch
+  cases. Its short PDF scroll metric averaged 86.143 FPS with no reported hitch.
+- `device-pressure.xcresult`: the 18 native tests and new zoomed-scroll pressure
+  case passed. Viewport movement, a changed matching persisted position, native
+  zoom preservation and fit width were independently asserted. Average scroll
+  metric was 82.986 FPS; two iterations recorded one 8.333 ms hitch each. Mean
+  hitch ratio was 1.230 ms/s. Functional correctness passed; intermittent
+  scrolling smoothness remains open pending frame/call-stack correlation.
+- The attempted follow-up profile did not launch: CoreDevice's connection was
+  invalidated and both device inventories marked the iPhone offline. Do not
+  classify this transport failure as an app regression or a completed trace.
+- Sol max code review has no remaining findings. PR targets `dev` only; merge
+  and release have not been requested for this slice.
 
 Local logs, xcresults and screenshots are retained under
 `.onereader/acceptance/ios-import-pdf-zoom/` and are not committed.
@@ -107,9 +121,10 @@ unrelated Markdown-index PR changes, or release/tag publication.
 - [x] Import and PDF behavior implemented
 - [x] Shared and native regression tests pass
 - [x] Physical file-picker, pinch and button acceptance pass
-- [ ] Cross-format/touch rerun and zoomed-scroll pressure case pass
+- [x] Cross-format/touch rerun and zoomed-scroll pressure case pass
+- [ ] Remaining intermittent PDF hitch classified with a frame trace
 - [x] Required validation passes
 - [x] Sol max review has no blockers
 - [x] Current-state/source docs synchronized
 - [ ] Branch reviewed through a PR to `dev`
-- [ ] Plan status reflects observed delivery
+- [x] Plan status reflects observed delivery (Active: integration/profile pending)

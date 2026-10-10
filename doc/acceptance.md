@@ -42,8 +42,34 @@ on generated material is not a claim of constant 120 FPS for arbitrary Sources.
 The zoomed-scroll pressure case alternates slow/fast gestures and pauses past
 the position-capture/save delays, then checks the mounted scale independently.
 
-Physical-device acceptance for this slice is pending until the recorded result
-bundle passes; compilation and shared tests alone are not touch acceptance.
+2026-10-10 acceptance, implementation commit
+`8a448c1f1b517ed24b5290b42cadb9545c09de8c`, physical iPhone 18 Pro Max
+(iPhone19,7), iOS 27.0.1, local Xcode 27 beta 6:
+
+- `native-validation-8a448c1.log` passed 238 shared tests, release build,
+  Sandbox/signature/entitlement, dependency, docs, metadata, generated-project
+  and release gates, plus generic iOS SDK compilation without a Simulator boot.
+- `device-final/device-tests.xcresult` passed 18 native tests and 15 UI cases:
+  five Files-import/PDF-zoom cases, six cross-format position-recovery cases,
+  and four Library/text/Markdown/code touch cases.
+- `device-pressure.xcresult` reran the 18 native tests and passed the additional
+  zoomed-PDF repeated-scroll/pause case. It proved actual viewport movement,
+  matching persisted page/geometry, preserved native scale, and working fit
+  width. There are 16 distinct passing physical UI cases across these bundles.
+- Before ProMotion plist opt-in, with the zoom runtime repair already applied,
+  the short generated-PDF OS scroll metric averaged 86.083 FPS. After opt-in it
+  averaged 85.848 FPS in `device-04` and 86.143 FPS in `device-final`; these short
+  cases recorded no hitch. The longer zoomed case averaged 82.986 FPS and
+  recorded two 8.333 ms hitches across six measured iterations (mean hitch ratio
+  1.230 ms/s). The source of those intermittent hitches is not yet classified.
+  Passing functional assertions does not constitute smoothness acceptance.
+
+Logs, xcresults and transition screenshots remain under ignored
+`.onereader/acceptance/ios-import-pdf-zoom/`. The attempted follow-up frame trace
+was blocked before test launch by a lost CoreDevice connection; it is not a
+passing profiling result or an app failure. The original app/Library have not
+been replaced, including its newer unmerged index migration. Profiling the
+remaining intermittent hitch requires the physical device to reconnect.
 
 ## v0.3.1 Native Editorial Reader record
 
