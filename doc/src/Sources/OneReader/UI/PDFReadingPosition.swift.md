@@ -12,11 +12,25 @@ they use a PDFDestination rather than selection scrolling, which intentionally
 does nothing when a rectangle is already visible. Coordinates are measured from
 the mounted view, checked for finiteness, and confined to the displayed page.
 The view's top edge is converted with the platform's coordinate orientation.
+AppKit captures optional `viewportScreenX`/`viewportScreenY` in [0, 1], measured
+from the left/top edges of the viewport to that bounded page anchor. These retain
+side/page-gap whitespace without weakening page-coordinate validation. UIKit
+capture removes these AppKit-only fields rather than retaining stale metadata.
+`restore` applies the PDFDestination, converts the anchor and requested screen
+placement into native clip coordinates, and constrains the corrected bounds.
+This works with scaled clip views, mixed page widths and rotated pages. Missing
+or invalid placement uses legacy destination behavior; invalid page coordinates
+or quote-bearing positions never enter this viewport restore path. Equal-layout
+regressions compare actual screen X/Y and clip bounds, not twice-clamped page X.
 Page fraction is measured on the displayed vertical axis, so rotations of
 0/90/180/270 degrees neither reverse progress nor confuse the page-space axes.
 `ReadingPDFView` waits for a nonzero laid-out viewport before applying a pending
 destination once. Teardown discards pending restoration; capture stays suspended
 until it completes. Repeated equal zoom values do not reset PDFKit layout.
+AppKit also requires PDFKit's enclosing scroll view after document layout; an
+unmounted clip leaves the pending anchor intact rather than consuming it. The
+deferred mixed-width test mounts from zero bounds, checks both screen axes and
+clip origin, then repeats layout to reject duplicate application or drift.
 The UIKit view also reports post-layout viewport bounds to its PDF zoom
 coordinator. That callback does not intercept gestures; initial fitting waits
 for usable bounds and ordinary position updates cannot reset native pinch zoom.

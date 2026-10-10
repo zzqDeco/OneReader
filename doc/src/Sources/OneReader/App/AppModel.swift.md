@@ -48,6 +48,11 @@ instead of starting a competing task. A newer Snapshot cancels the old
 generation and cannot accept its late result. A directory/repository without a
 saved position opens its root README or common index/summary document before an
 incidental readable file.
+That ranking is gated by the plan's directory listing route, not merely a
+Locator path or title. Other adapters use `ContentNode.order` with stable ties,
+so PDF pages and EPUB spine items cannot be reordered by README/index names or
+outline labels. Saved positions and explicit navigation continue to bypass the
+default choice; no progress data is reset by this repair.
 
 The model never writes Agent output directly. It delegates runs to the runtime,
 loads committed graphs/plans/activity, and exposes only host-validated results.

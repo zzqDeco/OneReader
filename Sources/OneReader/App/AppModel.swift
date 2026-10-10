@@ -1787,7 +1787,7 @@ final class AppModel: ObservableObject {
         coordinator: AdapterCoordinator
     ) async throws -> Locator? {
         guard let requested else {
-            return preferredDefaultNode(in: nodes)?.locator
+            return preferredDefaultNode(in: nodes, listingAdapterID: plan.capabilityRoutes[.list])?.locator
         }
         guard requested.snapshotID != plan.snapshotID else { return requested }
         let resolution = try await coordinator.resolve(requested, against: plan.snapshotID)
@@ -1799,12 +1799,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func preferredDefaultNode(in nodes: [ContentNode]) -> ContentNode? {
-        nodes
-            .filter(\.isReadable)
-            .min { lhs, rhs in
-                Self.defaultNodeRank(lhs) < Self.defaultNodeRank(rhs)
-            }
+    private func preferredDefaultNode(in nodes: [ContentNode], listingAdapterID: String?) -> ContentNode? {
+        let readable = nodes.filter(\.isReadable)
+        // README/index preference describes directory file discovery, not a
+        // sequential document's page/spine/section order. Stable ties retain
+        // the adapter's list order rather than comparing user-facing titles.
+        if listingAdapterID == DirectoryAdapter.id {
+            return readable.min { Self.defaultNodeRank($0) < Self.defaultNodeRank($1) }
+        }
+        return readable.min { $0.order < $1.order }
     }
 
     private var activeReadingLocator: Locator? {
