@@ -83,10 +83,13 @@ not publish, tag, or push anything.
 
 ## Current architecture
 
-The v0.3.2 release candidate focuses on cross-format reading-position recovery:
+The published v0.3.2 Developer Preview focuses on cross-format reading-position recovery:
 PDF within-page viewports and layout-aware native text/Markdown restoration.
 See the [release notes](doc/release-v0.3.2.md) for evidence and distribution
-boundaries. A release candidate is not a published or notarized build.
+boundaries. It remains ad-hoc signed and unnotarized.
+The current development branch repairs Markdown paragraph indexing and rebuilds
+old derived search data without rewriting notes or reading positions. This fix
+is not included in the published v0.3.2 binaries.
 
 - Shared SwiftUI domain/application module with native AppKit and UIKit shells
 - Checked-in Xcode project generated from `project.yml`; no Catalyst target
@@ -97,7 +100,8 @@ boundaries. A release candidate is not a published or notarized build.
 - Public GitHub exact-SHA snapshots and bounded same-origin webpage snapshots
 - PDFKit, native selectable rich Markdown/text/code, sanitized read-only WebKit,
   and Quick Look presentations on macOS and UIKit
-- Library/Space search with FTS5 plus a bounded Chinese substring fallback
+- Library/Space/Source search with full-text Markdown/text/code chunks, FTS5,
+  overlap deduplication, and a bounded Chinese substring fallback
 - Bookmarks, exact-quote highlights, notes, source/unit/plan progress, and history
 - iPhone drill-down navigation plus iPad/macOS split workspace and Inspector
 - Injectable 4 GiB confirmation/2 GiB reserve policy; macOS Trash and

@@ -471,7 +471,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let textLength = textView.attributedText.length
             let textContainerWidth = Int(textView.textContainer.size.width.rounded())
             let sourceAnchor = parent.locator.payload["startUTF16"] ?? "-1"
-            let visibleAnchor = visibleSourceAnchor(from: textView)
+            let visible = visibleTextMetrics(from: textView)
             textView.accessibilityValue = [
                 "x:\(x)",
                 "y:\(y)",
@@ -482,13 +482,14 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                 "len:\(textLength)",
                 "tcw:\(textContainerWidth)",
                 "anchor:\(sourceAnchor)",
-                "visible:\(visibleAnchor)",
+                "visible:\(visible.sourceAnchor)",
+                "lineY:\(visible.lineY)",
             ].joined(separator: ";")
         }
 
-        private func visibleSourceAnchor(from textView: UITextView) -> Int {
+        private func visibleTextMetrics(from textView: UITextView) -> (sourceAnchor: Int, lineY: Double) {
             let renderedValue = textView.attributedText.string as NSString
-            guard renderedValue.length > 0 else { return -1 }
+            guard renderedValue.length > 0 else { return (-1, .nan) }
             let point = CGPoint(
                 x: max(2, textView.contentOffset.x + 2),
                 y: max(0, textView.contentOffset.y - textView.textContainerInset.top + 2)
@@ -505,11 +506,18 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let renderedRange = renderedValue.rangeOfComposedCharacterSequences(
                 for: NSRange(location: location, length: 1)
             )
-            guard parent.kind == .markdown else { return renderedRange.location }
-            return MarkdownSourceMap.positionAnchor(
-                forRenderedRange: renderedRange,
-                in: textView.attributedText
-            )?.sourceRange.location ?? -1
+            let sourceAnchor = parent.kind == .markdown
+                ? MarkdownSourceMap.positionAnchor(
+                    forRenderedRange: renderedRange,
+                    in: textView.attributedText
+                )?.sourceRange.location ?? -1
+                : renderedRange.location
+            // Container-space glyph geometry and the current native viewport
+            // are independent of saved Locators. Absolute document offsets
+            // can change as TextKit lays out a deeply restored document.
+            let rect = textView.layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let lineY = Double(rect.minY + textView.textContainerInset.top - textView.contentOffset.y)
+            return (sourceAnchor, lineY)
         }
 
         private var shouldPublishUITestMetrics: Bool {

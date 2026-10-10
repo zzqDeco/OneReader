@@ -6,7 +6,7 @@ Branch: `fix/ios-import-pdf-zoom`
 
 Milestone: `v0.3.3`
 
-Dependencies: [Cross-format reading recovery](cross-format-reading-recovery.plan.md)
+Dependencies: [Cross-format reading recovery](cross-format-reading-recovery.plan.md), [Markdown full-text search recovery](markdown-fulltext-index.plan.md)
 
 ## Summary
 
@@ -70,6 +70,12 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
    retain their existing global refresh contract. Do not broaden this PDF slice
    into an unproven TextKit lifecycle rewrite. Keep the unchanged native drag,
    persistence and relaunch assertions and rerun the full physical suite.
+9. Integrate accepted Markdown-index PR #20 from dev through a normal merge,
+   without rebasing published history. Preserve PDF-only notification/zoom
+   ownership and the new read-only TextKit line-geometry observations together.
+   Resolve documentation conflicts by retaining both contracts. Run fresh
+   integrated shared/native/physical tests and exact-head hosted CI; separate
+   green results from either predecessor cannot stand in for this gate.
 
 ## Test Plan
 
@@ -106,6 +112,10 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
   and capture Library-back failures with the current accessibility hierarchy.
   Keep the original movement/persistence assertions; do not silently retry a
   failed gesture or weaken acceptance because a notification was present.
+- Integrated physical suite additionally retains the body-only Library search
+  from the separate HTML Space, source/snapshot identity, and native visible-line
+  recovery assertions brought in by PR #20. Use the same independent preview
+  identity and UUID Library, never the production app's migration state.
 
 ## Acceptance Evidence
 
@@ -181,10 +191,21 @@ the production application and its newer database schema are not overwritten.
 Local logs, xcresults and screenshots are retained under
 `.onereader/acceptance/ios-import-pdf-zoom/` and are not committed.
 
+Integration admission (2026-10-10): the user authorized the topic-PR → dev
+sequence. PR #20 merged at `45e44ec77c45560fc15ad7144682b0a05ca8a327`; this
+branch combines it with `8a2ba6e` through a normal merge. The only textual
+conflicts were the plan index and UIKit source note; both accepted contracts
+are retained. The above physical/performance results are predecessor evidence,
+not fresh integrated acceptance. New exact-head CI, Sol max review and native
+results are tracked in [PR #21](https://github.com/zzqDeco/OneReader/pull/21).
+No main promotion, tag, release, device-security change or Simulator boot is
+part of this integration slice.
+
 ## Non-goals
 
 iPad acceptance, Provider calls, changes to production Library contents,
-unrelated Markdown-index PR changes, or release/tag publication.
+new Markdown-index algorithm changes beyond integrating accepted PR #20,
+or release/tag publication.
 
 ## Delivery Checklist
 

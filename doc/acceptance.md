@@ -21,6 +21,37 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## v0.3.3 macOS Markdown behavioral record
+
+On 2026-10-10, the independent Sandbox acceptance app from exact
+`4daf80643198a0cf8da586684061a7ca87cf6361` completed the requested Markdown
+behavioral slice. From the separate generated HTML Space, whole-Library search
+selected and visibly highlighted Markdown marker 90. Exposed native AX
+Scroll Down/Up moved the body. Normal Cmd-Q, a new app process and Library
+Continue Reading restored the same marker-93/sections-94–98 viewport without
+another search/outline jump. Paper/Dark reader and controls were legible in
+wide and compact captures. The user separately confirmed direct mouse/trackpad
+up/down scrolling.
+
+Retained paired screenshots/AX text and a verified screenshot SHA-256 manifest
+are under ignored `.onereader/acceptance/v033-macos/oct10/`. Wide captures are
+1440×900 logical points; compact captures are actually 900×702. The 650-point
+content minimum plus native chrome prevents this from establishing a strict
+900×650 outer-window pass. Automated wheel injection still returned
+`noWindowsAvailable`; no automatic wheel, frame-rate, all-format, VoiceOver,
+Reduce Motion, or global OS appearance-transition acceptance is inferred.
+Closing Settings interrupted controller observation, restored by foreground
+handoff; no app/controller root cause was established. Initial HTML output was
+blank before it visibly rendered during Search; the timing remains undiagnosed.
+
+The identity-modified ad-hoc signed copy is not a byte-identical release
+artifact. Its executable hash/signature stayed valid; all four fresh production
+DB/WAL hashes matched through cleanup. Follow System was restored through the
+App UI and the isolated App quit normally. Sol max approved the bounded visible
+evidence, and [PR #20](https://github.com/zzqDeco/OneReader/pull/20) merged to
+dev at `45e44ec77c45560fc15ad7144682b0a05ca8a327`. This does not replace
+combined-build or release-artifact acceptance.
+
 ## iPhone file import and PDF zoom regressions
 
 `scripts/test-ios-device-import-zoom.sh` requires an available physical iPhone

@@ -77,6 +77,10 @@ No adapter mutates or silently re-labels the historical locator. Markdown,
 code, and text locators with a line range require the exact quote during
 relocation and receive recomputed start/end lines before they can be read
 against the new Snapshot.
+Repeated text is disambiguated by quote prefix/suffix, then proximity to the
+original UTF-16 offset. Equally ranked matches are orphaned, never silently
+resolved to the first occurrence. Indexed text ranges also receive fresh
+absolute UTF-16 coordinates; viewport locators retain their reading semantics.
 
 ## Archive and web safety
 
@@ -118,6 +122,34 @@ builds a separate FTS5 projection under an explicit AdapterPlan: it stages the
 complete plan output, verifies that the same plan is still active for the
 Snapshot, then publishes atomically. FTS results retain source, snapshot,
 adapter, locator, title, and jump context.
+
+Markdown headings are navigation, not index content. The optional host-only
+`IndexingAdapter` hook emits the entire permitted Markdown/text/code document
+in 64K Swift-Character (extended grapheme cluster) chunks with 512-character
+overlap. Files are loaded once per indexing pass under the 64 MiB input ceiling.
+Every chunk carries absolute UTF-16 and line offsets; CRLF counts as one line
+break. Search anchors rebase those offsets, preserve complete Unicode graphemes,
+and deduplicate overlapping hits before the final 20-result limit. Results are
+fragment-level matches, not an enumeration of every occurrence in one fragment.
+Directory child text uses the same hook; PDF pages and EPUB spine traversal keep
+their existing adapters. The hook is not an Agent capability or tool.
+
+Index work is serialized across coordinators by one process-wide cancellable
+FIFO gate, including bootstrap. Each Source run permits at most 10,000 directory
+entries/expanded content nodes, 10,000 fragments, and 128 MiB of UTF-8 content plus
+metadata. A sentinel list entry detects overflow. Truncated reads or exhausted
+budgets fail instead of publishing incomplete results. Before writes and commit,
+the host requires the normal 2 GiB free-space floor plus at least 32 MiB or eight
+times the projection size for staging/publication/FTS/WAL. Failed staging is
+deleted transactionally; SQLite pages remain reusable without a blocking vacuum.
+Opening the Source or restarting the app retries an incomplete index, without
+an automatic failure loop. Basic reading stays available throughout.
+
+Schema v10 invalidates the old heading-only derived projections and completion
+records. Bootstrap rebuilds active plans even for unopened Spaces. Source bytes,
+Snapshot identities, evidence Observations, notes, progress, and history are not
+rewritten. Library search reads only completed projections; Space/Source search
+is index-first with a direct adapter fallback only when there are zero index hits.
 
 FTS5 `unicode61` remains the fast path. When its tokenization produces no hit,
 the database performs a bounded exact-substring query over the active completed

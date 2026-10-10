@@ -48,8 +48,13 @@ HTTP(S) link to `UIApplication`. Host-owned selection and position user scripts
 produce DOM/quote Locators but cannot widen navigation or network authority.
 
 DEBUG recovery tests use read-only accessibility observations from the mounted
-PDFView/WKWebView (page coordinates, native scale, viewport/page width, native scroll offsets, and the loaded DOM
-document title). Saved-position
+PDFView/WKWebView (page coordinates, native scale, viewport/page width,
+native scroll offsets, and the loaded DOM
+document title). The native text bridge exposes the visible source UTF-16 anchor
+and the visible glyph line's viewport-relative Y, computed from TextKit container
+geometry plus inset minus current content offset. Deep Markdown restoration can
+change absolute document offsets as layout fills in, so recovery assertions pair
+the source anchor with this line geometry, not absolute scroll Y. Saved-position
 metadata is exposed separately by AppModel and cannot satisfy the viewport
 assertions. These observation subclasses compile to native typealiases in
 Release builds and do not enable Source scripts or change gesture ownership.
