@@ -114,7 +114,8 @@ final class AppModel: ObservableObject {
     @Published var pendingSourceRemoval: Source?
     @Published private(set) var isBootstrapComplete = false
     @Published var isImportSheetPresented = false
-    @Published var platformFileImportPurpose: PlatformFileImportPurpose?
+    @Published private(set) var platformFileImportPurpose: PlatformFileImportPurpose?
+    @Published var isPlatformFileImporterPresented = false
     @Published var notice: AppNotice?
 
     @Published var preferences: ReaderPreferences {
@@ -468,12 +469,35 @@ final class AppModel: ObservableObject {
             }
         }
 #else
-        platformFileImportPurpose = .add(destination)
+        requestPlatformFileImport(.add(destination))
 #endif
+    }
+
+    func requestPlatformFileImport(_ purpose: PlatformFileImportPurpose) {
+        guard platformFileImportPurpose == nil else { return }
+        platformFileImportPurpose = purpose
+        if isImportSheetPresented {
+            // The root presents the picker only after this sheet has dismissed.
+            isImportSheetPresented = false
+        } else {
+            isPlatformFileImporterPresented = true
+        }
+    }
+
+    func importSheetDidDismiss() {
+        if platformFileImportPurpose != nil {
+            isPlatformFileImporterPresented = true
+        }
+    }
+
+    func cancelPlatformFileImport() {
+        isPlatformFileImporterPresented = false
+        platformFileImportPurpose = nil
     }
 
     func completePlatformFileImport(_ result: Result<[URL], any Error>) {
         guard let purpose = platformFileImportPurpose else { return }
+        isPlatformFileImporterPresented = false
         platformFileImportPurpose = nil
         switch result {
         case .failure(let error):
@@ -1171,7 +1195,7 @@ final class AppModel: ObservableObject {
             }
         }
 #else
-        platformFileImportPurpose = .reauthorize(sourceID: source.id)
+        requestPlatformFileImport(.reauthorize(sourceID: source.id))
 #endif
     }
 
@@ -2539,6 +2563,13 @@ final class AppModel: ObservableObject {
 #if DEBUG && os(iOS)
     @Published private(set) var recoveryUITestReady = false
 
+    var importUITestDirectory: URL? {
+        guard ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_IMPORT_FLOW"] == "1",
+              let rawID = ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_RECOVERY_ID"],
+              let runID = UUID(uuidString: rawID) else { return nil }
+        return ReaderRecoveryUITestFixture.pickerDirectory(for: runID)
+    }
+
     static func makeRecoveryUITestFixture(rawID: String) -> AppModel {
         guard let runID = UUID(uuidString: rawID) else {
             let model = AppModel(automaticBootstrap: false)
@@ -2556,11 +2587,15 @@ final class AppModel: ObservableObject {
         Task {
             await model.bootstrap()
             do {
-                let urls = try ReaderRecoveryUITestFixture.materials(in: root)
-                for url in urls where !model.sources.contains(where: {
-                    $0.displayName == url.lastPathComponent
-                }) {
-                    await model.importOne(.local(url), destination: .newSpace, allowLargeImport: false)
+                if ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_IMPORT_FLOW"] == "1" {
+                    try ReaderRecoveryUITestFixture.preparePickerMaterials(for: runID)
+                } else {
+                    let urls = try ReaderRecoveryUITestFixture.materials(in: root)
+                    for url in urls where !model.sources.contains(where: {
+                        $0.displayName == url.lastPathComponent
+                    }) {
+                        await model.importOne(.local(url), destination: .newSpace, allowLargeImport: false)
+                    }
                 }
                 model.closeReadingWorkspace()
                 model.recoveryUITestReady = true

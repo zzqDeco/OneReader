@@ -34,6 +34,14 @@ scripts/build-ios-simulator.sh
 The shared target remains iPad-capable, but v0.3.2 release acceptance is scoped
 to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
 
+On iPhone, Add Materials opens the system Files picker. Selected files are
+copied into the managed Library and remain readable after relaunch. PDF reading
+starts at fit width and supports native two-finger zoom plus zoom-out, zoom-in,
+and fit-width buttons; the displayed percentage follows the live zoom.
+ProMotion-capable iPhones are opted into higher refresh rates; native adaptive
+frame pacing and the device's power/thermal settings still determine the actual
+rate. The app does not force a permanent 120 Hz rendering loop.
+
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
 unused SwiftAgent transitive product whose upstream manifest requires a newer
@@ -44,6 +52,22 @@ Swift tools version; it does not download or link that peer implementation.
 ```bash
 scripts/validate-native.sh
 ```
+
+To run the dedicated file-picker and PDF-zoom regressions on a connected,
+unlocked physical iPhone:
+
+```bash
+ONEREADER_IOS_DEVICE_ID=<device-udid> \
+ONEREADER_DEVELOPMENT_TEAM=<local-team-id> \
+scripts/test-ios-device-import-zoom.sh
+```
+
+This installs an independent `OneReader Fix Preview` application and uses a
+UUID-isolated test Library. It does not replace the production app or open its
+Library, and it does not create or boot a Simulator. Results and screenshots
+remain under the ignored `.onereader/acceptance/ios-import-pdf-zoom/` directory.
+Set `ONEREADER_IOS_TEST_ALL=1` to include existing cross-format position recovery
+and Library/text/Markdown/code touch regressions in the same isolated app.
 
 An ad-hoc signed, sandboxed macOS Developer Preview is written to
 `dist/OneReader.app`; the universal iPhone/iPad Simulator product is written

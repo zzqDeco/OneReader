@@ -45,6 +45,7 @@ struct ImportSourceSheet: View {
                         model.presentLocalSourceImporter(destination: destination)
                         dismiss()
                     }
+                    .accessibilityIdentifier("import-local-materials")
 
 #if os(macOS)
                     ImportOptionCard(

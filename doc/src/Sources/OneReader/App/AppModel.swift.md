@@ -27,6 +27,14 @@ iOS/iPadOS publishes a typed `PlatformFileImportPurpose` consumed by the root
 `fileImporter`. Both paths rejoin at `importLocalURLs`; reauthorization is
 single-selection and imports can be multi-selection.
 
+The pending purpose and `isPlatformFileImporterPresented` are separate state.
+The system may clear presentation before sending a successful selection;
+only completion or explicit cancellation consumes the purpose. An import
+requested from the custom sheet waits for `importSheetDidDismiss` before
+presenting the picker. DEBUG import-flow fixtures generate Files-visible inputs
+under a UUID in Documents but leave the isolated Library empty, so UI tests must
+select and import through the real system picker rather than auto-importing.
+
 `OriginalSourceOpenPolicy` keeps the external-source action honest: macOS may
 open a local or remote origin, while iOS/iPadOS expose only HTTP(S) origins.
 Expired document-provider file URLs never reach `UIApplication`; local reading

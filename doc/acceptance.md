@@ -21,6 +21,30 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## iPhone file import and PDF zoom regressions
+
+`scripts/test-ios-device-import-zoom.sh` requires an available physical iPhone
+and a command-line development team. It builds an independent app identity,
+`io.github.zzqDeco.OneReader.ImportZoomAcceptance`, leaving the production app
+and its managed Library untouched. No Simulator is created or booted.
+
+The dedicated device suite tests real PDFView layout/scale ownership and actual
+system-picker selection, cancellation, retry, existing-Space import, relaunch,
+native two-finger zoom, and zoom-out/zoom-in/fit-width buttons. The fixture only
+generates Files-visible inputs; the empty Library cannot become readable until
+the system picker completes the normal import. PDF assertions use independently
+observed native scale and page/viewport width, not preferences or stored progress.
+Result bundles retain screenshots for each transition. The corresponding shared
+AppModel regressions reproduce SwiftUI's dismissal-before-completion ordering.
+The same suite records OS PDF scrolling/deceleration performance metrics, and a
+host-plist test plus metadata gate check ProMotion opt-in. A passing benchmark
+on generated material is not a claim of constant 120 FPS for arbitrary Sources.
+The zoomed-scroll pressure case alternates slow/fast gestures and pauses past
+the position-capture/save delays, then checks the mounted scale independently.
+
+Physical-device acceptance for this slice is pending until the recorded result
+bundle passes; compilation and shared tests alone are not touch acceptance.
+
 ## v0.3.1 Native Editorial Reader record
 
 Runtime implementation commit

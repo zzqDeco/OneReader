@@ -77,6 +77,9 @@ enum PDFViewportAnchor {
 @MainActor
 class ReadingPDFView: PDFView {
     var pendingAnchor: ((PDFView) -> Void)?
+#if os(iOS)
+    var onViewportLayout: ((PDFView) -> Void)?
+#endif
     private var anchorScheduled = false
 
 #if os(macOS)
@@ -87,6 +90,7 @@ class ReadingPDFView: PDFView {
 #else
     override func layoutSubviews() {
         super.layoutSubviews()
+        onViewportLayout?(self)
         schedulePendingAnchor()
     }
 #endif

@@ -17,6 +17,7 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
+| [iPhone file import and PDF zoom](ios-import-pdf-zoom.plan.md) | Retained file-picker requests, native pinch ownership, fit width, and real-device import/zoom regressions | Active |
 | [v0.3.2 reading recovery release](release-v0.3.2.plan.md) | Protected promotion, Developer Preview publication, and downloaded-artifact verification | Active |
 | [Cross-format reading recovery](cross-format-reading-recovery.plan.md) | Physical PDF/EPUB/HTML gestures and visible-position restoration against isolated managed Library data | Delivered |
 | [Native Editorial Reader](native-editorial-reader.plan.md) | Release-quality macOS/iPhone Library, reader chrome, typography, and Reading Assistance | Delivered |

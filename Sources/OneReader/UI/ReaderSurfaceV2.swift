@@ -4,6 +4,9 @@ struct ReaderSurfaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.readingPositionCaptureTargetID) private var captureTargetID
+    @State private var pdfZoomRequest: PDFZoomRequest?
+    @State private var pdfZoomRequestToken: UUID?
+    @State private var pdfZoomFactor = 1.0
 
     let onShowNavigation: (() -> Void)?
     let onShowAssistance: (() -> Void)?
@@ -41,10 +44,24 @@ struct ReaderSurfaceView: View {
 #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if usesCompactLayout {
-                compactReaderBar
+                VStack(spacing: 0) {
+                    if model.presentationDocument?.surface == .pdfKit {
+                        pdfZoomControls
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 4)
+                            .background(.bar)
+                            .overlay(alignment: .top) { Divider() }
+                    }
+                    compactReaderBar
+                }
             }
         }
 #endif
+        .onChange(of: model.currentPresentationToken) { _, _ in
+            pdfZoomRequest = nil
+            pdfZoomRequestToken = nil
+            pdfZoomFactor = 1
+        }
     }
 
     private var readerHeader: some View {
@@ -68,6 +85,11 @@ struct ReaderSurfaceView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 10)
+#if os(iOS)
+            if model.presentationDocument?.surface == .pdfKit {
+                pdfZoomControls
+            }
+#endif
             if model.canOpenOriginalSource {
                 Button {
                     model.openOriginalSource()
@@ -149,6 +171,12 @@ struct ReaderSurfaceView: View {
                         update,
                         presentationToken: presentationToken
                     )
+                },
+                pdfZoomRequest: pdfZoomRequestToken == presentationToken ? pdfZoomRequest : nil,
+                onPDFZoomChange: { zoom in
+                    guard model.currentPresentationToken == presentationToken,
+                          zoom.isFinite else { return }
+                    pdfZoomFactor = zoom
                 }
             )
             .id(presentationToken)
@@ -250,6 +278,46 @@ struct ReaderSurfaceView: View {
     }
 
 #if os(iOS)
+    private var pdfZoomControls: some View {
+        HStack(spacing: 14) {
+            Button {
+                requestPDFZoom(.zoomOut)
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("缩小 PDF")
+            .accessibilityIdentifier("pdf-zoom-out")
+            Text("\(Int((pdfZoomFactor * 100).rounded()))%")
+                .font(.callout.monospacedDigit())
+                .frame(minWidth: 46)
+                .accessibilityLabel("PDF 缩放比例")
+                .accessibilityValue("\(Int((pdfZoomFactor * 100).rounded()))%")
+                .accessibilityIdentifier("pdf-zoom-percentage")
+            Button {
+                requestPDFZoom(.zoomIn)
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("放大 PDF")
+            .accessibilityIdentifier("pdf-zoom-in")
+            Spacer(minLength: 0)
+            Button("适合宽度") {
+                requestPDFZoom(.fitWidth)
+            }
+            .font(.callout)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("pdf-fit-width")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func requestPDFZoom(_ action: PDFZoomAction) {
+        pdfZoomRequestToken = model.currentPresentationToken
+        pdfZoomRequest = PDFZoomRequest(action: action)
+    }
+
     private var compactReaderBar: some View {
         HStack(spacing: 0) {
             CompactReaderAction(title: "目录", systemImage: "list.bullet") {

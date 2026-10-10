@@ -52,7 +52,7 @@ struct WorkspaceView: View {
             }
             .frame(width: 0, height: 0)
         }
-        .sheet(isPresented: $model.isImportSheetPresented) {
+        .sheet(isPresented: $model.isImportSheetPresented, onDismiss: model.importSheetDidDismiss) {
             ImportSourceSheet()
                 .environmentObject(model)
         }
@@ -134,15 +134,15 @@ struct WorkspaceView: View {
         .tint(ReaderTheme.teal)
 #if os(iOS)
         .fileImporter(
-            isPresented: Binding(
-                get: { model.platformFileImportPurpose != nil },
-                set: { if !$0 { model.platformFileImportPurpose = nil } }
-            ),
+            isPresented: $model.isPlatformFileImporterPresented,
             allowedContentTypes: [.item, .folder],
-            allowsMultipleSelection: model.platformFileImportPurpose?.allowsMultipleSelection ?? true
-        ) { result in
-            model.completePlatformFileImport(result)
-        }
+            allowsMultipleSelection: model.platformFileImportPurpose?.allowsMultipleSelection ?? true,
+            onCompletion: model.completePlatformFileImport,
+            onCancellation: model.cancelPlatformFileImport
+        )
+#if DEBUG
+        .fileDialogDefaultDirectory(model.importUITestDirectory)
+#endif
         .sheet(isPresented: $isMobileNavigationPresented) {
             NavigationStack {
                 ReaderNavigationSidebar(showsLibraryBackButton: false)

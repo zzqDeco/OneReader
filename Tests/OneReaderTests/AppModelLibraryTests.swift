@@ -121,6 +121,77 @@ final class AppModelLibraryTests: XCTestCase {
         )
     }
 
+    func testPickedFileImportsAfterSystemDismissesPicker() async throws {
+        let root = temporaryRoot("PickerCompletion")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let input = root.appendingPathComponent("picked.txt")
+        try Data("The selected file must become a managed source.".utf8).write(to: input)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "Picker.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: root.appendingPathComponent("Library"), defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+
+        model.requestPlatformFileImport(.add(.newSpace))
+        // SwiftUI resets its presentation binding before invoking completion.
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.success([input]))
+        try await waitUntil { model.sources.count == 1 && model.presentationDocument != nil }
+        XCTAssertEqual(model.sources.first?.displayName, "picked.txt")
+        XCTAssertEqual(model.spaces.count, 1)
+        XCTAssertNil(model.platformFileImportPurpose)
+        XCTAssertEqual(model.presentationDocument?.surface, .nativeText)
+    }
+
+    func testPickedFileJoinsCurrentSpaceAfterSystemDismissesPicker() async throws {
+        let root = temporaryRoot("PickerCurrentSpace")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inputs = [root.appendingPathComponent("first.txt"), root.appendingPathComponent("second.txt")]
+        for input in inputs { try Data(input.lastPathComponent.utf8).write(to: input) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "Picker.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: root.appendingPathComponent("Library"), defaults: defaults, secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+        model.importLocalURLs([inputs[0]])
+        try await waitUntil { model.presentationDocument != nil }
+        let spaceID = try XCTUnwrap(model.selectedSpaceID)
+
+        model.requestPlatformFileImport(.add(.currentSpace))
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.success([inputs[1]]))
+        try await waitUntil { model.sources.count == 2 && model.selectedSpaceSources.count == 2 }
+        XCTAssertEqual(model.spaces.count, 1)
+        XCTAssertEqual(model.selectedSpaceID, spaceID)
+    }
+
+    func testPickerCancellationCanRetryAndFailureIsNotSilentlyDiscarded() {
+        let model = AppModel(automaticBootstrap: false)
+        model.requestPlatformFileImport(.add(.currentSpace))
+        model.isPlatformFileImporterPresented = false
+        model.cancelPlatformFileImport()
+        XCTAssertNil(model.platformFileImportPurpose)
+
+        model.requestPlatformFileImport(.add(.newSpace))
+        XCTAssertTrue(model.isPlatformFileImporterPresented)
+        model.isPlatformFileImporterPresented = false
+        model.completePlatformFileImport(.failure(NSError(domain: "PickerRegression", code: 7)))
+        XCTAssertEqual(model.notice?.title, "无法读取所选材料")
+        XCTAssertNil(model.platformFileImportPurpose)
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+    }
+
+    func testImportSheetHandsOffPickerOnlyAfterDismissal() {
+        let model = AppModel(automaticBootstrap: false)
+        model.isImportSheetPresented = true
+        model.requestPlatformFileImport(.add(.newSpace))
+        XCTAssertFalse(model.isImportSheetPresented)
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+        model.importSheetDidDismiss()
+        XCTAssertTrue(model.isPlatformFileImporterPresented)
+        model.cancelPlatformFileImport()
+        model.importSheetDidDismiss()
+        XCTAssertFalse(model.isPlatformFileImporterPresented)
+    }
+
     func testMobileOriginalSourcePolicyExposesOnlyExplicitWebLinks() {
         XCTAssertTrue(
             OriginalSourceOpenPolicy.allows(
