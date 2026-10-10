@@ -49,6 +49,13 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         let documentTitle = format == "EPUB" ? (secondSpine ? "EPUB Second Chapter" : "EPUB First Chapter") : "Recovery HTML"
         if format == "EPUB" || format == "HTML" { try assertLoadedDocument(reader, title: documentTitle) }
         let initialPersistence = try persisted(in: app)
+        if format == "Markdown" {
+            XCTAssertGreaterThan(
+                try XCTUnwrap(initial["ch"]), try XCTUnwrap(initial["bh"]) + 24,
+                "The managed Markdown viewport must be scrollable before issuing a drag: \(initial)"
+            )
+            attach(app, name: "Markdown-before-drag")
+        }
         let start = reader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         let end = reader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
         start.press(forDuration: 0.1, thenDragTo: end)
@@ -59,6 +66,7 @@ final class CrossFormatRecoveryUITests: XCTestCase {
             }
         }
         let scrolled = try stableViewport(reader)
+        if format == "Markdown" { attach(app, name: "Markdown-after-drag") }
         if format == "PDF" {
             if advancePages {
                 XCTAssertGreaterThanOrEqual(try XCTUnwrap(scrolled["page"]), 2)
@@ -67,7 +75,10 @@ final class CrossFormatRecoveryUITests: XCTestCase {
                 XCTAssertLessThan(try XCTUnwrap(scrolled["y"]), try XCTUnwrap(initial["y"]) - 24)
             }
         } else {
-            XCTAssertGreaterThan(try XCTUnwrap(scrolled["y"]), try XCTUnwrap(initial["y"]) + 24)
+            XCTAssertGreaterThan(
+                try XCTUnwrap(scrolled["y"]), try XCTUnwrap(initial["y"]) + 24,
+                "\(format) native drag did not move; initial=\(initial), settled=\(scrolled)"
+            )
         }
         attach(app, name: "\(format)-scrolled")
         let saved = try waitForPersistence(in: app, viewport: scrolled, format: format)
@@ -115,7 +126,9 @@ final class CrossFormatRecoveryUITests: XCTestCase {
 
     private func backToLibrary(_ app: XCUIApplication) {
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.scrollViews["library-scroll-view"].waitForExistence(timeout: 10))
+        let returned = app.scrollViews["library-scroll-view"].waitForExistence(timeout: 10)
+        if !returned { attach(app, name: "Library-back-navigation-failed") }
+        XCTAssertTrue(returned, "Library did not appear after the native Back tap: \(app.debugDescription)")
     }
 
     private func viewport(_ reader: XCUIElement) throws -> [String: Double] {

@@ -69,13 +69,32 @@ private struct ReadingPositionCaptureContext {
     let requestedAt: Date
 }
 
+/// Small PDF position consumers observe this projection, not the entire
+/// workspace. Other surfaces keep their existing refresh contract.
+/// Exact Locators and durable progress remain owned by AppModel.
+@MainActor
+final class ReadingPositionDisplayState: ObservableObject {
+    @Published private(set) var positionDescription: String?
+    @Published private(set) var durablePosition: SourcePosition?
+
+    func update(_ description: String?) {
+        guard positionDescription != description else { return }
+        positionDescription = description
+    }
+
+    func updateDurablePosition(_ position: SourcePosition?) {
+        guard durablePosition != position else { return }
+        durablePosition = position
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var spaces: [ReadingSpace] = []
     @Published private(set) var sources: [Source] = []
     @Published private(set) var snapshots: [SourceSnapshot] = []
     @Published private(set) var sourceIDsBySpace: [String: [String]] = [:]
-    @Published private(set) var progressBySpace: [String: ReadingProgress] = [:]
+    private(set) var progressBySpace: [String: ReadingProgress] = [:]
     @Published private(set) var graphsBySpace: [String: ReadingGraph] = [:]
     @Published private(set) var plansBySpace: [String: ReadingPlanDraft] = [:]
     @Published private(set) var pendingGraphsBySpace: [String: ReadingGraph] = [:]
@@ -101,7 +120,26 @@ final class AppModel: ObservableObject {
     @Published private(set) var agentRuns: [AgentRun] = []
     @Published private(set) var evidenceAnswer: EvidenceAnswer?
     @Published var currentSelection: ReaderSelection?
-    @Published private(set) var currentPositionLocator: Locator?
+    let readingPositionDisplayState = ReadingPositionDisplayState()
+    private(set) var currentPositionLocator: Locator? {
+        willSet {
+            // Navigation controls and menu shortcuts must change immediately
+            // at the first/last content boundary, even if a save later fails.
+            let before = ReaderContentNavigation.availability(
+                at: currentPositionLocator ?? presentationDocument?.locator, in: contentNodes
+            )
+            let after = ReaderContentNavigation.availability(
+                at: newValue ?? presentationDocument?.locator, in: contentNodes
+            )
+            if !isolatesPDFPositionUpdates(for: newValue)
+                || before.previous != after.previous || before.next != after.next {
+                objectWillChange.send()
+            }
+        }
+        didSet {
+            refreshReadingPositionDisplay()
+        }
+    }
 
     @Published var searchText = ""
     @Published var searchScope: ReaderSearchScope = .space
@@ -1096,7 +1134,7 @@ final class AppModel: ObservableObject {
 
                 try reloadLibraryState(preservingSelection: true)
                 for spaceID in try database.spaceIDs(containing: sourceID) {
-                    progressBySpace[spaceID] = try database.fetchReadingProgress(spaceID: spaceID)
+                    setReadingProgress(try database.fetchReadingProgress(spaceID: spaceID), for: spaceID)
                 }
                 let plan = try await coordinator.prepare(
                     sourceID: sourceID,
@@ -1239,7 +1277,10 @@ final class AppModel: ObservableObject {
                     contentTask?.cancel()
                     selectedSourceID = selectedSpaceID.flatMap { sourceIDs(in: $0).first }
                     if let selectedSourceID { openSource(selectedSourceID) }
-                    else { presentationState = .empty }
+                    else {
+                        presentationState = .empty
+                        currentPositionLocator = nil
+                    }
                 }
             } catch {
                 notice = AppNotice(title: "无法移除来源", message: error.localizedDescription)
@@ -1323,7 +1364,7 @@ final class AppModel: ObservableObject {
         progress.lastActiveAt = .now
         do {
             try database.saveReadingProgress(progress, spaceID: spaceID)
-            progressBySpace[spaceID] = progress
+            setReadingProgress(progress, for: spaceID)
             graphsBySpace[spaceID] = graph
             plansBySpace[spaceID] = plan
             pendingGraphsBySpace[spaceID] = nil
@@ -1934,8 +1975,19 @@ final class AppModel: ObservableObject {
         progress.lastActiveAt = .now
         do {
             try database.saveReadingProgress(progress, spaceID: spaceID)
-            progressBySpace[spaceID] = progress
+            // A PDF position-only save changes no route/unit controls. While reading,
+            // keep the Library's hidden shelf and the PDF bridge out of this
+            // notification; returning to Library publishes its up-to-date cache.
+            let isolatesPDFPosition = selectedSpaceID == spaceID
+                && isolatesPDFPositionUpdates(for: position.locator)
+            setReadingProgress(progress, for: spaceID, publishesGlobally: !isolatesPDFPosition)
         } catch {
+            if selectedSpaceID == spaceID, selectedSourceID == position.sourceID {
+                let saved = currentProgress.sourcePositions[position.sourceID]
+                readingPositionDisplayState.update(saved.map {
+                    $0.displayLabel ?? Self.positionDescription(for: $0.locator)
+                })
+            }
             notice = AppNotice(title: "无法保存阅读位置", message: error.localizedDescription)
         }
     }
@@ -1958,6 +2010,35 @@ final class AppModel: ObservableObject {
         // can never cancel a newer run after the user returns to A.
     }
 
+    private func setReadingProgress(
+        _ progress: ReadingProgress?,
+        for spaceID: String,
+        publishesGlobally: Bool = true
+    ) {
+        if publishesGlobally { objectWillChange.send() }
+        progressBySpace[spaceID] = progress
+        refreshReadingPositionDisplay()
+    }
+
+    private func isolatesPDFPositionUpdates(for locator: Locator?) -> Bool {
+        guard isReadingWorkspaceOpen,
+              let document = presentationDocument, document.surface == .pdfKit,
+              let locator,
+              selectedSourceID == locator.sourceID,
+              document.locator.sourceID == locator.sourceID,
+              document.locator.snapshotID == locator.snapshotID,
+              document.locator.adapterID == locator.adapterID else { return false }
+        return true
+    }
+
+    private func refreshReadingPositionDisplay() {
+        let hasLivePosition = currentPositionLocator != nil
+        readingPositionDisplayState.update(hasLivePosition ? currentPositionDescription : nil)
+        readingPositionDisplayState.updateDurablePosition(
+            hasLivePosition ? selectedSourceID.flatMap { currentProgress.sourcePositions[$0] } : nil
+        )
+    }
+
     private func updateProgress(_ mutation: (inout ReadingProgress) -> Void) {
         guard let database, let spaceID = selectedSpaceID else { return }
         var progress = progressBySpace[spaceID] ?? .empty
@@ -1965,7 +2046,7 @@ final class AppModel: ObservableObject {
         progress.lastActiveAt = .now
         do {
             try database.saveReadingProgress(progress, spaceID: spaceID)
-            progressBySpace[spaceID] = progress
+            setReadingProgress(progress, for: spaceID)
         } catch {
             notice = AppNotice(title: "无法保存阅读进度", message: error.localizedDescription)
         }
@@ -2442,7 +2523,7 @@ final class AppModel: ObservableObject {
         }
         progress.lastActiveAt = .now
         try database.saveReadingProgress(progress, spaceID: spaceID)
-        progressBySpace[spaceID] = progress
+        setReadingProgress(progress, for: spaceID)
         graphsBySpace[spaceID] = latestGraph
         plansBySpace[spaceID] = latestPlan
         pendingGraphsBySpace[spaceID] = nil
@@ -2451,7 +2532,7 @@ final class AppModel: ObservableObject {
 
     private func loadSpaceState(spaceID: String) throws {
         guard let database else { return }
-        progressBySpace[spaceID] = try database.fetchReadingProgress(spaceID: spaceID)
+        setReadingProgress(try database.fetchReadingProgress(spaceID: spaceID), for: spaceID)
         try refreshReadingStructureState(spaceID: spaceID)
         annotations = try database.fetchAnnotations(spaceID: spaceID)
         history = try database.fetchReadingHistory(spaceID: spaceID, limit: 100)
@@ -2468,7 +2549,7 @@ final class AppModel: ObservableObject {
         })
         providerProfiles = try database.fetchProviderProfiles()
         for space in spaces {
-            progressBySpace[space.id] = try? database.fetchReadingProgress(spaceID: space.id)
+            setReadingProgress(try? database.fetchReadingProgress(spaceID: space.id), for: space.id)
             try? refreshReadingStructureState(spaceID: space.id)
         }
         let allRuns = try database.fetchAgentRuns()
@@ -2606,10 +2687,8 @@ final class AppModel: ObservableObject {
         return model
     }
 
-    var recoveryUITestPersistenceMetrics: String {
-        guard let spaceID = selectedSpaceID,
-              let sourceID = selectedSourceID,
-              let position = progressBySpace[spaceID]?.sourcePositions[sourceID] else { return "pending" }
+    static func recoveryUITestPersistenceMetrics(for position: SourcePosition?) -> String {
+        guard let position else { return "pending" }
         let locator = position.locator
         let fields = [
             "source": locator.sourceID,

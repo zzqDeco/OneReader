@@ -94,6 +94,19 @@ Physical-device performance tests record the OS scrolling/deceleration frame
 rate and hitch metrics on generated PDF material; those numbers do not prove
 every large or image-heavy document stays at 120 FPS.
 
+PDF viewport captures retain their exact Locator without broadcasting that
+capture through the global application model unless navigation availability
+changes at a content boundary. Small position consumers observe a separate
+deduplicated projection. The existing 350 ms save boundary still updates the
+database and synchronous progress cache, but PDF position-only saves while reading
+do not rebuild the whole reader or the hidden Library shelf. Library return,
+route/unit changes and reloads publish normally. Source/Space transitions still
+flush the exact position. Navigation buttons/shortcuts remain immediate, and
+failed saves revert the badge to its durable position. This scoped notification
+is limited to the active PDF's Source/Snapshot/Adapter identity; Markdown, text,
+code, Web and Quick Look keep their existing global refresh behavior. It is a
+performance boundary, not an assertion that every frame hitch has been eliminated.
+
 Native Markdown drops raw HTML and never fetches remote Markdown image URLs.
 Relative images are resolved from the Markdown document directory and then
 confined to the same read-only Snapshot-root loader used by controlled WebKit.

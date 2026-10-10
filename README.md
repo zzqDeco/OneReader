@@ -41,6 +41,10 @@ and fit-width buttons; the displayed percentage follows the live zoom.
 ProMotion-capable iPhones are opted into higher refresh rates; native adaptive
 frame pacing and the device's power/thermal settings still determine the actual
 rate. The app does not force a permanent 120 Hz rendering loop.
+PDF reading-position captures and position-only saves are isolated from
+whole-reader UI refreshes. Other formats retain their existing refresh behavior;
+exact progress still persists and restores across material types.
+Intermittent PDF smoothness is checked separately from import/zoom correctness.
 
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one

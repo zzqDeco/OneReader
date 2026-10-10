@@ -28,10 +28,7 @@ struct ReaderSurfaceView: View {
             presentation
 #if DEBUG && os(iOS)
             if ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_RECOVERY_ID"] != nil {
-                Text("Recovery test")
-                    .font(.system(size: 8))
-                    .accessibilityIdentifier("reader-persisted-position")
-                    .accessibilityValue(model.recoveryUITestPersistenceMetrics)
+                ReadingPositionPersistenceReceipt(state: model.readingPositionDisplayState)
             }
 #endif
             if !usesCompactLayout {
@@ -213,14 +210,7 @@ struct ReaderSurfaceView: View {
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
             .disabled(!model.canSelectNextNode)
 
-            if let position = model.currentPositionDescription {
-                Label("已记录 · \(position)", systemImage: "bookmark.circle")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityLabel("阅读位置已记录，\(position)")
-            }
+            ReadingPositionBadge(state: model.readingPositionDisplayState)
 
             Spacer(minLength: 0)
 
@@ -364,6 +354,36 @@ struct ReaderSurfaceView: View {
 #endif
     }
 }
+
+/// Keep live position text out of the whole reader's observation boundary.
+private struct ReadingPositionBadge: View {
+    @ObservedObject var state: ReadingPositionDisplayState
+
+    var body: some View {
+        if let position = state.positionDescription {
+            Label("已记录 · \(position)", systemImage: "bookmark.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .accessibilityLabel("阅读位置已记录，\(position)")
+        }
+    }
+}
+
+#if DEBUG && os(iOS)
+/// Observe only successful saves, without invalidating the PDF/reader surface.
+private struct ReadingPositionPersistenceReceipt: View {
+    @ObservedObject var state: ReadingPositionDisplayState
+
+    var body: some View {
+        Text("Recovery test")
+            .font(.system(size: 8))
+            .accessibilityIdentifier("reader-persisted-position")
+            .accessibilityValue(AppModel.recoveryUITestPersistenceMetrics(for: state.durablePosition))
+    }
+}
+#endif
 
 private extension PresentationSurface {
     var displayName: String {

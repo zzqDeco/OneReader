@@ -50,6 +50,26 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
    button UI regressions. Synchronize current and source documentation.
 5. Address the reported high-refresh omission with the iOS ProMotion plist
    key, a metadata regression gate, and native scrolling performance metrics.
+6. Use the recovered physical-device trace to test one narrow UI isolation:
+   retain the exact live Locator without a global AppModel publication, and
+   update only an independently observed position badge. Keep existing
+   position capture, 350 ms durability and revision guards.
+   Compare the same six-burst/pause fixture and Instruments frames before/after;
+   this does not presume that all observed hitches share one cause.
+7. The first experiment still correlates costly frames with successful progress
+   publication. Isolate position-only durability from the global reader model
+   while the workspace is open; keep the exact cache and database up to date,
+   and publish the current durable position to the small position projection.
+   Other progress mutations and the return to Library retain normal global
+   publication. The DEBUG persistence receipt observes that same small
+   projection, not a stale label or a database read on each frame. Repeat the
+   trace before treating this as a smoothness improvement.
+8. The same-device A/B recovery gate exposed a Markdown drag regression when
+   both position notifications were suppressed for every surface. Limit quiet
+   live/durable updates to the measured PDFKit surface; other presentations
+   retain their existing global refresh contract. Do not broaden this PDF slice
+   into an unproven TextKit lifecycle rewrite. Keep the unchanged native drag,
+   persistence and relaunch assertions and rerun the full physical suite.
 
 ## Test Plan
 
@@ -71,6 +91,21 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
   position persistence. Record hitches and verify that later bursts never reset
   the mounted scale; a generated fixture still cannot disprove an intermittent
   issue with arbitrary real PDFs.
+- Assert that a valid live position updates the exact Locator and local badge
+  without a global model broadcast, deduplicates unchanged badge text, and still
+  durably saves/flushes before transitions. Rerun cross-format recovery.
+- Preserve immediate first/last-content navigation state and menu shortcuts;
+  a failed save restores the durable badge and last-Source removal clears it.
+- Successful position-only saves update the database/cache and local durable
+  projection without a global reader notification. Returning to Library and
+  unit/plan mutations still publish; the DEBUG receipt cannot fabricate a save.
+- Quiet publication is PDF-only. Assert non-PDF live updates and successful
+  durable saves still publish globally, then repeat Markdown native recovery.
+- Cross-format device diagnostics assert the managed Markdown content extends
+  beyond its viewport before dragging, retain before/after geometry and images,
+  and capture Library-back failures with the current accessibility hierarchy.
+  Keep the original movement/persistence assertions; do not silently retry a
+  failed gesture or weaken acceptance because a notification was present.
 
 ## Acceptance Evidence
 
@@ -105,6 +140,41 @@ the production application and its newer database schema are not overwritten.
 - The attempted follow-up profile did not launch: CoreDevice's connection was
   invalidated and both device inventories marked the iPhone offline. Do not
   classify this transport failure as an app regression or a completed trace.
+- After reconnect, `device-profile-02.xcresult` passed, while its simultaneous
+  85.504-second frame trace found 13 hitches (8.333–25 ms); ten were correlated
+  with costly application updates after broad position/progress notifications.
+- A live-Locator-only experiment did not remove the durable-save hotspot.
+  `device-position-isolation-v3.xcresult` passed after both notifications were
+  isolated. Its 81.084-second trace has three 8.333 ms hitches, no expensive app
+  update markers and 0.770–1.053 ms app updates for those frames. Measured
+  iterations 2–6 are fully captured in all variants: 11 hitches / approximately
+  125 ms before, 9 / approximately 125 ms for live-only, 3 / approximately 25 ms
+  for live plus durability. This supports the narrow optimization, not a claim
+  of zero hitches or fixed 120 FPS. The OS scroll metric remains around 82 FPS.
+- The broad experiment passed 242 shared tests but exposed a Markdown native
+  drag regression in the full suite (32/34); the same-device two-file baseline
+  reversion passed that original gesture and recovery case. Failed bundles are
+  retained. The final implementation therefore limits isolation to matching
+  active PDF identity and protects the original non-PDF publication contract.
+- `native-validation-pdf-scope.log`: 243 shared tests and full native validation
+  passed. `device-pdf-scoped-recovery.xcresult` passes both previously failing
+  cases. `device-pdf-scoped-final/device-tests.xcresult` passes all 18 native and
+  16 UI tests with zero skips: all six cross-format recoveries, true Files-picker
+  import/cancel/retry/add-to-Space, native pinch/buttons, mixed-width relaunch,
+  pressure scrolling and complete-workspace touch. Short OS scroll averaged
+  85.973 FPS; pressure averaged 82.446 FPS, both with zero OS-scroll hitches.
+  Final PDF-only frame trace is recorded separately from those OS metrics.
+- The first PDF-only recording failed during save because disk space ran out;
+  its partial trace is excluded. After clearing only temporary trace data and
+  verified inactive build caches, `pdf-scoped-short-02.trace` saved successfully
+  (61.188 seconds). Fully captured measured iterations 1–3 compare 5 hitches /
+  approximately 66.7 ms / 4 expensive updates before with 1 / approximately
+  8.3 ms / 0 expensive updates after PDF-only isolation. The one remaining
+  frame has a 0.913 ms app update and 4.77 ms render; internal delay is not fully
+  attributed. Its full six-iteration pressure test passes at 83.064 FPS with
+  one short OS-scroll hitch. This does not prove every real PDF stays smooth.
+- `native-validation-pdf-scope-final.log` repeats all 243 shared tests and full
+  native validation after the PDF test uses actual viewport/rect fields.
 - Sol max code review has no remaining findings. PR targets `dev` only; merge
   and release have not been requested for this slice.
 
@@ -122,9 +192,10 @@ unrelated Markdown-index PR changes, or release/tag publication.
 - [x] Shared and native regression tests pass
 - [x] Physical file-picker, pinch and button acceptance pass
 - [x] Cross-format/touch rerun and zoomed-scroll pressure case pass
-- [ ] Remaining intermittent PDF hitch classified with a frame trace
+- [x] PDF position-notification hotspot classified and final-code frame comparison recorded
+- [ ] Real-document intermittent smoothness accepted (short native hitch remains)
 - [x] Required validation passes
 - [x] Sol max review has no blockers
 - [x] Current-state/source docs synchronized
 - [ ] Branch reviewed through a PR to `dev`
-- [x] Plan status reflects observed delivery (Active: integration/profile pending)
+- [x] Plan status reflects observed delivery (Active: integration/real-document acceptance pending)

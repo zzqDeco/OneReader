@@ -60,6 +60,24 @@ plan progress remain independent. Opening the same Locator preserves its
 fraction/granularity metadata instead of replacing it with a bare document
 position.
 
+The exact live `currentPositionLocator` is not globally published on every PDF
+capture. Bookmark, note and navigation actions still read it synchronously; geometry is never
+discarded merely because its human-readable label is unchanged. A separate
+`ReadingPositionDisplayState` publishes deduplicated label changes and the
+current durable position to small position consumers. `progressBySpace` is a
+synchronous cache, updated only through `setReadingProgress`. Successful
+PDF position-only saves while reading do not broadcast to the whole workspace or
+hidden Library shelf; the local projection reconciles the badge and DEBUG
+persistence receipt. Returning to Library publishes its already-current cache.
+Route/unit mutations, reloads and saves outside the reader still publish
+globally. Quiet updates must match the active PDF's Source, Snapshot and Adapter;
+all non-PDF captures/saves retain the original global refresh contract. Capture,
+save/flush timing, source/version guards and Library progress
+semantics are unchanged. A first/last-content
+navigation availability change still broadcasts immediately so reader buttons
+and menu shortcuts never wait for a database save. A failed save resets the
+badge to durable progress; removing the last selected Source clears it.
+
 The model tracks the key window's presentation target. A boundary capture is
 addressed to that target and carries the outgoing Source/Snapshot identity;
 only an exclusive matching claim can complete it. Position and selection
