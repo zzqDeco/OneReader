@@ -14,6 +14,7 @@ implementation sequencing belongs in `plan/`.
 | [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and recovery |
 | [Reader workspace](reader-workspace.md) | Library-first native workspace, reading surfaces, search, annotations, and adaptive layout |
 | [Acceptance](acceptance.md) | Automated/native acceptance and scoped frame-profile evidence |
+| [v0.3.3 release notes](release-v0.3.3.md) | Full-text search, file import/native zoom, PDF order/viewport repairs and distribution limits |
 | [v0.3.2 release notes](release-v0.3.2.md) | Reading recovery maintenance release, validation provenance, and distribution limits |
 | [Branching](branching.md) | Branch roles, pull-request flow, and promotion rules |
 | [GitHub Actions](github-actions.md) | Hosted CI and release behavior |

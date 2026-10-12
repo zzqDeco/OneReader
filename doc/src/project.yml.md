@@ -22,3 +22,8 @@ ProMotion frame rates. Native UIKit/SwiftUI/PDFKit retain adaptive frame pacing;
 the app does not install a permanent display link or force a fixed 120 Hz rate.
 Metadata checks and an on-device host-plist regression prevent this opt-in from
 being dropped during project generation or packaging.
+
+Both targets carry v0.3.3 (6). The iOS test action forwards the custom
+`ONEREADER_IOS_PUBLIC_PDF_TEST` setting (default NO) to the XCTest runner.
+Explicit YES enables a locally seeded public-book case; no book is included in
+the app or repository. This setting does not configure production rendering.

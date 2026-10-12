@@ -4,6 +4,76 @@ import XCTest
 final class FileImportAndPDFZoomUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    /// Explicit local acceptance input, not a bundled/demo document. The host
+    /// seeds the public book into this independent preview's Documents only.
+    func testSeededPublicPDFImportZoomScrollAndRelaunch() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["ONEREADER_IOS_PUBLIC_PDF_TEST"] == "YES",
+            "Enable the seeded public-PDF acceptance explicitly; no book is bundled."
+        )
+        let (app, runID) = launchEmptyLibrary()
+        app.buttons["选择文件或目录"].tap()
+        try selectFile("Release Public Book", in: app, runID: runID, folders: ["OneReader Fix Preview"])
+        let reader = app.otherElements["reader-pdf-view"]
+        XCTAssertTrue(reader.waitForExistence(timeout: 60))
+        let initial = try settledMetrics(reader)
+        XCTAssertEqual(try number("pageCount", in: initial), 252, "Observe the actual mounted public PDF")
+        XCTAssertEqual(try number("page", in: initial), 0, "A fresh import must begin on its first page")
+        let fit = try number("scale", in: initial)
+        attach(app, "public-252-page-PDF-first-page")
+
+        reader.pinch(withScale: 1.8, velocity: 1)
+        let pinched = try number("scale", in: settledMetrics(reader))
+        XCTAssertGreaterThan(pinched, fit * 1.3)
+        app.buttons["pdf-zoom-in"].tap()
+        let enlarged = try number("scale", in: settledMetrics(reader))
+        XCTAssertEqual(enlarged, pinched * 1.25, accuracy: 0.015)
+        app.buttons["pdf-zoom-out"].tap()
+        XCTAssertEqual(try number("scale", in: settledMetrics(reader)), pinched, accuracy: 0.015)
+
+        reader.swipeUp(velocity: .slow)
+        let moved = try settledMetrics(reader)
+        XCTAssertTrue(
+            moved["page"] != initial["page"] || abs((moved["y"] ?? 0) - (initial["y"] ?? 0)) > 24,
+            "Real-document scrolling must move the mounted viewport"
+        )
+        _ = try waitForPDFPersistence(in: app, viewport: moved)
+        XCTAssertEqual(try number("scale", in: moved), pinched, accuracy: 0.015)
+        attach(app, "public-PDF-native-pinch-buttons-and-scroll")
+
+        for _ in 0..<3 {
+            reader.swipeUp(velocity: .fast)
+            reader.swipeDown(velocity: .fast)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+        }
+        reader.swipeUp(velocity: .slow)
+        let before = try settledMetrics(reader)
+        let saved = try waitForPDFPersistence(in: app, viewport: before)
+        XCTAssertEqual(try number("scale", in: before), pinched, accuracy: 0.015)
+        attach(app, "public-PDF-scroll-pauses-before-relaunch")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.terminate()
+        app.launch()
+        let card = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Release Public Book")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        card.tap()
+        XCTAssertTrue(reader.waitForExistence(timeout: 20))
+        let restored = try settledMetrics(reader)
+        XCTAssertEqual(try number("pageCount", in: restored), 252)
+        XCTAssertEqual(try number("page", in: restored), try number("page", in: before))
+        XCTAssertEqual(try number("y", in: restored), try number("y", in: before), accuracy: 16,
+                       "The actual within-page viewport must recover, not just its page badge")
+        let afterSaved = try waitForPDFPersistence(in: app, viewport: restored)
+        XCTAssertEqual(afterSaved["source"], saved["source"])
+        XCTAssertEqual(afterSaved["snapshot"], saved["snapshot"])
+        attach(app, "public-PDF-actual-viewport-after-relaunch")
+        app.buttons["pdf-fit-width"].tap()
+        let fitted = try settledMetrics(reader)
+        XCTAssertLessThanOrEqual(try number("pageWidth", in: fitted), try number("width", in: fitted) + 2)
+        XCTAssertEqual(app.staticTexts["pdf-zoom-percentage"].value as? String, "100%")
+        app.terminate()
+    }
+
     func testSystemPickerImportsPDFAndPinchSurvivesPositionUpdates() throws {
         let (app, runID) = launchEmptyLibrary()
         app.buttons["粘贴 URL"].tap()
@@ -213,7 +283,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         return (app, runID)
     }
 
-    private func selectFile(_ name: String, in app: XCUIApplication, runID: String) throws {
+    private func selectFile(_ name: String, in app: XCUIApplication, runID: String, folders: [String]? = nil) throws {
         let file = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR label == %@ OR label == %@", name, name + ".pdf", name + ".txt"
         )).firstMatch
@@ -223,7 +293,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
             let device = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["在我的 iPhone 上", "On My iPhone"])).firstMatch
             XCTAssertTrue(device.waitForExistence(timeout: 10), "Files locations unavailable: \(app.debugDescription)")
             device.tap()
-            for folder in ["OneReader Fix Preview", "OneReader Test Inputs", runID] {
+            for folder in folders ?? ["OneReader Fix Preview", "OneReader Test Inputs", runID] {
                 let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", folder)).firstMatch
                 XCTAssertTrue(item.waitForExistence(timeout: 10), "Missing fixture folder \(folder): \(app.debugDescription)")
                 item.tap()

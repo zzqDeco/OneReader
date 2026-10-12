@@ -21,6 +21,42 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## v0.3.3 exact-dev macOS integration
+
+On 2026-10-12, PR #22 merged into dev as
+`0aec9a232d744bcd1b6e4d84e4eb5c8f1546c480`. Its exact dev push
+[CI 38199092477](https://github.com/zzqDeco/OneReader/actions/runs/38199092477)
+passes 265 shared tests, zero failures, native packaging and metadata gates.
+An independently identified Sandbox copy of that successful CI artifact uses
+only the same public 252-page PDF and generated Markdown in its own container.
+
+- Actual PDF cover/page 1, not a picker preview, is observed on first import.
+- At 150% and 1440x900, normal quit/relaunch restores page 249/252 and actual
+  horizontal/vertical page placement; cross-Space return preserves that plane.
+- The user confirms slow/rapid actual PDF scrolling is normal. No quantitative
+  frame-rate or zero-hitch measurement is inferred.
+- Whole-Library search shows source/snapshot/context and the chosen Markdown
+  marker-90 result is actually visible in the central text surface.
+- Native AX Down/Up moves Markdown; normal relaunch returns the visible
+  section-88 viewport and line 347, not merely a saved badge. Raw normalized
+  scrollbars and transient search selections are not asserted invariant.
+- Paper/Dark native PDF and Markdown remain readable at 1440x900 and actual
+  900x702. Enlarged PDFs need horizontal panning in compact mode; actual native
+  Right/Left actions are observed. Dark changes reader chrome, not source pages.
+- Initial System / PDF100% / 17pt / 720pt / 7pt preferences are restored, then
+  the independent App quits normally. Four production SQLite/WAL hashes match.
+
+Sol max final-only review accepts these bounded gates without blockers. Raw
+JPEG/AX, three independently recomputed image comparisons and hashes remain
+in `.onereader/acceptance/v033-dev-pr22-integration-oct12/` in the primary
+checkout. This is not untested 900x650, successful pointer gestures where only
+AX actions were observed, iPhone/iPad, release or notarization acceptance.
+
+The 0.3.3 (6) release candidate introduces no production reader behavior;
+its optional locally seeded iPhone public-book case observes page count from
+the DEBUG mounted PDFKit view. Fresh candidate physical-device, protected CI,
+promotion and published-artifact gates remain separate and pending.
+
 ## v0.3.3 macOS Markdown behavioral record
 
 On 2026-10-10, the independent Sandbox acceptance app from exact

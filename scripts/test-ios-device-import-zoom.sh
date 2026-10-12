@@ -32,6 +32,7 @@ xcodebuild \
   -skipMacroValidation -disableAutomaticPackageResolution \
   -onlyUsePackageVersionsFromResolvedFile -allowProvisioningUpdates \
   DEVELOPMENT_TEAM="$ONEREADER_DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic \
+  ONEREADER_IOS_PUBLIC_PDF_TEST="${ONEREADER_IOS_PUBLIC_PDF_TEST:-NO}" \
   ONEREADER_IOS_BUNDLE_IDENTIFIER=io.github.zzqDeco.OneReader.ImportZoomAcceptance \
   'ONEREADER_IOS_DISPLAY_NAME=OneReader Fix Preview' \
   test 2>&1 | tee "$result_dir/device-tests.log"
