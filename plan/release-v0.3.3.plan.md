@@ -31,9 +31,15 @@ Developer Preview publication. The user authorized this ordered delivery on
 - Database schema 10 rebuilds old derived search projections, without changing
   source bytes, annotations, progress or history. Adapter/Locator schema 1 and
   Agent runtime schema 5 remain unchanged.
-- No production runtime change in preparation. A DEBUG-only native page-count
-  observation and opt-in real-document UI regression may extend test evidence,
-  never saved positions or release rendering. Public PDFs remain uncommitted.
+- Real-document screenshot review found that a fitted iPhone page can be
+  shifted horizontally inside PDFKit's wider continuous-document canvas.
+  Repair only initial/page navigation and explicit fit-width alignment; do not
+  recenter during scrolling, pinch, position saves, or ordinary host updates.
+  If a saved zoomed position remounts at default fit, normalize only horizontal
+  placement; a still-enlarged page retains its saved pan and all cases retain
+  vertical reading position. Selection/quote navigation stays unchanged.
+  DEBUG geometry must observe page edges, not infer visibility from its width
+  or a 100% label. Public PDFs remain uncommitted.
 - Use independent acceptance identities/UUID Libraries. Preserve production
   data; never copy private source material or credentials into artifacts.
 
@@ -44,6 +50,9 @@ Developer Preview publication. The user authorized this ordered delivery on
 2. Run the complete physical iPhone suite on the candidate. Add a seeded public
    252-page PDF case for first page, pinch/buttons, real scrolling and relaunch;
    its bytes are transferred only to the independent preview's Documents.
+   Review original screenshots before admission. Reproduce any offset with
+   actual page-edge assertions, then repeat the strengthened full suite after
+   the narrow mixed-width canvas repair.
 3. Record actual results, failures and limitations. Require current-head hosted
    native CI and Sol max final-only review before merging preparation to dev.
 4. Verify exact dev CI, create a separate dev-to-main PR, and require fresh
@@ -69,6 +78,11 @@ Developer Preview publication. The user authorized this ordered delivery on
 - The real PDF is explicit local-only opt-in; prove 252 pages from mounted
   PDFKit, not a saved Locator. Assert first page, changed viewport, preserved
   live scale, matching source/snapshot persistence and actual relaunch placement.
+  At default/explicit fit width both displayed page edges must lie inside the
+  viewport (2pt tolerance), with at least 90% width utilization. Mixed-width
+  navigation must align the page without rewriting arbitrary live pan/zoom.
+  Assert both page edges immediately after the real-book process restart,
+  before tapping fit, and retain the existing page/Y recovery tolerance.
 - Keep prior dev 0aec9a2 macOS visible evidence separate: page 1, 150% two-axis
   restart/Space return, Markdown search/AX scrolling/restart, Paper/Dark at
   1440x900 and actual 900x702. Do not claim untested 900x650 or quantitative FPS.
@@ -85,7 +99,14 @@ macOS visible integration acceptance and Sol max final conclusions are retained
 under ignored `.onereader/acceptance/v033-dev-pr22-integration-oct12/`; production
 SQLite/WAL hashes match and test preferences were restored before normal exit.
 These baseline results do not certify the new candidate or physical iPhone.
-Fresh candidate, merge, Release and downloaded-product gates remain pending.
+Candidate `1e2a087` passes its own [CI 38215012340](https://github.com/zzqDeco/OneReader/actions/runs/38215012340),
+including 265 shared tests. The second physical attempt passes 18 native and
+18 UI cases with zero failures/skips, including the real 252-page PDF. However,
+original screenshots expose first-open horizontal whitespace not covered by
+those assertions. This is not visual admission: the page-edge regression,
+repair and fresh exact-head/full-device gates are pending. The first attempt's
+automation-bootstrap failure is retained separately; no security setting was
+changed. New merges, Release and downloaded-product gates remain pending.
 
 ## Non-goals
 
@@ -96,7 +117,7 @@ Developer ID/notarization, main force-push or overriding existing releases.
 ## Delivery Checklist
 
 - [x] Accepted dev baseline and user delivery authority verified
-- [ ] Version/project metadata and release documents synchronized
+- [x] Version/project metadata and release documents synchronized
 - [ ] Complete candidate physical-iPhone and seeded real-PDF gates pass
 - [ ] Current-head native CI and Sol max final review pass
 - [ ] Preparation PR merged and exact dev push CI passes

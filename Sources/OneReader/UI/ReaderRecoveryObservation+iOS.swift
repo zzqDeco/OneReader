@@ -40,6 +40,7 @@ final class RecoveryObservablePDFView: ReadingPDFView {
                 "x": point.x, "y": point.y,
                 "height": bounds.height, "width": bounds.width, "scale": scaleFactor,
                 "pageWidth": displayedPage.width,
+                "pageMinX": displayedPage.minX, "pageMaxX": displayedPage.maxX,
             ]
             return (try? JSONEncoder().encode(fields)).map { String(decoding: $0, as: UTF8.self) }
         }

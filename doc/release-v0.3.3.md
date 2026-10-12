@@ -16,6 +16,11 @@ and the annotated exact-main tag. See the [delivery plan](../plan/release-v0.3.3
   restart at unchanged window size/zoom, including mixed-width pages.
 - iPhone Files-picker completion/cancellation is repaired. Native PDF pinch,
   zoom-in/out and fit-width controls retain live scale through position updates.
+- iPhone narrow pages in mixed-width continuous PDFs are aligned on first/page
+  navigation and explicit fit width, instead of being shifted into whitespace.
+  Ordinary scrolling, pinch and position saves do not recenter the page.
+  Fit-scale remounts retain vertical reading position without applying an old
+  zoomed horizontal pan that would crop the page at 100%.
 - PDF-only position publication avoids unnecessarily refreshing the whole
   reader; other formats retain their existing notification behavior.
 
@@ -26,7 +31,10 @@ hosted pipeline. Independent macOS acceptance verifies the actual 252-page PDF
 first page, 150% zoomed two-axis restart/Space return, Markdown Library search
 and visible recovery, and Paper/Dark at 1440x900 and actual 900x702. Candidate
 physical-iPhone, promotion, Release and downloaded-product results are recorded
-separately; baseline results are not relabeled as these later gates.
+separately; baseline results are not relabeled as these later gates. Initial
+candidate CI and all 36 physical cases passed, but real-book screenshots exposed
+a first-open horizontal offset. The strengthened page-edge case reproduced it;
+fresh repaired-candidate results and final delivery are tracked by the release PR.
 
 Database schema **10** invalidates derived search projections only. Adapter and
 Locator schema **1**, Agent runtime schema **5**, and pinned dependencies remain

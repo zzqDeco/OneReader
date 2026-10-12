@@ -21,6 +21,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         XCTAssertEqual(try number("page", in: initial), 0, "A fresh import must begin on its first page")
         let fit = try number("scale", in: initial)
         attach(app, "public-252-page-PDF-first-page")
+        try assertPageFitsViewport(initial)
 
         reader.pinch(withScale: 1.8, velocity: 1)
         let pinched = try number("scale", in: settledMetrics(reader))
@@ -63,14 +64,16 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         XCTAssertEqual(try number("page", in: restored), try number("page", in: before))
         XCTAssertEqual(try number("y", in: restored), try number("y", in: before), accuracy: 16,
                        "The actual within-page viewport must recover, not just its page badge")
+        attach(app, "public-PDF-actual-viewport-after-relaunch")
+        try assertPageFitsViewport(restored)
         let afterSaved = try waitForPDFPersistence(in: app, viewport: restored)
         XCTAssertEqual(afterSaved["source"], saved["source"])
         XCTAssertEqual(afterSaved["snapshot"], saved["snapshot"])
-        attach(app, "public-PDF-actual-viewport-after-relaunch")
         app.buttons["pdf-fit-width"].tap()
         let fitted = try settledMetrics(reader)
-        XCTAssertLessThanOrEqual(try number("pageWidth", in: fitted), try number("width", in: fitted) + 2)
+        try assertPageFitsViewport(fitted)
         XCTAssertEqual(app.staticTexts["pdf-zoom-percentage"].value as? String, "100%")
+        attach(app, "public-PDF-explicit-fit-width")
         app.terminate()
     }
 
@@ -84,8 +87,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         let reader = app.otherElements["reader-pdf-view"]
         XCTAssertTrue(reader.waitForExistence(timeout: 30), "The selected PDF never reached the reader: \(app.debugDescription)")
         let initial = try settledMetrics(reader)
-        XCTAssertLessThanOrEqual(try number("pageWidth", in: initial), try number("width", in: initial) + 2)
-        XCTAssertGreaterThan(try number("pageWidth", in: initial), try number("width", in: initial) * 0.9)
+        try assertPageFitsViewport(initial)
         attach(app, "picked-PDF-fits-width")
 
         reader.pinch(withScale: 1.8, velocity: 1)
@@ -136,7 +138,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         app.buttons["pdf-fit-width"].tap()
         let fitted = try settledMetrics(reader)
         XCTAssertEqual(try number("scale", in: fitted), fit, accuracy: 0.015)
-        XCTAssertLessThanOrEqual(try number("pageWidth", in: fitted), try number("width", in: fitted) + 2)
+        try assertPageFitsViewport(fitted)
         XCTAssertTrue(app.staticTexts["pdf-zoom-percentage"].exists)
         XCTAssertEqual(app.staticTexts["pdf-zoom-percentage"].value as? String, "100%")
         attach(app, "zoom-out-and-fit-width")
@@ -250,12 +252,11 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         try selectFile("Picker Mixed PDF", in: app, runID: runID)
         let reader = app.otherElements["reader-pdf-view"]
         XCTAssertTrue(reader.waitForExistence(timeout: 30))
-        _ = try settledMetrics(reader)
+        try assertPageFitsViewport(try settledMetrics(reader))
         app.buttons["下一项"].tap()
         let wider = try settledMetrics(reader)
         XCTAssertEqual(try number("page", in: wider), 1)
-        XCTAssertLessThanOrEqual(try number("pageWidth", in: wider), try number("width", in: wider) + 2)
-        XCTAssertGreaterThan(try number("pageWidth", in: wider), try number("width", in: wider) * 0.9)
+        try assertPageFitsViewport(wider)
         attach(app, "mixed-width-second-page-fits")
         app.navigationBars.buttons.firstMatch.tap()
         app.terminate()
@@ -267,7 +268,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
         let restored = try settledMetrics(reader)
         XCTAssertEqual(try number("page", in: restored), 1)
         XCTAssertEqual(try number("scale", in: restored), try number("scale", in: wider), accuracy: 0.015)
-        XCTAssertLessThanOrEqual(try number("pageWidth", in: restored), try number("width", in: restored) + 2)
+        try assertPageFitsViewport(restored)
         XCTAssertEqual(app.staticTexts["pdf-zoom-percentage"].value as? String, "100%")
         attach(app, "mixed-width-second-page-restored")
     }
@@ -316,6 +317,7 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
                let metrics = try? JSONDecoder().decode([String: Double].self, from: data),
                let scale = metrics["scale"], scale.isFinite, scale > 0 {
                 if let previous, abs((previous["scale"] ?? -1) - scale) < 0.001,
+                   abs((previous["pageMinX"] ?? -.infinity) - (metrics["pageMinX"] ?? .infinity)) < 1,
                    abs((previous["y"] ?? -.infinity) - (metrics["y"] ?? .infinity)) < 1 {
                     stable += 1
                 } else { stable = 0 }
@@ -330,6 +332,13 @@ final class FileImportAndPDFZoomUITests: XCTestCase {
 
     private func number(_ key: String, in metrics: [String: Double]) throws -> Double {
         try XCTUnwrap(metrics[key], "Missing native PDF metric \(key)")
+    }
+
+    private func assertPageFitsViewport(_ metrics: [String: Double], file: StaticString = #filePath, line: UInt = #line) throws {
+        let width = try number("width", in: metrics)
+        XCTAssertGreaterThan(try number("pageWidth", in: metrics), width * 0.9, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(try number("pageMinX", in: metrics), -2, "A fitting page must not be clipped on its left", file: file, line: line)
+        XCTAssertLessThanOrEqual(try number("pageMaxX", in: metrics), width + 2, "A fitting page must not be shifted into right-side whitespace", file: file, line: line)
     }
 
     private func waitForPDFPersistence(in app: XCUIApplication, viewport: [String: Double]) throws -> [String: String] {

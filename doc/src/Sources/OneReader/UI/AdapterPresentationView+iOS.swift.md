@@ -13,6 +13,11 @@ The mounted PDF coordinator delegates scale writes to
 scale across position updates, and publishes the observed relative zoom from
 native scale-change notifications. Layout callbacks apply initial fit width
 only after nonzero bounds; teardown cancels deferred zoom publication.
+Page-start navigation additionally aligns the target page horizontally after
+its fit basis is reconciled, avoiding whitespace from wider later pages. A saved
+viewport remounting at fit scale normalizes only horizontal placement, retaining
+vertical reading position; zoomed viewport pans remain intact. Rectangle and
+quote navigation are not replaced with page starts or this normalization.
 `QLPreviewController` preserves Quick Look's source-level capability limit.
 
 Every UIKit bridge emits the same rich position update as its AppKit peer:
@@ -48,7 +53,8 @@ HTTP(S) link to `UIApplication`. Host-owned selection and position user scripts
 produce DOM/quote Locators but cannot widen navigation or network authority.
 
 DEBUG recovery tests use read-only accessibility observations from the mounted
-PDFView/WKWebView (page coordinates, native scale, viewport/page width,
+PDFView/WKWebView (page count/coordinates, native scale, viewport/page width
+and actual horizontal page edges,
 native scroll offsets, and the loaded DOM
 document title). The native text bridge exposes the visible source UTF-16 anchor
 and the visible glyph line's viewport-relative Y, computed from TextKit container

@@ -38,6 +38,8 @@ On iPhone, Add Materials opens the system Files picker. Selected files are
 copied into the managed Library and remain readable after relaunch. PDF reading
 starts at fit width and supports native two-finger zoom plus zoom-out, zoom-in,
 and fit-width buttons; the displayed percentage follows the live zoom.
+Narrow pages in mixed-width PDFs are aligned on page navigation and explicit
+fit width without recentering ordinary scroll, pinch or position updates.
 ProMotion-capable iPhones are opted into higher refresh rates; native adaptive
 frame pacing and the device's power/thermal settings still determine the actual
 rate. The app does not force a permanent 120 Hz rendering loop.

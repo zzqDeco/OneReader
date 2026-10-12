@@ -7,7 +7,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 device_listing="$(xcrun devicectl list devices --columns Identifier Reality Platform State)"
 device_line="$(printf '%s\n' "$device_listing" | rg -F "$ONEREADER_IOS_DEVICE_ID" || true)"
-if [[ "$device_line" != *"physical"* || "$device_line" != *"iOS"* || "$device_line" != *"available"* || "$device_line" == *"unavailable"* ]]; then
+if [[ "$device_line" != *"physical"* || "$device_line" != *"iOS"* ]] ||
+  ! printf '%s\n' "$device_line" | rg -q '\b(available|connected)\b'; then
   echo "A connected physical iPhone is required." >&2
   exit 1
 fi
@@ -28,6 +29,7 @@ xcodebuild \
   -destination "platform=iOS,id=$ONEREADER_IOS_DEVICE_ID" \
   -derivedDataPath "$repo_root/.onereader/DerivedData-iOS-scroll-fix" \
   -resultBundlePath "$result_dir/device-tests.xcresult" \
+  -collect-test-diagnostics never \
   "${test_selection[@]}" \
   -skipMacroValidation -disableAutomaticPackageResolution \
   -onlyUsePackageVersionsFromResolvedFile -allowProvisioningUpdates \

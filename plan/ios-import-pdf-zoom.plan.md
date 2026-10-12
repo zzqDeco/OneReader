@@ -76,6 +76,15 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
    Resolve documentation conflicts by retaining both contracts. Run fresh
    integrated shared/native/physical tests and exact-head hosted CI; separate
    green results from either predecessor cannot stand in for this gate.
+10. v0.3.3 real-book screenshot review exposes a fitted first page shifted into
+    the right side of PDFKit's canvas when a later page is much wider. Extend
+    read-only native geometry with both displayed page edges and assert their
+    containment at first open and explicit fit. Align only page-start navigation
+    and explicit fit-width actions through the native scroll view; never
+    recenter on ordinary progress publication or override user gestures.
+    A saved zoomed viewport may remount at fit width: preserve vertical reading
+    placement and normalize fitting-page X only; oversized restored pages keep
+    their pan. Assert actual edges after relaunch, before any corrective button.
 
 ## Test Plan
 
@@ -85,6 +94,9 @@ reading-position updates. Provide accessible PDF zoom controls in the reader.
   zoom-in/out, fit width, width changes, and finite bounds behave correctly.
 - A saved page in a mixed-width PDF fits its own width, not PDFKit's temporary
   first page; deferred navigation preserves any live relative zoom.
+- A narrow first page before a wider page fits entirely inside the actual
+  viewport, not merely in width. Verify page-edge containment after explicit
+  fit, next-page navigation and relaunch while preserving live user pan/zoom.
 - Physical iPhone: start with empty isolated Library, select a generated PDF in
   the real system Files picker, verify it becomes readable, pinch in/out,
   scroll/wait for position updates, and use all three PDF controls.

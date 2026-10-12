@@ -52,10 +52,19 @@ in `.onereader/acceptance/v033-dev-pr22-integration-oct12/` in the primary
 checkout. This is not untested 900x650, successful pointer gestures where only
 AX actions were observed, iPhone/iPad, release or notarization acceptance.
 
-The 0.3.3 (6) release candidate introduces no production reader behavior;
-its optional locally seeded iPhone public-book case observes page count from
-the DEBUG mounted PDFKit view. Fresh candidate physical-device, protected CI,
-promotion and published-artifact gates remain separate and pending.
+The initial 0.3.3 (6) candidate `1e2a087` passes its own
+[CI 38215012340](https://github.com/zzqDeco/OneReader/actions/runs/38215012340)
+and the second full physical attempt (18 native + 18 UI, zero failures/skips).
+Its seeded public-book case observes 252 actual PDFKit pages, pinch/buttons,
+scrolling/persistence and relaunch Y within 16pt. Original PNG review nevertheless
+finds a narrow first page horizontally shifted in the widest-page canvas.
+A strengthened case reproduces pageMaxX 669.203pt in a 440pt viewport. This
+blocks visual admission despite the earlier green suite. The narrow repair adds
+actual page-edge containment (2pt tolerance) at initial and explicit fit plus
+native pan-preservation tests. Fresh repaired-candidate, protected promotion and
+published-artifact gates are recorded separately in the release PR/local journal.
+The first physical attempt fails in automation bootstrap, not a reader test;
+its automatically collected private-device diagnostic is not opened/uploaded.
 
 ## v0.3.3 macOS Markdown behavioral record
 
@@ -94,13 +103,18 @@ combined-build or release-artifact acceptance.
 and a command-line development team. It builds an independent app identity,
 `io.github.zzqDeco.OneReader.ImportZoomAcceptance`, leaving the production app
 and its managed Library untouched. No Simulator is created or booted.
+The physical-device harness accepts CoreDevice's connected/available states
+and suppresses automatic personal-device diagnostics with
+`-collect-test-diagnostics never`; normal assertions, logs and screenshots stay
+enabled. Device result bundles are not public uploads.
 
 The dedicated device suite tests real PDFView layout/scale ownership and actual
 system-picker selection, cancellation, retry, existing-Space import, relaunch,
 native two-finger zoom, and zoom-out/zoom-in/fit-width buttons. The fixture only
 generates Files-visible inputs; the empty Library cannot become readable until
 the system picker completes the normal import. PDF assertions use independently
-observed native scale and page/viewport width, not preferences or stored progress.
+observed native scale, page count, page/viewport width and displayed horizontal
+page edges, not preferences or stored progress.
 Result bundles retain screenshots for each transition. The corresponding shared
 AppModel regressions reproduce SwiftUI's dismissal-before-completion ordering.
 The same suite records OS PDF scrolling/deceleration performance metrics, and a
