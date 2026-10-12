@@ -21,7 +21,9 @@ placement into native clip coordinates, and constrains the corrected bounds.
 This works with scaled clip views, mixed page widths and rotated pages. Missing
 or invalid placement uses legacy destination behavior; invalid page coordinates
 or quote-bearing positions never enter this viewport restore path. Equal-layout
-regressions compare actual screen X/Y and clip bounds, not twice-clamped page X.
+regressions compare actual PDFView screen X/Y and validate constrained native
+clip origin X/Y, not twice-clamped page X. Absolute clip origins belong to each document
+view's coordinate space and are not a cross-view restoration contract.
 Page fraction is measured on the displayed vertical axis, so rotations of
 0/90/180/270 degrees neither reverse progress nor confuse the page-space axes.
 `ReadingPDFView` waits for a nonzero laid-out viewport before applying a pending
@@ -29,8 +31,9 @@ destination once. Teardown discards pending restoration; capture stays suspended
 until it completes. Repeated equal zoom values do not reset PDFKit layout.
 AppKit also requires PDFKit's enclosing scroll view after document layout; an
 unmounted clip leaves the pending anchor intact rather than consuming it. The
-deferred mixed-width test mounts from zero bounds, checks both screen axes and
-clip origin, then repeats layout to reject duplicate application or drift.
+deferred mixed-width test mounts from zero bounds with legacy scroller layout,
+checks both screen axes and constrained clip origins, then repeats layout in that
+same restored view to reject duplicate application or raw clip-origin drift.
 The UIKit view also reports post-layout viewport bounds to its PDF zoom
 coordinator. That callback does not intercept gestures; initial fitting waits
 for usable bounds and ordinary position updates cannot reset native pinch zoom.

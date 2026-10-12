@@ -54,6 +54,10 @@ mixed-width PDF loses horizontal viewport placement after normal relaunch.
 ## Test Plan
 
 - First run new regressions against the old behavior and record real failures.
+- On the pinned macOS CI runner, compare page placement in PDFView coordinates;
+  document-local clip origins are not shared between independently initialized
+  document views. Exercise legacy scroller layout in the deferred fixture,
+  validate constrained native origins and same-view no-relayout-drift at 2 pt.
 - Run focused and complete shared tests, dependency/doc/project checks, release
   build, Sandbox package, strict codesign/entitlement and diff validation.
 - Compile the iOS device target if available; no iPad or device UI claim.
@@ -107,6 +111,21 @@ The authoritative local script was rerun successfully on 2026-10-12: fresh
 265/265 tests, macOS release/Sandbox/codesign gates and generic iOS device
 compilation. Only plan/evidence records changed afterwards; the upcoming PR
 still requires its own exact-head hosted validation.
+Initial hosted run `38196057698` fails only the deferred test's two absolute
+clip-Y comparisons (11.7 pt); both actual screen-axis assertions pass. Keep
+this failed run as evidence. The mounted legacy-scroller fixture passes locally
+and does not reproduce the runner-specific raw-origin difference. Correct the
+cross-document coordinate assumption using AppKit's documented semantics:
+retain actual page X/Y at 2 pt, validate constrained native origin X/Y, and compare
+raw clip origins before/after later layout only within the same restored view.
+Runtime source and all visual tolerances remain unchanged.
+After this test-only correction, 12/12 PDF tests and the full authoritative
+local pipeline pass again: 265/265 plus release/Sandbox/signing/document/lock
+and generic iOS device build. A fresh hosted run on the corrected head is still
+required; neither the original failure nor local checks certify that gate.
+Sol max final-only review accepts the test-coordinate correction without
+substantive regression weakening. Its origin-versus-entire-bounds wording
+clarification is incorporated; runtime code remains unchanged.
 
 Historical failure evidence stays in
 `.onereader/acceptance/v033-integrated-macos/acceptance.md`; it is not relabeled

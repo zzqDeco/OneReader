@@ -136,7 +136,6 @@ final class PDFReadingPositionTests: XCTestCase {
         let update = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
         let point = try XCTUnwrap(PDFViewportAnchor.point(in: update.locator, pageBounds: page.bounds(for: view.displayBox)))
         let before = view.convert(point, from: page)
-        let beforeClip = clip.bounds.origin
         XCTAssertNotNil(PDFViewportAnchor.screenPosition(in: update.locator))
         if rotation == 0 { XCTAssertEqual(point.x, 0, accuracy: 1) }
         XCTAssertGreaterThan(before.x - view.bounds.minX, 20, "The bounded page anchor must include a visible side margin")
@@ -168,17 +167,26 @@ final class PDFReadingPositionTests: XCTestCase {
             XCTAssertNotNil(restored.pendingAnchor)
             restored.frame = NSRect(x: 0, y: 0, width: 900, height: 650)
             restored.layoutSubtreeIfNeeded()
+            let mountedScroll = try XCTUnwrap(restored.documentView?.enclosingScrollView)
+            mountedScroll.scrollerStyle = .legacy
+            restored.layoutSubtreeIfNeeded()
+            XCTAssertEqual(mountedScroll.scrollerStyle, .legacy)
             restored.schedulePendingAnchor()
         } else {
             XCTAssertTrue(PDFViewportAnchor.restore(in: restored, page: restoredPage, locator: update.locator))
         }
         try await Task.sleep(for: .milliseconds(80))
         let after = restored.convert(point, from: restoredPage)
-        let afterClip = try XCTUnwrap(restored.documentView?.enclosingScrollView?.contentView).bounds.origin
+        let restoredClip = try XCTUnwrap(restored.documentView?.enclosingScrollView?.contentView)
+        let afterClip = restoredClip.bounds.origin
+        let constrained = restoredClip.constrainBoundsRect(restoredClip.bounds)
         XCTAssertEqual(after.x, before.x, accuracy: 2, "Compare real screen placement, not twice-clamped viewportX")
         XCTAssertEqual(after.y, before.y, accuracy: 2)
-        XCTAssertEqual(afterClip.x, beforeClip.x, accuracy: 2)
-        XCTAssertEqual(afterClip.y, beforeClip.y, accuracy: 2)
+        // PDFKit may choose a different document-local origin for an initially
+        // zero-sized view. Cross-view equality belongs in PDFView coordinates;
+        // raw clip origins are only comparable within the same laid-out view.
+        XCTAssertEqual(afterClip.x, constrained.minX, accuracy: 2)
+        XCTAssertEqual(afterClip.y, constrained.minY, accuracy: 2)
         XCTAssertEqual(restored.scaleFactor, 1.5, accuracy: 0.001)
         if deferredLayout {
             XCTAssertEqual(applications, 1)
@@ -191,8 +199,8 @@ final class PDFReadingPositionTests: XCTestCase {
             XCTAssertEqual(final.x, before.x, accuracy: 2)
             XCTAssertEqual(final.y, before.y, accuracy: 2)
             let finalClip = try XCTUnwrap(restored.documentView?.enclosingScrollView?.contentView).bounds.origin
-            XCTAssertEqual(finalClip.x, beforeClip.x, accuracy: 2)
-            XCTAssertEqual(finalClip.y, beforeClip.y, accuracy: 2)
+            XCTAssertEqual(finalClip.x, afterClip.x, accuracy: 2)
+            XCTAssertEqual(finalClip.y, afterClip.y, accuracy: 2)
         }
     }
 
