@@ -13,6 +13,51 @@ enum ReaderRecoveryUITestFixture {
             .appendingPathComponent(runID.uuidString, isDirectory: true)
     }
 
+    static func pickerDirectory(for runID: UUID) -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("OneReader Test Inputs", isDirectory: true)
+            .appendingPathComponent(runID.uuidString, isDirectory: true)
+    }
+
+    static func preparePickerMaterials(for runID: UUID) throws {
+        let directory = pickerDirectory(for: runID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pdf = directory.appendingPathComponent("Picker PDF.pdf")
+        if !FileManager.default.fileExists(atPath: pdf.path) {
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 1_600))
+            let data = renderer.pdfData { context in
+                for page in 1...3 {
+                    context.beginPage()
+                    for row in 0..<30 {
+                        ("Picked PDF page \(page), paragraph \(row + 1). Native zoom evidence." as NSString).draw(
+                            in: CGRect(x: 30, y: 40 + row * 49, width: 552, height: 40),
+                            withAttributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.black]
+                        )
+                    }
+                }
+            }
+            try data.write(to: pdf, options: .atomic)
+        }
+        let mixedPDF = directory.appendingPathComponent("Picker Mixed PDF.pdf")
+        if !FileManager.default.fileExists(atPath: mixedPDF.path) {
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 1_600))
+            let data = renderer.pdfData { context in
+                for (index, width) in [612, 900, 540].enumerated() {
+                    context.beginPage(withBounds: CGRect(x: 0, y: 0, width: width, height: 1_600), pageInfo: [:])
+                    ("Mixed-width page \(index + 1), width \(width)" as NSString).draw(
+                        at: CGPoint(x: 30, y: 40),
+                        withAttributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.black]
+                    )
+                }
+            }
+            try data.write(to: mixedPDF, options: .atomic)
+        }
+        let text = directory.appendingPathComponent("Picker Note.txt")
+        if !FileManager.default.fileExists(atPath: text.path) {
+            try "An independently selected second source.".write(to: text, atomically: true, encoding: .utf8)
+        }
+    }
+
     static func materials(in root: URL) throws -> [URL] {
         let inputs = root.appendingPathComponent("Inputs", isDirectory: true)
         try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)

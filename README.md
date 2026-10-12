@@ -31,8 +31,22 @@ scheme, or build the unsigned universal Simulator app with:
 scripts/build-ios-simulator.sh
 ```
 
-The shared target remains iPad-capable, but v0.3.2 release acceptance is scoped
+The shared target remains iPad-capable, but v0.3.3 release acceptance is scoped
 to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
+
+On iPhone, Add Materials opens the system Files picker. Selected files are
+copied into the managed Library and remain readable after relaunch. PDF reading
+starts at fit width and supports native two-finger zoom plus zoom-out, zoom-in,
+and fit-width buttons; the displayed percentage follows the live zoom.
+Narrow pages in mixed-width PDFs are aligned on page navigation and explicit
+fit width without recentering ordinary scroll, pinch or position updates.
+ProMotion-capable iPhones are opted into higher refresh rates; native adaptive
+frame pacing and the device's power/thermal settings still determine the actual
+rate. The app does not force a permanent 120 Hz rendering loop.
+PDF reading-position captures and position-only saves are isolated from
+whole-reader UI refreshes. Other formats retain their existing refresh behavior;
+exact progress still persists and restores across material types.
+Intermittent PDF smoothness is checked separately from import/zoom correctness.
 
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
@@ -45,6 +59,31 @@ Swift tools version; it does not download or link that peer implementation.
 scripts/validate-native.sh
 ```
 
+To run the dedicated file-picker and PDF-zoom regressions on a connected,
+unlocked physical iPhone:
+
+```bash
+ONEREADER_IOS_DEVICE_ID=<device-udid> \
+ONEREADER_DEVELOPMENT_TEAM=<local-team-id> \
+scripts/test-ios-device-import-zoom.sh
+```
+
+This installs an independent `OneReader Fix Preview` application and uses a
+UUID-isolated test Library. It does not replace the production app or open its
+Library, and it does not create or boot a Simulator. Results and screenshots
+remain under the ignored `.onereader/acceptance/ios-import-pdf-zoom/` directory.
+Set `ONEREADER_IOS_TEST_ALL=1` to include existing cross-format position recovery
+and Library/text/Markdown/code touch regressions in the same isolated app.
+
+The real 252-page public-book case is explicit local-only acceptance. Seed an
+unchanged copy as `Documents/Release Public Book.pdf` in the independent
+`io.github.zzqDeco.OneReader.ImportZoomAcceptance` app, then pass
+`ONEREADER_IOS_PUBLIC_PDF_TEST=YES` to the device script (or as an xcodebuild
+setting). It verifies the actual mounted
+page count, first page, pinch/buttons, scrolling and relaunch. Without this
+opt-in the public-book case is skipped; a release acceptance run must explicitly
+enable it and report no skipped required case. Never commit the input PDF.
+
 An ad-hoc signed, sandboxed macOS Developer Preview is written to
 `dist/OneReader.app`; the universal iPhone/iPad Simulator product is written
 under `.onereader/DerivedData-iOS/`.
@@ -55,10 +94,20 @@ not publish, tag, or push anything.
 
 ## Current architecture
 
-The v0.3.2 release candidate focuses on cross-format reading-position recovery:
+The published v0.3.2 Developer Preview focuses on cross-format reading-position recovery:
 PDF within-page viewports and layout-aware native text/Markdown restoration.
 See the [release notes](doc/release-v0.3.2.md) for evidence and distribution
-boundaries. A release candidate is not a published or notarized build.
+boundaries. It remains ad-hoc signed and unnotarized.
+The v0.3.3 candidate repairs Markdown paragraph indexing and rebuilds
+old derived search data without rewriting notes or reading positions. This fix
+is not included in the published v0.3.2 binaries.
+
+The PDF maintenance slice also restores native first-page/EPUB-spine order and
+retains macOS zoomed-PDF horizontal viewport placement, including mixed-width
+documents. Existing saved positions are preserved; these repairs are not in
+the published v0.3.2 binaries. See [reader behavior](doc/reader-workspace.md) and
+the [v0.3.3 candidate notes](doc/release-v0.3.3.md). Publication is gated separately
+from candidate validation; prior releases remain immutable.
 
 - Shared SwiftUI domain/application module with native AppKit and UIKit shells
 - Checked-in Xcode project generated from `project.yml`; no Catalyst target
@@ -69,7 +118,8 @@ boundaries. A release candidate is not a published or notarized build.
 - Public GitHub exact-SHA snapshots and bounded same-origin webpage snapshots
 - PDFKit, native selectable rich Markdown/text/code, sanitized read-only WebKit,
   and Quick Look presentations on macOS and UIKit
-- Library/Space search with FTS5 plus a bounded Chinese substring fallback
+- Library/Space/Source search with full-text Markdown/text/code chunks, FTS5,
+  overlap deduplication, and a bounded Chinese substring fallback
 - Bookmarks, exact-quote highlights, notes, source/unit/plan progress, and history
 - iPhone drill-down navigation plus iPad/macOS split workspace and Inspector
 - Injectable 4 GiB confirmation/2 GiB reserve policy; macOS Trash and

@@ -7,7 +7,7 @@ struct DirectoryAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, Readin
 
     let descriptor = AdapterDescriptor(
         id: id,
-        version: "1.0.0",
+        version: "1.0.1",
         displayName: "Directory Structure",
         probeRule: AdapterProbeRule(
             sourceOrigins: [.localDirectory, .githubRepository]
@@ -19,7 +19,7 @@ struct DirectoryAdapter: ProbingAdapter, RevisionAdapter, ListingAdapter, Readin
     func probe(_ context: AdapterContext) async throws -> AdapterProbeMatch? {
         guard TextAdapterCore.isDirectory(context.managedURL) else { return nil }
         let confidence = context.source.originKind == .remoteURL ? 0.98 : 1
-        let files = try enumerate(context.managedURL, limit: 2_000)
+        let files = try enumerate(context.managedURL, limit: 10_001)
         let auxiliaries = Set(files.compactMap { entry in
             entry.isDirectory ? nil : Self.childAdapterID(for: entry.relativePath)
         }).sorted()

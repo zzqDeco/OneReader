@@ -82,12 +82,27 @@ struct AdapterPresentationView: View {
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var pdfZoomRequest: PDFZoomRequest? = nil
+    var onPDFZoomChange: ((Double) -> Void)? = nil
 
     var body: some View {
         Group {
             switch document.surface {
             case .pdfKit:
                 if let url = document.contentURL {
+#if os(iOS)
+                    ManagedPDFPresentation(
+                        url: url,
+                        documentLocator: document.locator,
+                        captureTargetID: captureTargetID,
+                        pageIndex: document.locator.pdfPageIndex ?? 0,
+                        scale: preferences.pdfScale,
+                        onSelectionChange: onSelectionChange,
+                        onPositionChange: onPositionChange,
+                        zoomRequest: pdfZoomRequest,
+                        onZoomChange: onPDFZoomChange
+                    )
+#else
                     ManagedPDFPresentation(
                         url: url,
                         documentLocator: document.locator,
@@ -97,6 +112,7 @@ struct AdapterPresentationView: View {
                         onSelectionChange: onSelectionChange,
                         onPositionChange: onPositionChange
                     )
+#endif
                 } else {
                     unavailable("PDF 内容不可用")
                 }
@@ -960,8 +976,8 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             context.coordinator.appliedAnchorSignature = anchorSignature
             view.pendingAnchor = { [weak coordinator = context.coordinator] view in
                 guard let coordinator, coordinator.appliedAnchorSignature == anchorSignature else { return }
-                if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
-                    view.go(to: PDFDestination(page: page, at: point))
+                if PDFViewportAnchor.restore(in: view, page: page, locator: documentLocator) {
+                    // Restored a page-bounded anchor plus its viewport placement.
                 } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
                    let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
                     if let selection = page.selection(for: rect) {
@@ -1050,7 +1066,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             let pageIndex = document.index(for: page)
             let rect = selection.bounds(for: page)
             var payload = parent.documentLocator.payload
-            ["positionKind", "viewportX", "viewportY"].forEach { payload[$0] = nil }
+            PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
             payload["pageIndex"] = String(pageIndex)
             payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
                 .map { String(format: "%.3f", $0) }

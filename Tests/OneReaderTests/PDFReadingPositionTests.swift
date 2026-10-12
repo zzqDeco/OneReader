@@ -21,6 +21,30 @@ final class PDFReadingPositionTests: XCTestCase {
         XCTAssertNil(PDFViewportAnchor.point(in: selection, pageBounds: bounds), "Selection geometry takes priority over leftover viewport metadata")
     }
 
+    func testScreenPlacementRejectsInvalidPartialAndSelectionMetadata() {
+        let base = locator()
+        for (x, y) in [("nan", "0"), ("0", "inf"), ("-0.1", "0"), ("1.1", "0"), ("0", "-1"), ("0", "1.01"), ("", "0")] {
+            var payload = base.payload
+            payload["viewportScreenX"] = x
+            payload["viewportScreenY"] = y
+            let invalid = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID, payload: payload)
+            XCTAssertNil(PDFViewportAnchor.screenPosition(in: invalid))
+        }
+        var payload = base.payload
+        payload["viewportScreenX"] = "0.3"
+        XCTAssertNil(PDFViewportAnchor.screenPosition(in: Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID, payload: payload)))
+        payload["viewportScreenY"] = "0.1"
+        let viewport = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID, payload: payload)
+        XCTAssertEqual(PDFViewportAnchor.screenPosition(in: viewport), CGPoint(x: 0.3, y: 0.1))
+        let selection = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID, payload: payload,
+                                textQuote: TextQuote(prefix: nil, exact: "Selected quote", suffix: nil))
+        XCTAssertNil(PDFViewportAnchor.screenPosition(in: selection))
+        PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
+        XCTAssertFalse(payload.isEmpty, "Page identity survives selection metadata cleanup")
+        XCTAssertEqual(payload["pageIndex"], "0")
+        XCTAssertFalse(payload.keys.contains { $0.hasPrefix("viewport") || $0 == "positionKind" })
+    }
+
     func testNativePDFViewportRoundTripPreservesWithinPagePosition() async throws {
         let view = makeView()
         let page = try XCTUnwrap(view.document?.page(at: 0))
@@ -62,6 +86,122 @@ final class PDFReadingPositionTests: XCTestCase {
         NotificationCenter.default.post(name: ReadingPositionCaptureSignal.requested, object: stopped)
         XCTAssertFalse(stopped.isClaimed)
         XCTAssertNil(update)
+    }
+
+    func testZoomedMixedWidthPDFRestoresActualHorizontalAndVerticalPlacement() async throws {
+        try await assertMixedWidthRecovery(rotation: 0)
+    }
+
+    func testZoomedMixedWidthPDFRestoresScreenPlacementAcrossPageRotations() async throws {
+        for rotation in [90, 180, 270] { try await assertMixedWidthRecovery(rotation: rotation) }
+    }
+
+    func testZoomedMixedWidthPDFRestoresPlacementAfterDocumentSwitch() async throws {
+        try await assertMixedWidthRecovery(rotation: 0, switchDocument: true)
+    }
+
+    func testDeferredZoomedPDFRestoresBothAxesOnlyOnceAfterViewportLayout() async throws {
+        try await assertMixedWidthRecovery(rotation: 0, deferredLayout: true)
+    }
+
+    func testViewportRestoreKeepsLegacyBehaviorAndRejectsInvalidPageOrQuote() async throws {
+        let view = makeView()
+        let page = try XCTUnwrap(view.document?.page(at: 0))
+        XCTAssertTrue(PDFViewportAnchor.restore(in: view, page: page, locator: locator(x: "0", y: "900")))
+        try await Task.sleep(for: .milliseconds(80))
+        let point = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
+        XCTAssertEqual(try XCTUnwrap(Double(point.locator.payload["viewportY"] ?? "")), 900, accuracy: 2)
+        XCTAssertFalse(PDFViewportAnchor.restore(in: view, page: page, locator: locator(x: "-1", y: "900")))
+        let selection = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+                                payload: locator(x: "0", y: "900").payload, textQuote: TextQuote(prefix: nil, exact: "Quote", suffix: nil))
+        XCTAssertFalse(PDFViewportAnchor.restore(in: view, page: page, locator: selection))
+    }
+
+    private func assertMixedWidthRecovery(rotation: Int, switchDocument: Bool = false, deferredLayout: Bool = false) async throws {
+        let view = makeMixedWidthView(rotation: rotation)
+        let page = try XCTUnwrap(view.document?.page(at: 0))
+        let displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+        let target = view.convert(CGPoint(x: displayed.minX, y: displayed.maxY - 750), to: page)
+        view.go(to: PDFDestination(page: page, at: target))
+        try await Task.sleep(for: .milliseconds(80))
+        let scroll = try XCTUnwrap(view.documentView?.enclosingScrollView)
+        let clip = scroll.contentView
+        let minimum = clip.constrainBoundsRect(CGRect(origin: .zero, size: clip.bounds.size)).minX
+        let maximum = clip.constrainBoundsRect(CGRect(x: 100_000, y: clip.bounds.minY, width: clip.bounds.width, height: clip.bounds.height)).minX
+        XCTAssertGreaterThan(maximum - minimum, 200, "Wide poster must enable horizontal scrolling")
+        clip.scroll(to: CGPoint(x: minimum + (maximum - minimum) * 0.3, y: clip.bounds.minY))
+        scroll.reflectScrolledClipView(clip)
+        try await Task.sleep(for: .milliseconds(80))
+
+        let update = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: locator()))
+        let point = try XCTUnwrap(PDFViewportAnchor.point(in: update.locator, pageBounds: page.bounds(for: view.displayBox)))
+        let before = view.convert(point, from: page)
+        XCTAssertNotNil(PDFViewportAnchor.screenPosition(in: update.locator))
+        if rotation == 0 { XCTAssertEqual(point.x, 0, accuracy: 1) }
+        XCTAssertGreaterThan(before.x - view.bounds.minX, 20, "The bounded page anchor must include a visible side margin")
+
+        let restored: ReadingPDFView
+        if switchDocument {
+            let document = view.document
+            view.document = makeView().document
+            view.layoutDocumentView()
+            view.document = document
+            view.scaleFactor = 1.5
+            view.layoutDocumentView()
+            restored = view
+        } else {
+            restored = makeMixedWidthView(rotation: rotation, frame: deferredLayout ? .zero : NSRect(x: 0, y: 0, width: 900, height: 650))
+        }
+        let restoredPage = try XCTUnwrap(restored.document?.page(at: 0))
+        var applications = 0
+        if deferredLayout {
+            XCTAssertFalse(PDFViewportAnchor.restore(in: restored, page: restoredPage, locator: update.locator))
+            restored.pendingAnchor = { mounted in
+                applications += 1
+                XCTAssertNotNil(mounted.documentView?.enclosingScrollView)
+                XCTAssertTrue(PDFViewportAnchor.restore(in: mounted, page: restoredPage, locator: update.locator))
+            }
+            restored.schedulePendingAnchor()
+            try await Task.sleep(for: .milliseconds(40))
+            XCTAssertEqual(applications, 0)
+            XCTAssertNotNil(restored.pendingAnchor)
+            restored.frame = NSRect(x: 0, y: 0, width: 900, height: 650)
+            restored.layoutSubtreeIfNeeded()
+            let mountedScroll = try XCTUnwrap(restored.documentView?.enclosingScrollView)
+            mountedScroll.scrollerStyle = .legacy
+            restored.layoutSubtreeIfNeeded()
+            XCTAssertEqual(mountedScroll.scrollerStyle, .legacy)
+            restored.schedulePendingAnchor()
+        } else {
+            XCTAssertTrue(PDFViewportAnchor.restore(in: restored, page: restoredPage, locator: update.locator))
+        }
+        try await Task.sleep(for: .milliseconds(80))
+        let after = restored.convert(point, from: restoredPage)
+        let restoredClip = try XCTUnwrap(restored.documentView?.enclosingScrollView?.contentView)
+        let afterClip = restoredClip.bounds.origin
+        let constrained = restoredClip.constrainBoundsRect(restoredClip.bounds)
+        XCTAssertEqual(after.x, before.x, accuracy: 2, "Compare real screen placement, not twice-clamped viewportX")
+        XCTAssertEqual(after.y, before.y, accuracy: 2)
+        // PDFKit may choose a different document-local origin for an initially
+        // zero-sized view. Cross-view equality belongs in PDFView coordinates;
+        // raw clip origins are only comparable within the same laid-out view.
+        XCTAssertEqual(afterClip.x, constrained.minX, accuracy: 2)
+        XCTAssertEqual(afterClip.y, constrained.minY, accuracy: 2)
+        XCTAssertEqual(restored.scaleFactor, 1.5, accuracy: 0.001)
+        if deferredLayout {
+            XCTAssertEqual(applications, 1)
+            XCTAssertNil(restored.pendingAnchor)
+            restored.layoutSubtreeIfNeeded()
+            restored.schedulePendingAnchor()
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertEqual(applications, 1)
+            let final = restored.convert(point, from: restoredPage)
+            XCTAssertEqual(final.x, before.x, accuracy: 2)
+            XCTAssertEqual(final.y, before.y, accuracy: 2)
+            let finalClip = try XCTUnwrap(restored.documentView?.enclosingScrollView?.contentView).bounds.origin
+            XCTAssertEqual(finalClip.x, afterClip.x, accuracy: 2)
+            XCTAssertEqual(finalClip.y, afterClip.y, accuracy: 2)
+        }
     }
 
     func testNativeScrollObserverRecordsMovementWithinTheSamePage() async throws {
@@ -149,6 +289,30 @@ final class PDFReadingPositionTests: XCTestCase {
         view.autoScales = false
         view.document = document
         view.scaleFactor = 1
+        view.layoutDocumentView()
+        return view
+    }
+
+    private func makeMixedWidthView(rotation: Int = 0, frame: NSRect = NSRect(x: 0, y: 0, width: 900, height: 650)) -> ReadingPDFView {
+        let document = PDFDocument()
+        for width in [400.0, 400.0, 1000.0] {
+            let size = rotation == 90 || rotation == 270 ? NSSize(width: 1600, height: width) : NSSize(width: width, height: 1600)
+            let image = NSImage(size: size, flipped: false) { rect in
+                NSColor.white.setFill()
+                rect.fill()
+                NSColor.black.setFill()
+                NSRect(x: 40, y: 900, width: 80, height: 80).fill()
+                return true
+            }
+            document.insert(PDFPage(image: image)!, at: document.pageCount)
+            document.page(at: document.pageCount - 1)?.rotation = rotation
+        }
+        let view = ReadingPDFView(frame: frame)
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.autoScales = false
+        view.document = document
+        view.scaleFactor = 1.5
         view.layoutDocumentView()
         return view
     }

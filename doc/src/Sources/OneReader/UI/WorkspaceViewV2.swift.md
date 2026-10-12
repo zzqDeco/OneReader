@@ -13,6 +13,11 @@ a full-width reader, uses one inline native navigation bar and a fixed four-item
 bottom bar, and presents reading navigation and Reading Assistance in independent
 sheets. `fileImporter` owns iOS/iPadOS selection;
 the AppModel routes its result without adding format-specific entry points.
+Its visibility binding is separate from the retained import purpose, and the
+completion and cancellation callbacks are distinct. The custom import sheet's
+`onDismiss` owns the handoff to the system picker. DEBUG tests may set the
+picker's default directory to their generated UUID fixture directory; production
+launches do not override the directory.
 The scene lifecycle flushes the latest debounced reading position whenever it
 leaves the active state, before suspension can discard it. Animation is
 disabled when Reduce Motion is active. Search requests travel through a

@@ -1,6 +1,6 @@
 # v0.3.2 Reading Recovery Release
 
-Status: Active
+Status: Delivered
 
 Branch: `release/0.3.2`
 
@@ -64,8 +64,7 @@ promotion, followed by an immutable annotated tag at the exact `main` tip.
 
 PR [#15](https://github.com/zzqDeco/OneReader/pull/15) merged to `dev` as
 `e0ca3b06ad0bcd6cb7ba879632a77694f3dbff18`. Its exact-head check was green
-before merge. The integration check and all release-specific checks remain
-pending until observed. Historical physical recovery evidence is in
+before merge. Historical physical recovery evidence is in
 [acceptance](../doc/acceptance.md).
 
 Local dependency-lock (28 pins), documentation-index (65 Markdown files),
@@ -76,6 +75,29 @@ from the accepted runtime. Local free space is approximately 6.4 GiB; no new
 dependency resolution or full local rebuild is attempted. An old build-cache
 cleanup was rejected by the host safety policy and removed nothing; authoritative
 rebuilds run on hosted workers. Physical evidence is retained locally.
+
+Final delivery (2026-10-06; remote state rechecked 2026-10-07):
+
+- Preparation [#16](https://github.com/zzqDeco/OneReader/pull/16), ancestry-only
+  [#18](https://github.com/zzqDeco/OneReader/pull/18), and promotion
+  [#17](https://github.com/zzqDeco/OneReader/pull/17) passed protected gates and
+  merged. Sol max review approved without blockers.
+- Exact main `d189d2cc5d91ed86e3bb66ba69931b411fa18aa6` passed
+  [CI 37439997983](https://github.com/zzqDeco/OneReader/actions/runs/37439997983).
+  Annotated tag `v0.3.2` at that commit passed
+  [Release 37442270980](https://github.com/zzqDeco/OneReader/actions/runs/37442270980).
+  Both rebuilds recorded 234 shared tests, zero failures, and Sandbox validation.
+- The [published prerelease](https://github.com/zzqDeco/OneReader/releases/tag/v0.3.2)
+  has all six assets. Original downloads passed checksum, manifest, strict
+  signature/entitlement, license, and read-only DMG/ZIP equality checks.
+- An isolated re-signed copy passed ordinary launch/import and source-identity
+  persistence across process restart. This does not prove visible scroll
+  recovery: macOS Accessibility was denied, so no new visual pass is claimed.
+  Production Library hashes were unchanged; no phone was used in this gate.
+- [#14](https://github.com/zzqDeco/OneReader/issues/14) and milestone v0.3.2
+  closed. The separately confirmed paragraph-search defect remains tracked in
+  [#19](https://github.com/zzqDeco/OneReader/issues/19) and the next repair plan;
+  existing release notes disclose it. No tag or release asset was overwritten.
 
 ## Non-goals
 
@@ -88,12 +110,12 @@ notarization, cloud sync, and modifying the real Library.
 - [x] Reviewed reading recovery PR merged into `dev`
 - [x] Version metadata and release notes prepared
 - [x] Local metadata and release-policy checks pass
-- [ ] Sol max review passes
-- [ ] Release preparation and promotion PRs pass exact-head checks
-- [ ] `main` integration CI passes
-- [ ] Exact-main annotated tag publishes successfully
-- [ ] Downloaded artifacts verified and isolated smoke recorded
-- [ ] Milestone/issue closed after verified delivery
+- [x] Sol max review passes
+- [x] Release preparation and promotion PRs pass exact-head checks
+- [x] `main` integration CI passes
+- [x] Exact-main annotated tag publishes successfully
+- [x] Downloaded artifacts verified and isolated smoke recorded
+- [x] Milestone/issue closed after verified delivery
 
-Keep this plan Active until the publication and downloaded-artifact gates
-complete. Final evidence can close its status in a later documentation slice.
+Closed in the subsequent search-repair documentation slice, without rewriting
+the immutable release tag.

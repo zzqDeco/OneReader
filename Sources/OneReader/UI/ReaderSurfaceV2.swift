@@ -4,6 +4,9 @@ struct ReaderSurfaceView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.readingPositionCaptureTargetID) private var captureTargetID
+    @State private var pdfZoomRequest: PDFZoomRequest?
+    @State private var pdfZoomRequestToken: UUID?
+    @State private var pdfZoomFactor = 1.0
 
     let onShowNavigation: (() -> Void)?
     let onShowAssistance: (() -> Void)?
@@ -25,10 +28,7 @@ struct ReaderSurfaceView: View {
             presentation
 #if DEBUG && os(iOS)
             if ProcessInfo.processInfo.environment["ONEREADER_UI_TEST_RECOVERY_ID"] != nil {
-                Text("Recovery test")
-                    .font(.system(size: 8))
-                    .accessibilityIdentifier("reader-persisted-position")
-                    .accessibilityValue(model.recoveryUITestPersistenceMetrics)
+                ReadingPositionPersistenceReceipt(state: model.readingPositionDisplayState)
             }
 #endif
             if !usesCompactLayout {
@@ -41,10 +41,24 @@ struct ReaderSurfaceView: View {
 #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if usesCompactLayout {
-                compactReaderBar
+                VStack(spacing: 0) {
+                    if model.presentationDocument?.surface == .pdfKit {
+                        pdfZoomControls
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 4)
+                            .background(.bar)
+                            .overlay(alignment: .top) { Divider() }
+                    }
+                    compactReaderBar
+                }
             }
         }
 #endif
+        .onChange(of: model.currentPresentationToken) { _, _ in
+            pdfZoomRequest = nil
+            pdfZoomRequestToken = nil
+            pdfZoomFactor = 1
+        }
     }
 
     private var readerHeader: some View {
@@ -68,6 +82,11 @@ struct ReaderSurfaceView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 10)
+#if os(iOS)
+            if model.presentationDocument?.surface == .pdfKit {
+                pdfZoomControls
+            }
+#endif
             if model.canOpenOriginalSource {
                 Button {
                     model.openOriginalSource()
@@ -149,6 +168,12 @@ struct ReaderSurfaceView: View {
                         update,
                         presentationToken: presentationToken
                     )
+                },
+                pdfZoomRequest: pdfZoomRequestToken == presentationToken ? pdfZoomRequest : nil,
+                onPDFZoomChange: { zoom in
+                    guard model.currentPresentationToken == presentationToken,
+                          zoom.isFinite else { return }
+                    pdfZoomFactor = zoom
                 }
             )
             .id(presentationToken)
@@ -185,14 +210,7 @@ struct ReaderSurfaceView: View {
             .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
             .disabled(!model.canSelectNextNode)
 
-            if let position = model.currentPositionDescription {
-                Label("已记录 · \(position)", systemImage: "bookmark.circle")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityLabel("阅读位置已记录，\(position)")
-            }
+            ReadingPositionBadge(state: model.readingPositionDisplayState)
 
             Spacer(minLength: 0)
 
@@ -250,6 +268,46 @@ struct ReaderSurfaceView: View {
     }
 
 #if os(iOS)
+    private var pdfZoomControls: some View {
+        HStack(spacing: 14) {
+            Button {
+                requestPDFZoom(.zoomOut)
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("缩小 PDF")
+            .accessibilityIdentifier("pdf-zoom-out")
+            Text("\(Int((pdfZoomFactor * 100).rounded()))%")
+                .font(.callout.monospacedDigit())
+                .frame(minWidth: 46)
+                .accessibilityLabel("PDF 缩放比例")
+                .accessibilityValue("\(Int((pdfZoomFactor * 100).rounded()))%")
+                .accessibilityIdentifier("pdf-zoom-percentage")
+            Button {
+                requestPDFZoom(.zoomIn)
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("放大 PDF")
+            .accessibilityIdentifier("pdf-zoom-in")
+            Spacer(minLength: 0)
+            Button("适合宽度") {
+                requestPDFZoom(.fitWidth)
+            }
+            .font(.callout)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("pdf-fit-width")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func requestPDFZoom(_ action: PDFZoomAction) {
+        pdfZoomRequestToken = model.currentPresentationToken
+        pdfZoomRequest = PDFZoomRequest(action: action)
+    }
+
     private var compactReaderBar: some View {
         HStack(spacing: 0) {
             CompactReaderAction(title: "目录", systemImage: "list.bullet") {
@@ -296,6 +354,36 @@ struct ReaderSurfaceView: View {
 #endif
     }
 }
+
+/// Keep live position text out of the whole reader's observation boundary.
+private struct ReadingPositionBadge: View {
+    @ObservedObject var state: ReadingPositionDisplayState
+
+    var body: some View {
+        if let position = state.positionDescription {
+            Label("已记录 · \(position)", systemImage: "bookmark.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .accessibilityLabel("阅读位置已记录，\(position)")
+        }
+    }
+}
+
+#if DEBUG && os(iOS)
+/// Observe only successful saves, without invalidating the PDF/reader surface.
+private struct ReadingPositionPersistenceReceipt: View {
+    @ObservedObject var state: ReadingPositionDisplayState
+
+    var body: some View {
+        Text("Recovery test")
+            .font(.system(size: 8))
+            .accessibilityIdentifier("reader-persisted-position")
+            .accessibilityValue(AppModel.recoveryUITestPersistenceMetrics(for: state.durablePosition))
+    }
+}
+#endif
 
 private extension PresentationSurface {
     var displayName: String {

@@ -27,6 +27,14 @@ iOS/iPadOS publishes a typed `PlatformFileImportPurpose` consumed by the root
 `fileImporter`. Both paths rejoin at `importLocalURLs`; reauthorization is
 single-selection and imports can be multi-selection.
 
+The pending purpose and `isPlatformFileImporterPresented` are separate state.
+The system may clear presentation before sending a successful selection;
+only completion or explicit cancellation consumes the purpose. An import
+requested from the custom sheet waits for `importSheetDidDismiss` before
+presenting the picker. DEBUG import-flow fixtures generate Files-visible inputs
+under a UUID in Documents but leave the isolated Library empty, so UI tests must
+select and import through the real system picker rather than auto-importing.
+
 `OriginalSourceOpenPolicy` keeps the external-source action honest: macOS may
 open a local or remote origin, while iOS/iPadOS expose only HTTP(S) origins.
 Expired document-provider file URLs never reach `UIApplication`; local reading
@@ -40,6 +48,11 @@ instead of starting a competing task. A newer Snapshot cancels the old
 generation and cannot accept its late result. A directory/repository without a
 saved position opens its root README or common index/summary document before an
 incidental readable file.
+That ranking is gated by the plan's directory listing route, not merely a
+Locator path or title. Other adapters use `ContentNode.order` with stable ties,
+so PDF pages and EPUB spine items cannot be reordered by README/index names or
+outline labels. Saved positions and explicit navigation continue to bypass the
+default choice; no progress data is reset by this repair.
 
 The model never writes Agent output directly. It delegates runs to the runtime,
 loads committed graphs/plans/activity, and exposes only host-validated results.
@@ -51,6 +64,24 @@ and uses aggregate Source fractions without requiring a graph, while unit and
 plan progress remain independent. Opening the same Locator preserves its
 fraction/granularity metadata instead of replacing it with a bare document
 position.
+
+The exact live `currentPositionLocator` is not globally published on every PDF
+capture. Bookmark, note and navigation actions still read it synchronously; geometry is never
+discarded merely because its human-readable label is unchanged. A separate
+`ReadingPositionDisplayState` publishes deduplicated label changes and the
+current durable position to small position consumers. `progressBySpace` is a
+synchronous cache, updated only through `setReadingProgress`. Successful
+PDF position-only saves while reading do not broadcast to the whole workspace or
+hidden Library shelf; the local projection reconciles the badge and DEBUG
+persistence receipt. Returning to Library publishes its already-current cache.
+Route/unit mutations, reloads and saves outside the reader still publish
+globally. Quiet updates must match the active PDF's Source, Snapshot and Adapter;
+all non-PDF captures/saves retain the original global refresh contract. Capture,
+save/flush timing, source/version guards and Library progress
+semantics are unchanged. A first/last-content
+navigation availability change still broadcasts immediately so reader buttons
+and menu shortcuts never wait for a database save. A failed save resets the
+badge to durable progress; removing the last selected Source clears it.
 
 The model tracks the key window's presentation target. A boundary capture is
 addressed to that target and carries the outgoing Source/Snapshot identity;

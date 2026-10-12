@@ -1,12 +1,275 @@
 import AppKit
 import CryptoKit
 import Foundation
+import GRDB
 import PDFKit
 import XCTest
 import ZIPFoundation
 @testable import OneReader
 
 final class AdapterContractTests: XCTestCase {
+    func testManagedMarkdownIndexCoversPreambleParagraphsAndHeadinglessFiles() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-FullText")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let cases = [
+            ("chapters.md", "PreambleToken\n\n# Opening\n\nParagraphToken\n\n## Nested\n\nNestedBodyToken", ["Opening", "Nested"], ["PreambleToken", "ParagraphToken", "NestedBodyToken"]),
+            ("without-headings.md", "NoHeadingToken in an ordinary paragraph.", ["without-headings.md"], ["NoHeadingToken"]),
+        ]
+        for (name, text, titles, queries) in cases {
+            let url = root.appendingPathComponent(name)
+            try Data(text.utf8).write(to: url)
+            let imported = try await library.importLocalSource(at: url)
+            let plan = try await coordinator.prepareAndIndex(
+                sourceID: imported.source.id, snapshotID: imported.snapshot.id
+            )
+            let nodes = try await coordinator.list(plan: plan)
+            XCTAssertEqual(nodes.map(\.title), titles)
+            XCTAssertTrue(try database.isObservationIndexComplete(snapshotID: plan.snapshotID, planID: plan.id))
+            XCTAssertEqual(try database.observationCount(snapshotID: plan.snapshotID), 0)
+            for query in queries {
+                let hits = try database.searchObservations(query: query, planID: plan.id)
+                XCTAssertEqual(hits.count, 1, query)
+                let hit = try XCTUnwrap(hits.first)
+                let observation = try await coordinator.read(plan: plan, locator: hit.locator, persistObservation: false)
+                XCTAssertEqual(observation.content, query)
+                XCTAssertEqual(hit.locator.payload["startUTF16"], String((text as NSString).range(of: query).location))
+            }
+        }
+    }
+
+    func testLongMarkdownIndexesBeyondMillionCharactersAndDeduplicatesOverlap() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-LongMarkdown")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chunk = TextAdapterCore.indexChunkCharacters
+        var text = "# Long chapter\r\n👩🏽‍💻 e\u{301}\r"
+        text += String(repeating: "x", count: chunk - text.count - 200)
+        text += " overlapduplicate "
+        text += String(repeating: "x", count: chunk - text.count - 7)
+        text += " CrossBoundaryToken overlapneedle "
+        text += String(repeating: " longline", count: 120_000)
+        text += "\r\nTailBeyondMillionToken"
+        XCTAssertGreaterThan(text.count, 1_000_000)
+        let url = root.appendingPathComponent("long.md")
+        try Data(text.utf8).write(to: url)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: url)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepareAndIndex(sourceID: imported.source.id, snapshotID: imported.snapshot.id)
+        XCTAssertGreaterThan(try database.searchDocumentCount(planID: plan.id), 16)
+        for query in ["CrossBoundaryToken", "overlapneedle", "overlapduplicate", "TailBeyondMillionToken"] {
+            let hits = try database.searchObservations(query: query)
+            XCTAssertEqual(hits.count, 1, query)
+            let hit = try XCTUnwrap(hits.first)
+            let expectedRange = (text as NSString).range(of: query)
+            XCTAssertEqual(hit.locator.payload["startUTF16"], String(expectedRange.location))
+            XCTAssertEqual(hit.locator.payload["endUTF16"], String(NSMaxRange(expectedRange)))
+            XCTAssertEqual(hit.locator.lineRange, query == "TailBeyondMillionToken" ? 4...4 : 3...3)
+            let read = try await coordinator.read(plan: plan, locator: hit.locator, persistObservation: false)
+            XCTAssertEqual(read.content, query)
+            let presentation = try await coordinator.render(plan: plan, locator: hit.locator)
+            XCTAssertEqual(presentation.content, text)
+        }
+    }
+
+    func testOverlapDeduplicationHappensBeforeTwentyResultLimitForFTSAndSubstring() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-SearchDedup")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Book")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let text = String(repeating: "x", count: TextAdapterCore.indexChunkCharacters - 100)
+            + " overlapmatch 时间管理的意义 " + String(repeating: "y", count: 200)
+        for index in 0..<22 {
+            try Data(text.utf8).write(to: folder.appendingPathComponent("chapter-\(index).md"))
+        }
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: folder)
+        let coordinator = try AdapterCoordinator.standard(database: database)
+        let plan = try await coordinator.prepareAndIndex(sourceID: imported.source.id, snapshotID: imported.snapshot.id)
+        XCTAssertEqual(try database.searchDocumentCount(planID: plan.id), 44)
+        for query in ["overlapmatch", "时间管理"] {
+            let hits = try database.searchObservations(query: query, limit: 20)
+            XCTAssertEqual(hits.count, 20)
+            XCTAssertEqual(Set(hits.compactMap { $0.locator.relativePath }).count, 20)
+        }
+    }
+
+    func testTextChunksRoundTripUnicodeNewlinesAndKeepViewportReadSemantics() async throws {
+        let text = "👩🏽‍💻 e\u{301}\r\n中文\rsecond\nthird\r\nfourth long line 👨‍👩‍👧‍👦 end"
+        let fixture = try makeFileFixture(name: "unicode.txt", content: text)
+        defer { fixture.remove() }
+        let collector = IndexObservationCollector()
+        try await TextAdapterCore.index(
+            fixture.context, adapterID: PlainTextAdapter.id, mediaType: "text/plain",
+            chunkCharacters: 12, overlapCharacters: 3
+        ) { await collector.append($0) }
+        let observations = await collector.values
+        XCTAssertGreaterThan(observations.count, 3)
+        for observation in observations {
+            XCTAssertFalse(observation.truncated)
+            XCTAssertLessThanOrEqual(observation.content.count, 12)
+            let start = try XCTUnwrap(Int(observation.locator.payload["startUTF16"] ?? ""))
+            let end = try XCTUnwrap(Int(observation.locator.payload["endUTF16"] ?? ""))
+            let range = try XCTUnwrap(Range(NSRange(location: start, length: end - start), in: text))
+            XCTAssertEqual(observation.content, String(text[range]))
+            let expectedLine = text[..<range.lowerBound].reduce(1) { $1.isNewline ? $0 + 1 : $0 }
+            XCTAssertEqual(observation.locator.lineRange?.lowerBound, expectedLine)
+            let read = try TextAdapterCore.read(
+                fixture.context, adapterID: PlainTextAdapter.id, locator: observation.locator,
+                mediaType: "text/plain", maxCharacters: 100
+            )
+            XCTAssertEqual(read.content, observation.content)
+        }
+        let original = try XCTUnwrap(observations.first).locator
+        var payload = original.payload
+        // Both AppKit/UIKit capture paths keep the index marker and write this
+        // production text-viewport discriminator ("viewport" belongs to PDF).
+        payload["positionKind"] = "textViewport"
+        payload["textViewportOffsetY"] = "4.5"
+        payload["textViewportX"] = "0"
+        payload["startLine"] = "2"
+        payload["endLine"] = "2"
+        let visibleRange = (text as NSString).range(of: "中")
+        payload["startUTF16"] = String(visibleRange.location)
+        payload["endUTF16"] = String(NSMaxRange(visibleRange))
+        let viewport = replacingTestAnchor(original, payload: payload)
+        let read = try TextAdapterCore.read(
+            fixture.context, adapterID: PlainTextAdapter.id, locator: viewport,
+            mediaType: "text/plain", maxCharacters: 100
+        )
+        XCTAssertEqual(read.content, "中文")
+        payload["positionKind"] = nil
+        payload["startUTF16"] = "1"
+        let invalid = replacingTestAnchor(original, payload: payload)
+        XCTAssertThrowsError(try TextAdapterCore.read(
+            fixture.context, adapterID: PlainTextAdapter.id, locator: invalid,
+            mediaType: "text/plain", maxCharacters: 100
+        ))
+    }
+
+    func testRepeatedQuoteRelocationUsesContextThenOriginalOffsetAndRejectsTies() async throws {
+        let text = "first repeated end\nsecond repeated end\nlast repeated end"
+        let fixture = try makeFileFixture(name: "repeat.md", content: text)
+        defer { fixture.remove() }
+        let locator = Locator(
+            sourceID: fixture.context.source.id, snapshotID: "old", adapterID: MarkdownAdapter.id,
+            payload: ["path": "repeat.md", "indexTextRange": "utf16", "startLine": "1", "startUTF16": "0", "endUTF16": "8"],
+            structuralPath: "repeat.md", textQuote: TextQuote(prefix: "second ", exact: "repeated", suffix: " end"), fingerprint: nil
+        )
+        let resolution = try await MarkdownAdapter().resolve(locator, in: fixture.context)
+        let resolved = try XCTUnwrap(resolution.resolved)
+        XCTAssertEqual(resolution.state, .relocated)
+        XCTAssertEqual(resolved.lineRange, 2...2)
+        XCTAssertEqual(resolved.payload["startUTF16"], String((text as NSString).range(of: "second repeated").location + 7))
+        let read = try await MarkdownAdapter().readFragment(in: fixture.context, at: resolved, maxCharacters: 100)
+        XCTAssertEqual(read.content, "repeated")
+
+        var payload = locator.payload
+        payload["startUTF16"] = resolved.payload["startUTF16"]
+        let quote = TextQuote(prefix: nil, exact: "repeated", suffix: nil)
+        let noContext = replacingTestAnchor(locator, payload: payload, quote: quote)
+        let nearest = try await MarkdownAdapter().resolve(noContext, in: fixture.context)
+        XCTAssertEqual(nearest.resolved?.lineRange, 2...2)
+        payload["startUTF16"] = nil
+        let ambiguous = try await MarkdownAdapter().resolve(
+            replacingTestAnchor(locator, payload: payload, quote: quote), in: fixture.context
+        )
+        XCTAssertEqual(ambiguous.state, .orphaned)
+    }
+
+    func testIndexBudgetsFailCleanlyAndRetryWithoutPublishingPartialResults() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-IndexBudget")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("budget.md")
+        try Data(("# Budget\n" + String(repeating: "budgetword ", count: 14_000)).utf8).write(to: url)
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: url)
+        let registry = try AdapterRegistry.standard()
+        let limited = AdapterCoordinator(
+            database: database, registry: registry,
+            indexingPolicy: SearchIndexPolicy(maximumFragments: 1, storagePolicy: unlimitedStoragePolicy)
+        )
+        let plan = try await limited.prepare(sourceID: imported.source.id, snapshotID: imported.snapshot.id)
+        do { try await limited.index(plan: plan); XCTFail("Must reject incomplete projection") }
+        catch is AdapterError { }
+        XCTAssertFalse(try database.isObservationIndexComplete(snapshotID: plan.snapshotID, planID: plan.id))
+        XCTAssertEqual(try database.searchDocumentCount(planID: plan.id), 0)
+        XCTAssertTrue(try database.searchObservations(query: "budgetword").isEmpty)
+        let stagedCount = try await database.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM observation_index_staging") }
+        XCTAssertEqual(stagedCount, 0)
+        let noSpace = AdapterCoordinator(
+            database: database, registry: registry,
+            indexingPolicy: SearchIndexPolicy(storagePolicy: LibraryStoragePolicy(
+                largeImportThreshold: .max, minimumFreeCapacity: 2_048, capacityProvider: { _ in 1_024 }
+            ))
+        )
+        do { try await noSpace.index(plan: plan); XCTFail("Must reject low capacity") }
+        catch let error as LibraryStorageError {
+            guard case .insufficientFreeSpace = error else { return XCTFail("Unexpected \(error)") }
+        }
+        let retry = AdapterCoordinator(database: database, registry: registry, indexingPolicy: SearchIndexPolicy(storagePolicy: unlimitedStoragePolicy))
+        try await retry.index(plan: plan)
+        XCTAssertTrue(try database.isObservationIndexComplete(snapshotID: plan.snapshotID, planID: plan.id))
+        XCTAssertFalse(try database.searchObservations(query: "budgetword").isEmpty)
+    }
+
+    func testDirectoryIndexDetectsSentinelInsteadOfCompletingTruncatedList() async throws {
+        let root = try makeTemporaryRoot(prefix: "OneReader-IndexNodeLimit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Book")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in ["first.md", "second.txt", "third.swift"] {
+            try Data("# Heading\n\nbody-only sentinelneedle".utf8).write(to: folder.appendingPathComponent(name))
+        }
+        let database = try LibraryDatabase(rootURL: root.appendingPathComponent("Library"))
+        let library = try ManagedLibrary(database: database, storagePolicy: unlimitedStoragePolicy)
+        let imported = try await library.importLocalSource(at: folder)
+        let registry = try AdapterRegistry.standard()
+        let limited = AdapterCoordinator(database: database, registry: registry, indexingPolicy: SearchIndexPolicy(maximumNodes: 2, storagePolicy: unlimitedStoragePolicy))
+        let plan = try await limited.prepare(sourceID: imported.source.id, snapshotID: imported.snapshot.id)
+        do { try await limited.index(plan: plan); XCTFail("Must detect third node") }
+        catch is AdapterError { }
+        XCTAssertFalse(try database.isObservationIndexComplete(snapshotID: plan.snapshotID, planID: plan.id))
+        XCTAssertEqual(try database.searchDocumentCount(planID: plan.id), 0)
+        let retry = AdapterCoordinator(database: database, registry: registry, indexingPolicy: SearchIndexPolicy(storagePolicy: unlimitedStoragePolicy))
+        try await retry.index(plan: plan)
+        let hits = try database.searchObservations(query: "sentinelneedle")
+        XCTAssertEqual(hits.count, 3)
+        XCTAssertEqual(Set(hits.map(\.adapterID)), [MarkdownAdapter.id, PlainTextAdapter.id, CodeAdapter.id])
+    }
+
+    func testGlobalIndexGateSerializesAndCancelsQueuedWork() async throws {
+        let gate = SearchIndexGate()
+        try await gate.acquire()
+        let cancelled = Task { try await gate.acquire() }
+        cancelled.cancel()
+        do { try await cancelled.value; XCTFail("Cancelled waiter acquired a slot") }
+        catch is CancellationError { }
+        await gate.release()
+        let counter = IndexConcurrencyCounter()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<12 {
+                group.addTask {
+                    try await gate.acquire()
+                    await counter.begin()
+                    await Task.yield()
+                    await counter.end()
+                    await gate.release()
+                }
+            }
+            try await group.waitForAll()
+        }
+        let maximum = await counter.maximum
+        let completed = await counter.completed
+        XCTAssertEqual(maximum, 1)
+        XCTAssertEqual(completed, 12)
+    }
+
     func testStandardRegistryContainsEveryV1BaseAdapter() async throws {
         let registry = try AdapterRegistry.standard()
         let ids = await registry.descriptors().map(\.id)
@@ -877,6 +1140,30 @@ private func createTwoChapterEPUB(at url: URL) throws {
             }
         )
     }
+}
+
+private func replacingTestAnchor(
+    _ original: Locator, payload: [String: String], quote: TextQuote? = nil
+) -> Locator {
+    Locator(
+        sourceID: original.sourceID, snapshotID: original.snapshotID,
+        adapterID: original.adapterID, schemaVersion: original.schemaVersion,
+        payload: payload, structuralPath: original.structuralPath,
+        textQuote: quote ?? original.textQuote, fingerprint: original.fingerprint
+    )
+}
+
+private actor IndexObservationCollector {
+    var values: [Observation] = []
+    func append(_ observation: Observation) { values.append(observation) }
+}
+
+private actor IndexConcurrencyCounter {
+    var active = 0
+    var maximum = 0
+    var completed = 0
+    func begin() { active += 1; maximum = max(maximum, active) }
+    func end() { active -= 1; completed += 1 }
 }
 
 private let unlimitedStoragePolicy = LibraryStoragePolicy(

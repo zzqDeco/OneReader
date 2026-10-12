@@ -152,6 +152,21 @@ actor AdapterRegistry {
         )
     }
 
+    func index(
+        adapterID: String,
+        in context: AdapterContext,
+        emit: @Sendable (Observation) async throws -> Void
+    ) async throws -> Bool {
+        let reader = try capability(
+            adapterID: adapterID,
+            capability: .read,
+            as: (any ReadingAdapter).self
+        )
+        guard let indexer = reader as? any IndexingAdapter else { return false }
+        try await indexer.indexContent(in: context, emit: emit)
+        return true
+    }
+
     func search(
         adapterID: String,
         in context: AdapterContext,

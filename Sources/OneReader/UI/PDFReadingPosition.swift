@@ -7,6 +7,8 @@ import UIKit
 #endif
 
 enum PDFViewportAnchor {
+    static let payloadKeys = ["positionKind", "viewportX", "viewportY", "viewportScreenX", "viewportScreenY"]
+
     static func point(in locator: Locator, pageBounds: CGRect) -> CGPoint? {
         guard valid(pageBounds), locator.payload["positionKind"] == "viewport",
               locator.textQuote == nil,
@@ -17,6 +19,45 @@ enum PDFViewportAnchor {
               y >= pageBounds.minY, y <= pageBounds.maxY else { return nil }
         return CGPoint(x: x, y: y)
     }
+
+    /// Normalized screen placement of the bounded page anchor, measured from
+    /// the viewport's left/top edges. Side/page-gap whitespace is not page X/Y.
+    static func screenPosition(in locator: Locator) -> CGPoint? {
+        guard locator.payload["positionKind"] == "viewport", locator.textQuote == nil,
+              let x = Double(locator.payload["viewportScreenX"] ?? ""),
+              let y = Double(locator.payload["viewportScreenY"] ?? ""),
+              x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y) else { return nil }
+        return CGPoint(x: x, y: y)
+    }
+
+#if os(macOS)
+    @MainActor
+    @discardableResult
+    static func restore(in view: PDFView, page: PDFPage, locator: Locator) -> Bool {
+        guard view.bounds.width > 0, view.bounds.height > 0,
+              let point = point(in: locator, pageBounds: page.bounds(for: view.displayBox)) else { return false }
+        let placement = screenPosition(in: locator)
+        let scrollView = view.documentView?.enclosingScrollView
+        guard placement == nil || scrollView != nil else { return false }
+        view.go(to: PDFDestination(page: page, at: point))
+        guard let placement, let scroll = scrollView else { return true }
+        let clip = scroll.contentView
+        let anchor = clip.convert(view.convert(point, from: page), from: view)
+        let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY
+        let screen = CGPoint(
+            x: view.bounds.minX + placement.x * view.bounds.width,
+            y: top + (view.isFlipped ? 1 : -1) * placement.y * view.bounds.height
+        )
+        let target = clip.convert(screen, from: view)
+        let proposed = clip.bounds.offsetBy(dx: anchor.x - target.x, dy: anchor.y - target.y)
+        guard [proposed.minX, proposed.minY, proposed.width, proposed.height].allSatisfy(\.isFinite) else { return true }
+        // Clip coordinates can have a different scale/orientation from PDFView;
+        // never add a raw page or screen delta directly to its bounds origin.
+        clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+        scroll.reflectScrolledClipView(clip)
+        return true
+    }
+#endif
 
     private static func valid(_ bounds: CGRect) -> Bool {
         !bounds.isNull && !bounds.isInfinite && !bounds.isEmpty
@@ -48,6 +89,18 @@ enum PDFViewportAnchor {
         payload["positionKind"] = "viewport"
         payload["viewportX"] = String(Double(point.x))
         payload["viewportY"] = String(Double(point.y))
+        payload["viewportScreenX"] = nil
+        payload["viewportScreenY"] = nil
+#if os(macOS)
+        let screen = view.convert(point, from: page)
+        let screenX = (screen.x - view.bounds.minX) / view.bounds.width
+        let screenY = (view.isFlipped ? screen.y - top : top - screen.y) / view.bounds.height
+        if screenX.isFinite, screenY.isFinite,
+           (-0.001...1.001).contains(screenX), (-0.001...1.001).contains(screenY) {
+            payload["viewportScreenX"] = String(Double(min(max(screenX, 0), 1)))
+            payload["viewportScreenY"] = String(Double(min(max(screenY, 0), 1)))
+        }
+#endif
         payload["rect"] = [visible.minX, visible.minY, visible.width, visible.height]
             .map { String(Double($0)) }.joined(separator: ",")
         let locator = Locator(
@@ -77,6 +130,9 @@ enum PDFViewportAnchor {
 @MainActor
 class ReadingPDFView: PDFView {
     var pendingAnchor: ((PDFView) -> Void)?
+#if os(iOS)
+    var onViewportLayout: ((PDFView) -> Void)?
+#endif
     private var anchorScheduled = false
 
 #if os(macOS)
@@ -87,6 +143,7 @@ class ReadingPDFView: PDFView {
 #else
     override func layoutSubviews() {
         super.layoutSubviews()
+        onViewportLayout?(self)
         schedulePendingAnchor()
     }
 #endif
@@ -98,10 +155,15 @@ class ReadingPDFView: PDFView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             anchorScheduled = false
-            guard bounds.width > 0, bounds.height > 0,
-                  let apply = pendingAnchor else { return }
-            pendingAnchor = nil
+            guard bounds.width > 0, bounds.height > 0 else { return }
             layoutDocumentView()
+#if os(macOS)
+            // A nonzero representable can still be detached from PDFKit's
+            // native clip. Preserve the anchor until a later mounted layout.
+            guard documentView?.enclosingScrollView != nil else { return }
+#endif
+            guard let apply = pendingAnchor else { return }
+            pendingAnchor = nil
             apply(self)
         }
     }

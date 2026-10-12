@@ -77,6 +77,7 @@ struct LibraryHomeView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
+        .accessibilityIdentifier("library-add-materials")
     }
 
     private var libraryDescription: String {

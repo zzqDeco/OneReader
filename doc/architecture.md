@@ -140,6 +140,13 @@ discards the unbound legacy FTS projection; application bootstrap then finds
 all active searchable plans without completed v9 projections and rebuilds them
 in the background, including Spaces the user has not opened.
 
+Schema v10 invalidates derived indexes again to replace heading-only Markdown
+projections with complete bounded text chunks. A process-wide one-Source FIFO,
+node/fragment/byte limits, capacity checks, and sentinel overflow detection bound
+rebuild work. Failed or truncated work stays incomplete, with no mutation of
+source evidence, annotations, positions, or history. See [source adapters](source-adapters.md)
+for the current limits and explicit range/overlap contracts.
+
 `progress-v1.json` is not decoded into new identities. After the first database
 migration succeeds, it is atomically moved to `Legacy/` and recorded in
 `migration_manifest` with `boundToNewObjects=false`. All current annotations,

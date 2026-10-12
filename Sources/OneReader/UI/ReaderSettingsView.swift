@@ -56,6 +56,11 @@ private struct ReadingAppearanceSettings: View {
                 LabeledContent("默认缩放 \(Int(model.preferences.pdfScale * 100))%") {
                     Slider(value: $model.preferences.pdfScale, in: 0.5...2.5, step: 0.05)
                 }
+#if os(iOS)
+                Text("100% 表示适合阅读区域宽度。阅读时可用双指或 PDF 缩放按钮调整。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+#endif
             }
         }
         .formStyle(.grouped)

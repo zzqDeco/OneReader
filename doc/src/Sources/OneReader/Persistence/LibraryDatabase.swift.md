@@ -23,6 +23,14 @@ results without scanning a managed repository tree. Every returned hit derives
 a query-specific quote/range Locator and preserves format identity such as a PDF
 page.
 
+Schema v10 clears only derived search projections, staging, and completion runs
+so bootstrap rebuilds earlier heading-only Markdown indexes. It leaves evidence,
+source identities, annotations, progress JSON, and history untouched. Text hits
+add each chunk's absolute UTF-16/line base, quote complete composed characters,
+and deduplicate by source/snapshot/adapter/path/range before the 20-hit limit.
+GRDB row cursors are consumed inside their read access; reusable Row objects do
+not escape or accumulate as an array.
+
 It records Provider Keychain references but never API keys. A legacy progress
 file is moved only after database migration succeeds and is explicitly marked
 as not bound to new objects.

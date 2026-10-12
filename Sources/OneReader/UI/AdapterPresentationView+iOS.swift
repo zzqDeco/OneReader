@@ -471,7 +471,7 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let textLength = textView.attributedText.length
             let textContainerWidth = Int(textView.textContainer.size.width.rounded())
             let sourceAnchor = parent.locator.payload["startUTF16"] ?? "-1"
-            let visibleAnchor = visibleSourceAnchor(from: textView)
+            let visible = visibleTextMetrics(from: textView)
             textView.accessibilityValue = [
                 "x:\(x)",
                 "y:\(y)",
@@ -482,13 +482,14 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
                 "len:\(textLength)",
                 "tcw:\(textContainerWidth)",
                 "anchor:\(sourceAnchor)",
-                "visible:\(visibleAnchor)",
+                "visible:\(visible.sourceAnchor)",
+                "lineY:\(visible.lineY)",
             ].joined(separator: ";")
         }
 
-        private func visibleSourceAnchor(from textView: UITextView) -> Int {
+        private func visibleTextMetrics(from textView: UITextView) -> (sourceAnchor: Int, lineY: Double) {
             let renderedValue = textView.attributedText.string as NSString
-            guard renderedValue.length > 0 else { return -1 }
+            guard renderedValue.length > 0 else { return (-1, .nan) }
             let point = CGPoint(
                 x: max(2, textView.contentOffset.x + 2),
                 y: max(0, textView.contentOffset.y - textView.textContainerInset.top + 2)
@@ -505,11 +506,18 @@ struct NativeSelectableTextPresentation: UIViewRepresentable {
             let renderedRange = renderedValue.rangeOfComposedCharacterSequences(
                 for: NSRange(location: location, length: 1)
             )
-            guard parent.kind == .markdown else { return renderedRange.location }
-            return MarkdownSourceMap.positionAnchor(
-                forRenderedRange: renderedRange,
-                in: textView.attributedText
-            )?.sourceRange.location ?? -1
+            let sourceAnchor = parent.kind == .markdown
+                ? MarkdownSourceMap.positionAnchor(
+                    forRenderedRange: renderedRange,
+                    in: textView.attributedText
+                )?.sourceRange.location ?? -1
+                : renderedRange.location
+            // Container-space glyph geometry and the current native viewport
+            // are independent of saved Locators. Absolute document offsets
+            // can change as TextKit lays out a deeply restored document.
+            let rect = textView.layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let lineY = Double(rect.minY + textView.textContainerInset.top - textView.contentOffset.y)
+            return (sourceAnchor, lineY)
         }
 
         private var shouldPublishUITestMetrics: Bool {
@@ -962,6 +970,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     let scale: Double
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var zoomRequest: PDFZoomRequest? = nil
+    var onZoomChange: ((Double) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -971,6 +981,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .clear
+        view.onViewportLayout = { [weak coordinator = context.coordinator] view in
+            coordinator?.updateZoom(in: view)
+        }
         context.coordinator.observe(view)
         return view
     }
@@ -981,9 +994,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
             context.coordinator.appliedAnchorSignature = nil
+            context.coordinator.zoomController.reset()
         }
-        let requestedScale = min(max(scale, 0.5), 3)
-        if abs(view.scaleFactor - requestedScale) > 0.001 { view.scaleFactor = requestedScale }
+        context.coordinator.updateZoom(in: view)
         context.coordinator.positionObserver.refreshScrollObservation()
         let signature = [
             documentLocator.stableID,
@@ -996,8 +1009,11 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             context.coordinator.appliedAnchorSignature = signature
             view.pendingAnchor = { [weak coordinator = context.coordinator] view in
                 guard let coordinator, coordinator.appliedAnchorSignature == signature else { return }
+                var pageStart = false
+                var restoringViewport = false
                 if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
                     view.go(to: PDFDestination(page: page, at: point))
+                    restoringViewport = true
                 } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
                    let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
                     if let selection = page.selection(for: rect) {
@@ -1018,7 +1034,14 @@ struct ManagedPDFPresentation: UIViewRepresentable {
                     view.go(to: selection)
                 } else {
                     view.go(to: page)
+                    pageStart = true
                 }
+                coordinator.zoomController.refitAfterNavigation(to: page, in: view)
+                if pageStart || restoringViewport {
+                    view.layoutDocumentView()
+                    coordinator.zoomController.alignHorizontally(page, in: view, onlyIfFitting: !pageStart)
+                }
+                coordinator.updateZoom(in: view)
                 DispatchQueue.main.async {
                     guard coordinator.appliedAnchorSignature == signature else { return }
                     coordinator.isApplyingAnchor = false
@@ -1032,6 +1055,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
     static func dismantleUIView(_ view: ReadingPDFView, coordinator: Coordinator) {
         view.pendingAnchor = nil
+        view.onViewportLayout = nil
+        coordinator.stopZoomPublication()
         coordinator.positionObserver.captureImmediately()
         coordinator.positionObserver.stop()
     }
@@ -1042,6 +1067,9 @@ struct ManagedPDFPresentation: UIViewRepresentable {
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false
+        let zoomController = PDFZoomController()
+        private var zoomPublishTask: Task<Void, Never>?
+        private var publishedZoom: Double?
         lazy var positionObserver = PDFReadingPositionObserver(
             base: { [weak self] in self?.parent.documentLocator },
             targetID: { [weak self] in self?.parent.captureTargetID },
@@ -1051,10 +1079,42 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
         init(parent: ManagedPDFPresentation) { self.parent = parent }
 
-        deinit { NotificationCenter.default.removeObserver(self) }
+        deinit {
+            zoomPublishTask?.cancel()
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func updateZoom(in view: PDFView) {
+            zoomController.update(view, defaultScale: parent.scale, request: parent.zoomRequest, pageIndex: parent.pageIndex)
+            publishZoom(from: view)
+        }
+
+        func stopZoomPublication() {
+            zoomPublishTask?.cancel()
+            zoomPublishTask = nil
+        }
+
+        private func publishZoom(from view: PDFView) {
+            guard let relative = zoomController.relativeScale(in: view),
+                  publishedZoom.map({ abs($0 - relative) > 0.001 }) ?? true else { return }
+            publishedZoom = relative
+            zoomPublishTask?.cancel()
+            zoomPublishTask = Task { @MainActor [weak self, weak view] in
+                await Task.yield()
+                guard !Task.isCancelled, let self, let view,
+                      let current = zoomController.relativeScale(in: view) else { return }
+                parent.onZoomChange?(current)
+            }
+        }
+
+        @objc private func scaleDidChange(_ notification: Notification) {
+            guard !zoomController.isUpdating, let view = notification.object as? PDFView else { return }
+            publishZoom(from: view)
+        }
 
         func observe(_ view: PDFView) {
             positionObserver.observe(view)
+            NotificationCenter.default.addObserver(self, selector: #selector(scaleDidChange(_:)), name: .PDFViewScaleChanged, object: view)
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(selectionDidChange(_:)),
@@ -1080,7 +1140,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             let index = document.index(for: page)
             let rect = selection.bounds(for: page)
             var payload = parent.documentLocator.payload
-            ["positionKind", "viewportX", "viewportY"].forEach { payload[$0] = nil }
+            PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
             payload["pageIndex"] = String(index)
             payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
                 .map { String(format: "%.3f", $0) }
