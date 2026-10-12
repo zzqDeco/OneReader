@@ -47,6 +47,12 @@ prefers a root README, then common index/summary/TOC names, before falling back
 to the first readable child. Incidental license or asset files therefore do not
 replace the book overview as the initial reading surface.
 
+That preference is confined to a directory listing adapter. Sequential materials
+use the adapter's native readable-node order: a new PDF starts at page 1 and an
+EPUB starts at its spine head, regardless of outline titles, slashes, or index
+filenames. Explicit navigation and existing saved positions still take priority;
+the fix does not reset any previously saved position.
+
 A failed item stays visible with its error and can be dismissed. Source removal
 requires an explicit confirmation. An exclusive managed copy moves to macOS
 Trash or a persistent transaction-safe iOS removal journal; the original
@@ -186,12 +192,24 @@ All presentation surfaces emit one normalized position stream:
 
 | Material | Recorded and restored position |
 | --- | --- |
-| PDF | exact Snapshot, page index, normalized page fraction; selection rectangles remain annotation anchors |
+| PDF | exact Snapshot, page index, normalized page fraction, page anchor and macOS viewport placement; selection rectangles remain annotation anchors |
 | Markdown, text, code | source UTF-16/range, line, quote/fingerprint, normalized text fraction |
 | HTML and web snapshot | visible-element DOM path, nearest outline-heading DOM path, quote/fingerprint, normalized scroll fraction |
 | EPUB | spine `href` plus the controlled-Web DOM/quote/fraction position |
 | directory, local Git, GitHub | child relative path plus that child's text, PDF, or DOM position |
 | Quick Look fallback | Source/Snapshot document-level last-open position only |
+
+macOS PDF viewport positions include optional normalized screen placement for a
+validated page-bounded anchor. This retains side/page-gap whitespace that page
+coordinates alone cannot express, especially when a wide poster shares a
+continuous document with narrower pages. Restoration first navigates to the
+page anchor, then corrects the native clip bounds using converted coordinates
+and AppKit's scroll constraints. At unchanged window geometry/zoom this retains
+both horizontal and vertical placement; different viewport sizes apply the
+normalized placement where native document bounds permit it. No gesture or
+scroll delegate is replaced. Old viewport/page/rect positions remain readable
+without migration, but their previously lost whitespace cannot be reconstructed.
+Quote-bearing selections ignore and clear viewport-only metadata.
 
 Native text bridges keep one coalescer for a live-scroll burst and wait 150 ms
 after its latest bounds change, so text layout, quote extraction,

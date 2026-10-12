@@ -1132,7 +1132,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             let index = document.index(for: page)
             let rect = selection.bounds(for: page)
             var payload = parent.documentLocator.payload
-            ["positionKind", "viewportX", "viewportY"].forEach { payload[$0] = nil }
+            PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
             payload["pageIndex"] = String(index)
             payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
                 .map { String(format: "%.3f", $0) }

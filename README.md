@@ -91,6 +91,11 @@ The current development branch repairs Markdown paragraph indexing and rebuilds
 old derived search data without rewriting notes or reading positions. This fix
 is not included in the published v0.3.2 binaries.
 
+The PDF maintenance slice also restores native first-page/EPUB-spine order and
+retains macOS zoomed-PDF horizontal viewport placement, including mixed-width
+documents. Existing saved positions are preserved; these repairs are not in
+the published v0.3.2 binaries. See [reader behavior](doc/reader-workspace.md).
+
 - Shared SwiftUI domain/application module with native AppKit and UIKit shells
 - Checked-in Xcode project generated from `project.yml`; no Catalyst target
 - Empty Library with per-installation managed storage under Application Support

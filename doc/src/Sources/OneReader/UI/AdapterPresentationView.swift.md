@@ -23,6 +23,12 @@ and the host-owned WebKit bridge scrolls to a safely escaped DOM/quote anchor
 while suppressing synthetic selection callbacks. The shared
 `PDFPageRectAnchor` parser rejects malformed, non-finite, empty, and out-of-page
 geometry before either platform bridge uses it.
+The macOS PDF viewport branch delegates to `PDFViewportAnchor.restore`, retaining
+both a validated page anchor and its normalized on-screen placement after layout.
+The constrained native clip correction preserves narrow-page margins in a
+mixed-width zoomed document. Selection callbacks clear all viewport-only keys,
+including screen-placement metadata, on both platform bridges. Legacy viewport
+positions and quote/rect navigation retain their previous precedence.
 All readable surfaces emit normalized `ReadingPositionUpdate` values. PDFKit
 observes the native viewport and reports rotation-aware page fraction; native Markdown/text/code
 reports source range, line, quote, and text fraction; controlled WebKit reports
