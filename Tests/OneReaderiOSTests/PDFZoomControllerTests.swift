@@ -116,6 +116,64 @@ final class PDFZoomControllerTests: XCTestCase {
         XCTAssertEqual(view.scaleFactor, try XCTUnwrap(controller.fitWidthScale) * 1.6, accuracy: 0.001)
     }
 
+    func testNarrowPageFitsInsideWiderContinuousCanvas() throws {
+        let view = try makeMixedWidthView()
+        let page = try XCTUnwrap(view.document?.page(at: 0))
+        let controller = PDFZoomController()
+        controller.update(view, defaultScale: 1, request: nil, pageIndex: 0)
+        view.go(to: page)
+        controller.refitAfterNavigation(to: page, in: view)
+        view.layoutDocumentView()
+        controller.alignHorizontally(page, in: view)
+        let displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+        XCTAssertGreaterThanOrEqual(displayed.minX, -2)
+        XCTAssertLessThanOrEqual(displayed.maxX, view.bounds.width + 2)
+        XCTAssertGreaterThan(displayed.width, view.bounds.width * 0.9)
+    }
+
+    func testExplicitFitCentersPageOnlyOnceAndOrdinaryUpdatesPreservePan() throws {
+        let view = try makeMixedWidthView()
+        let page = try XCTUnwrap(view.document?.page(at: 0))
+        let controller = PDFZoomController()
+        controller.update(view, defaultScale: 1, request: nil, pageIndex: 0)
+        view.go(to: page)
+        let request = PDFZoomRequest(action: .fitWidth)
+        controller.update(view, defaultScale: 1, request: request, pageIndex: 0)
+        var displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+        XCTAssertGreaterThanOrEqual(displayed.minX, -2)
+        XCTAssertLessThanOrEqual(displayed.maxX, view.bounds.width + 2)
+        view.scaleFactor *= 1.8
+        view.go(to: PDFDestination(page: page, at: CGPoint(x: 180, y: 1_200)))
+        let pan = view.convert(page.bounds(for: view.displayBox), from: page).minX
+        let scale = view.scaleFactor
+        for _ in 0..<8 { controller.update(view, defaultScale: 1, request: request, pageIndex: 0) }
+        displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+        XCTAssertEqual(displayed.minX, pan, accuracy: 0.5)
+        XCTAssertEqual(view.scaleFactor, scale, accuracy: 0.001)
+    }
+
+    func testViewportRestoreCentersFittingPageWithoutChangingYButRetainsZoomedPan() throws {
+        let view = try makeMixedWidthView()
+        let page = try XCTUnwrap(view.document?.page(at: 0))
+        let controller = PDFZoomController()
+        controller.update(view, defaultScale: 1, request: nil, pageIndex: 0)
+        let point = CGPoint(x: 180, y: 1_200)
+        view.go(to: PDFDestination(page: page, at: point))
+        let y = view.convert(view.bounds.origin, to: page).y
+        controller.alignHorizontally(page, in: view, onlyIfFitting: true)
+        let fitted = view.convert(page.bounds(for: view.displayBox), from: page)
+        XCTAssertGreaterThanOrEqual(fitted.minX, -2)
+        XCTAssertLessThanOrEqual(fitted.maxX, view.bounds.width + 2)
+        XCTAssertEqual(view.convert(view.bounds.origin, to: page).y, y, accuracy: 0.5)
+        view.scaleFactor *= 1.8
+        view.go(to: PDFDestination(page: page, at: point))
+        let zoomed = view.convert(view.bounds.origin, to: page)
+        controller.alignHorizontally(page, in: view, onlyIfFitting: true)
+        let after = view.convert(view.bounds.origin, to: page)
+        XCTAssertEqual(after.x, zoomed.x, accuracy: 0.5)
+        XCTAssertEqual(after.y, zoomed.y, accuracy: 0.5)
+    }
+
     private func makeMixedWidthView() throws -> PDFView {
         let view = try makeView()
         let wide = try makeView()

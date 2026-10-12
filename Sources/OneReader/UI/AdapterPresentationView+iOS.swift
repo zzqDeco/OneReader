@@ -1009,8 +1009,11 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             context.coordinator.appliedAnchorSignature = signature
             view.pendingAnchor = { [weak coordinator = context.coordinator] view in
                 guard let coordinator, coordinator.appliedAnchorSignature == signature else { return }
+                var pageStart = false
+                var restoringViewport = false
                 if let point = PDFViewportAnchor.point(in: documentLocator, pageBounds: page.bounds(for: view.displayBox)) {
                     view.go(to: PDFDestination(page: page, at: point))
+                    restoringViewport = true
                 } else if let anchor = PDFPageRectAnchor.parse(documentLocator.payload["rect"]),
                    let rect = anchor.clipped(to: page.bounds(for: .mediaBox)) {
                     if let selection = page.selection(for: rect) {
@@ -1031,8 +1034,13 @@ struct ManagedPDFPresentation: UIViewRepresentable {
                     view.go(to: selection)
                 } else {
                     view.go(to: page)
+                    pageStart = true
                 }
                 coordinator.zoomController.refitAfterNavigation(to: page, in: view)
+                if pageStart || restoringViewport {
+                    view.layoutDocumentView()
+                    coordinator.zoomController.alignHorizontally(page, in: view, onlyIfFitting: !pageStart)
+                }
                 coordinator.updateZoom(in: view)
                 DispatchQueue.main.async {
                     guard coordinator.appliedAnchorSignature == signature else { return }

@@ -1,6 +1,6 @@
 # PDF native order and viewport recovery
 
-Status: Active
+Status: Delivered
 
 Branch: `fix/pdf-native-order-viewport`
 
@@ -132,8 +132,24 @@ Historical failure evidence stays in
 as repair acceptance. No merge, release or Provider call occurred. PR submission
 and its fresh hosted CI are recorded separately from local/visible evidence.
 The repair is submitted as [PR #22](https://github.com/zzqDeco/OneReader/pull/22)
-against dev. Its live `CI / Native validation` check must succeed on the final
-topic head before merge; this plan stays Active until delivery is authorized.
+against dev. At submission its live `CI / Native validation` check had to
+succeed on the final topic head before merge; the plan remained Active until
+delivery was authorized.
+
+Dev delivery and integration acceptance (2026-10-12): the user authorized
+merging PR #22; it merged as `0aec9a232d744bcd1b6e4d84e4eb5c8f1546c480`.
+Exact dev push [CI 38199092477](https://github.com/zzqDeco/OneReader/actions/runs/38199092477)
+passes 265 tests, zero failures, native build/package and metadata gates.
+An independent copy of that CI artifact passes renewed native macOS first-page,
+150% two-axis relaunch, cross-Space return, Markdown Library search/jump,
+native AX scrolling and actual line-347 viewport recovery. Paper/Dark are
+readable at 1440x900 and actual 900x702; 900x650 remains unverified. Test settings
+are restored, the app quits normally, and four production SQLite/WAL hashes
+still match. Sol max final-only review accepts these bounded integration gates
+without blockers. Raw native JPEG/AX and read-only image comparisons remain
+under `.onereader/acceptance/v033-dev-pr22-integration-oct12/` in the primary
+checkout. No FPS/120-Hz, pointer-success extrapolation, iPhone or release claim
+is inferred. Publication is now owned by the separate v0.3.3 release plan.
 
 ## Non-goals
 
@@ -152,5 +168,7 @@ credential changes, performance claims, main promotion and publication.
 - [x] Sol max final conclusions addressed
 - [x] Supplemental Sol max final evidence review completed
 - [x] Repair PR submitted against dev
-- [x] Fresh exact-head hosted CI required before merge
-- [ ] Separate authorization before merge/release
+- [x] Fresh exact-head hosted CI passes before merge
+- [x] Separate merge authority and exact-dev integration CI recorded
+- [x] Bounded exact-dev macOS integration acceptance completed
+- [x] Publication handed to the separately authorized v0.3.3 release plan

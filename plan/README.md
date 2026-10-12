@@ -17,8 +17,9 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
-| [PDF native order and viewport recovery](pdf-native-order-viewport.plan.md) | First-page/spine ordering and complete zoomed mixed-width PDF viewport recovery | Active |
-| [iPhone file import and PDF zoom](ios-import-pdf-zoom.plan.md) | Retained file-picker requests, native pinch ownership, fit width, and real-device import/zoom regressions | Active |
+| [v0.3.3 reader maintenance release](release-v0.3.3.plan.md) | Candidate physical-iPhone regression, protected promotion, preview publication and downloaded-artifact verification | Active |
+| [PDF native order and viewport recovery](pdf-native-order-viewport.plan.md) | First-page/spine ordering and complete zoomed mixed-width PDF viewport recovery; accepted into dev | Delivered |
+| [iPhone file import and PDF zoom](ios-import-pdf-zoom.plan.md) | Retained picker requests, native pinch, mixed-width canvas alignment and real-device regressions | Active |
 | [Markdown full-text search recovery](markdown-fulltext-index.plan.md) | Complete text indexing, existing-index rebuild, and anchored search acceptance for v0.3.3; accepted into dev | Delivered |
 | [v0.3.2 reading recovery release](release-v0.3.2.plan.md) | Protected promotion, Developer Preview publication, and downloaded-artifact verification | Delivered |
 | [Cross-format reading recovery](cross-format-reading-recovery.plan.md) | Physical PDF/EPUB/HTML gestures and visible-position restoration against isolated managed Library data | Delivered |

@@ -21,6 +21,51 @@ including the shared dependency-lock digest before and after both native builds.
 Provider tests use fake models and injected URL protocols; CI receives no real
 model secret.
 
+## v0.3.3 exact-dev macOS integration
+
+On 2026-10-12, PR #22 merged into dev as
+`0aec9a232d744bcd1b6e4d84e4eb5c8f1546c480`. Its exact dev push
+[CI 38199092477](https://github.com/zzqDeco/OneReader/actions/runs/38199092477)
+passes 265 shared tests, zero failures, native packaging and metadata gates.
+An independently identified Sandbox copy of that successful CI artifact uses
+only the same public 252-page PDF and generated Markdown in its own container.
+
+- Actual PDF cover/page 1, not a picker preview, is observed on first import.
+- At 150% and 1440x900, normal quit/relaunch restores page 249/252 and actual
+  horizontal/vertical page placement; cross-Space return preserves that plane.
+- The user confirms slow/rapid actual PDF scrolling is normal. No quantitative
+  frame-rate or zero-hitch measurement is inferred.
+- Whole-Library search shows source/snapshot/context and the chosen Markdown
+  marker-90 result is actually visible in the central text surface.
+- Native AX Down/Up moves Markdown; normal relaunch returns the visible
+  section-88 viewport and line 347, not merely a saved badge. Raw normalized
+  scrollbars and transient search selections are not asserted invariant.
+- Paper/Dark native PDF and Markdown remain readable at 1440x900 and actual
+  900x702. Enlarged PDFs need horizontal panning in compact mode; actual native
+  Right/Left actions are observed. Dark changes reader chrome, not source pages.
+- Initial System / PDF100% / 17pt / 720pt / 7pt preferences are restored, then
+  the independent App quits normally. Four production SQLite/WAL hashes match.
+
+Sol max final-only review accepts these bounded gates without blockers. Raw
+JPEG/AX, three independently recomputed image comparisons and hashes remain
+in `.onereader/acceptance/v033-dev-pr22-integration-oct12/` in the primary
+checkout. This is not untested 900x650, successful pointer gestures where only
+AX actions were observed, iPhone/iPad, release or notarization acceptance.
+
+The initial 0.3.3 (6) candidate `1e2a087` passes its own
+[CI 38215012340](https://github.com/zzqDeco/OneReader/actions/runs/38215012340)
+and the second full physical attempt (18 native + 18 UI, zero failures/skips).
+Its seeded public-book case observes 252 actual PDFKit pages, pinch/buttons,
+scrolling/persistence and relaunch Y within 16pt. Original PNG review nevertheless
+finds a narrow first page horizontally shifted in the widest-page canvas.
+A strengthened case reproduces pageMaxX 669.203pt in a 440pt viewport. This
+blocks visual admission despite the earlier green suite. The narrow repair adds
+actual page-edge containment (2pt tolerance) at initial and explicit fit plus
+native pan-preservation tests. Fresh repaired-candidate, protected promotion and
+published-artifact gates are recorded separately in the release PR/local journal.
+The first physical attempt fails in automation bootstrap, not a reader test;
+its automatically collected private-device diagnostic is not opened/uploaded.
+
 ## v0.3.3 macOS Markdown behavioral record
 
 On 2026-10-10, the independent Sandbox acceptance app from exact
@@ -58,13 +103,18 @@ combined-build or release-artifact acceptance.
 and a command-line development team. It builds an independent app identity,
 `io.github.zzqDeco.OneReader.ImportZoomAcceptance`, leaving the production app
 and its managed Library untouched. No Simulator is created or booted.
+The physical-device harness accepts CoreDevice's connected/available states
+and suppresses automatic personal-device diagnostics with
+`-collect-test-diagnostics never`; normal assertions, logs and screenshots stay
+enabled. Device result bundles are not public uploads.
 
 The dedicated device suite tests real PDFView layout/scale ownership and actual
 system-picker selection, cancellation, retry, existing-Space import, relaunch,
 native two-finger zoom, and zoom-out/zoom-in/fit-width buttons. The fixture only
 generates Files-visible inputs; the empty Library cannot become readable until
 the system picker completes the normal import. PDF assertions use independently
-observed native scale and page/viewport width, not preferences or stored progress.
+observed native scale, page count, page/viewport width and displayed horizontal
+page edges, not preferences or stored progress.
 Result bundles retain screenshots for each transition. The corresponding shared
 AppModel regressions reproduce SwiftUI's dismissal-before-completion ordering.
 The same suite records OS PDF scrolling/deceleration performance metrics, and a

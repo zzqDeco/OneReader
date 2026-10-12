@@ -36,9 +36,11 @@ final class RecoveryObservablePDFView: ReadingPDFView {
             let point = convert(CGPoint(x: bounds.minX, y: bounds.minY), to: page)
             let displayedPage = convert(page.bounds(for: displayBox), from: page)
             let fields: [String: Double] = [
-                "page": Double(document.index(for: page)), "x": point.x, "y": point.y,
+                "page": Double(document.index(for: page)), "pageCount": Double(document.pageCount),
+                "x": point.x, "y": point.y,
                 "height": bounds.height, "width": bounds.width, "scale": scaleFactor,
                 "pageWidth": displayedPage.width,
+                "pageMinX": displayedPage.minX, "pageMaxX": displayedPage.maxX,
             ]
             return (try? JSONEncoder().encode(fields)).map { String(decoding: $0, as: UTF8.self) }
         }

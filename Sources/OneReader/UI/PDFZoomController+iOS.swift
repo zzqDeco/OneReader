@@ -1,5 +1,6 @@
 #if os(iOS)
 import PDFKit
+import UIKit
 
 /// PDFKit owns the live pinch scale. Only a changed default, a width change,
 /// or a new explicit command may write the scale back to the mounted view.
@@ -60,6 +61,10 @@ final class PDFZoomController {
             let bounded = min(max(target, view.minScaleFactor), view.maxScaleFactor)
             if abs(view.scaleFactor - bounded) > 0.0001 { view.scaleFactor = bounded }
         }
+        if fittingRequested {
+            view.layoutDocumentView()
+            alignHorizontally(page, in: view)
+        }
     }
 
     /// The deferred restore anchor may navigate away from PDFKit's initial
@@ -75,6 +80,32 @@ final class PDFZoomController {
         view.maxScaleFactor = fit * 6
         let target = min(max(fit * relative, view.minScaleFactor), view.maxScaleFactor)
         if target.isFinite, abs(view.scaleFactor - target) > 0.0001 { view.scaleFactor = target }
+    }
+
+    /// Continuous documents use a canvas wide enough for their widest page.
+    /// A fitting narrow page can therefore be offscreen even at 100%. Change
+    /// only native horizontal offset after page-start/explicit-fit actions or
+    /// a viewport restore that remounts at fitting scale;
+    /// ordinary updates must never recenter a user's live pan or pinch.
+    func alignHorizontally(_ page: PDFPage, in view: PDFView, onlyIfFitting: Bool = false) {
+        let displayed = view.convert(page.bounds(for: view.displayBox), from: page)
+        guard !onlyIfFitting || displayed.width <= view.bounds.width + 0.5 else { return }
+        var ancestor = view.documentView?.superview
+        while let current = ancestor {
+            if let scroll = current as? UIScrollView {
+                let center = scroll.convert(CGPoint(x: displayed.midX, y: view.bounds.midY), from: view)
+                let target = scroll.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), from: view)
+                let minimum = -scroll.adjustedContentInset.left
+                let maximum = max(minimum, scroll.contentSize.width - scroll.bounds.width + scroll.adjustedContentInset.right)
+                let x = min(max(scroll.contentOffset.x + center.x - target.x, minimum), maximum)
+                guard x.isFinite else { return }
+                if abs(scroll.contentOffset.x - x) > 0.5 {
+                    scroll.setContentOffset(CGPoint(x: x, y: scroll.contentOffset.y), animated: false)
+                }
+                return
+            }
+            ancestor = current.superview
+        }
     }
 
     private func fitScale(for page: PDFPage, in view: PDFView) -> CGFloat? {
