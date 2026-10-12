@@ -48,6 +48,8 @@ mixed-width PDF loses horizontal viewport placement after normal relaunch.
    fresh native views, invalid metadata and legacy/selection anchors.
 5. Synchronize current-state/source-boundary docs; build and package without
    creating/booting a Simulator; independently review the final patch.
+6. After supplemental acceptance, submit the repair topic as a PR against dev
+   for fresh hosted validation. Merge/main promotion/release stay separate.
 
 ## Test Plan
 
@@ -60,8 +62,9 @@ mixed-width PDF loses horizontal viewport placement after normal relaunch.
   normal quit/relaunch and compare actual placement. Recheck source switching,
   search, Markdown recovery and light/dark wide/narrow surfaces as appropriate.
 - Hash production SQLite/WAL before/after; use no private Source or Provider.
-- No Instruments environment export, raw trace, quantitative FPS claim, push,
-  merge, tag or release in this repair/acceptance slice.
+- No Instruments environment export, raw trace, quantitative FPS claim, merge,
+  tag or release in this slice. PR submission follows completed bounded
+  acceptance; hosted CI is a separate exact-head gate.
 
 ## Acceptance Evidence
 
@@ -85,15 +88,30 @@ the pre-quit capture's menu-only AX and the foreground recheck's title-only
 AX. The sparse captures are not used as numeric scrollbar evidence. Sol max
 independently recomputed the pixel comparison and accepts these two bounded
 PDF visible gates, not the supplemental checks or publication.
-Supplemental source-switch, Markdown search/recovery and Paper/Dark wide/narrow
-checks are still pending at the generated Markdown's normal file picker:
-AX selection works, but Import is disabled and the coordinate controller
-returns `noWindowsAvailable`. The user was asked to select/confirm with a mouse.
-Four production SQLite/WAL hashes match; no production Library was opened.
+Supplemental checks pass on 2026-10-12 with unchanged implementation. Real
+Markdown import is visibly readable; returning across Spaces preserves the
+PDF placement. Entire-Library search shows source/version/context and its
+result visibly jumps to marker 90. The user confirmed real pointer scrolling
+after native automation returned `noWindowsAvailable`; normal quit/relaunch
+retains actual visible Markdown section 86 and line 341 / 70%. The transient
+search selection does not persist; raw normalized scrollers are not claimed
+invariant. Paper/Dark wide (1440x900) and compact (900x702) screenshots show
+readable native surfaces. The existing minimum window height means 900x650
+itself remains unverified. Original System theme / 100% PDF default and text
+settings are restored, then the independent App quits normally. Four fresh
+production SQLite/WAL baseline hashes match; production data was not opened.
+Sol max final-only supplemental review accepts these bounded checks and
+independently recomputes the screenshot comparisons. Its sparse-AX attribution
+correction is incorporated; merge/publication approval is not inferred.
+The authoritative local script was rerun successfully on 2026-10-12: fresh
+265/265 tests, macOS release/Sandbox/codesign gates and generic iOS device
+compilation. Only plan/evidence records changed afterwards; the upcoming PR
+still requires its own exact-head hosted validation.
 
 Historical failure evidence stays in
 `.onereader/acceptance/v033-integrated-macos/acceptance.md`; it is not relabeled
-as repair acceptance. No push, merge, release or Provider call occurred.
+as repair acceptance. No merge, release or Provider call occurred. PR submission
+and its fresh hosted CI are recorded separately from local/visible evidence.
 
 ## Non-goals
 
@@ -107,7 +125,10 @@ credential changes, performance claims, main promotion and publication.
 - [x] Complete local validation passes
 - [x] Independent PDF repair visible acceptance recorded
 - [x] Production data unchanged during PDF acceptance
-- [ ] Supplemental macOS acceptance and test-preference cleanup completed
+- [x] Bounded supplemental macOS acceptance and test-preference cleanup completed
 - [x] Current-state/source docs and indexes synchronized
 - [x] Sol max final conclusions addressed
+- [x] Supplemental Sol max final evidence review completed
+- [ ] Repair PR submitted against dev
+- [x] Fresh exact-head hosted CI required before merge
 - [ ] Separate authorization before merge/release
