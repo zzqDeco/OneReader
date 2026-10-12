@@ -112,6 +112,9 @@ Historical failure evidence stays in
 `.onereader/acceptance/v033-integrated-macos/acceptance.md`; it is not relabeled
 as repair acceptance. No merge, release or Provider call occurred. PR submission
 and its fresh hosted CI are recorded separately from local/visible evidence.
+The repair is submitted as [PR #22](https://github.com/zzqDeco/OneReader/pull/22)
+against dev. Its live `CI / Native validation` check must succeed on the final
+topic head before merge; this plan stays Active until delivery is authorized.
 
 ## Non-goals
 
@@ -129,6 +132,6 @@ credential changes, performance claims, main promotion and publication.
 - [x] Current-state/source docs and indexes synchronized
 - [x] Sol max final conclusions addressed
 - [x] Supplemental Sol max final evidence review completed
-- [ ] Repair PR submitted against dev
+- [x] Repair PR submitted against dev
 - [x] Fresh exact-head hosted CI required before merge
 - [ ] Separate authorization before merge/release
