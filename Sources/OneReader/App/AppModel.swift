@@ -113,6 +113,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var notesCenter: NotesCenterModel?
     @Published private(set) var annotationPreviewSnapshotID: String?
     private var notesOpenGeneration = UUID()
+    private var pendingNotesOpenURL: URL?
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -500,6 +501,10 @@ final class AppModel: ObservableObject {
             captureURLs(urls)
         }
         resumeCaptures()
+        if let url = pendingNotesOpenURL {
+            pendingNotesOpenURL = nil
+            handleOpenURL(url)
+        }
     }
 
     func selectCollection(_ collection: LibraryCollection) {
@@ -695,11 +700,21 @@ final class AppModel: ObservableObject {
 
     func handleOpenURL(_ url: URL) {
         if url.scheme?.lowercased() == NotesLocalRoute.scheme {
+            let route: NotesLocalRoute
+            do { route = try NotesLocalRoute(url: url) }
+            catch {
+                notice = AppNotice(title: "无法打开笔记回链", message: error.localizedDescription)
+                return
+            }
+            // Capture recovery suspends bootstrap. A cold notes link waits for
+            // that owner instead of starting a second Library/bootstrap flow.
+            guard isBootstrapComplete else {
+                pendingNotesOpenURL = url
+                return
+            }
             Task { [weak self] in
                 guard let self else { return }
-                if !isBootstrapComplete { await bootstrap() }
                 do {
-                    let route = try NotesLocalRoute(url: url)
                     guard let database else { throw NotesError.differentLibrary }
                     let entry = try await database.notesEntry(route: route)
                     try await openNotesEntry(entry)

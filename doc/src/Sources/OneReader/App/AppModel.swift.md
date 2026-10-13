@@ -6,6 +6,11 @@ preview retains the requested snapshot, suppresses progress/history writes and
 does not start indexing or Agent work. Normal source opening exits preview.
 See [notes-center boundaries](../Persistence/NotesPersistence.swift.md).
 
+Capture recovery can suspend bootstrap. Strict local notes URLs received during
+that interval wait for the owning bootstrap to finish; they never start a second
+bootstrap or enter the generic capture queue. External file/HTTPS events keep the
+capture receipt path, while explicit direct-open actions remain available.
+
 DEBUG physical recovery tests validate a UUID launch namespace and bootstrap an
 isolated Library/UserDefaults suite beside, not inside, the production Library.
 Generated PDF/EPUB/HTML/Markdown material uses the normal managed import and

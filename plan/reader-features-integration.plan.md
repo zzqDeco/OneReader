@@ -60,6 +60,27 @@ test will verify capture organization, notes identity/export and translation
 cache isolation with only generated fixtures. OCR v14 and full native/device/CI
 validation remain with the root integrator.
 
+The merged capture startup adds an async recovery suspension. A cold local
+notes link now waits for the owning bootstrap rather than invoking a second
+concurrent bootstrap. Invalid notes routes are rejected before entering the
+capture path. Focused regressions cover this interaction and cross-feature
+source/annotation/progress identity; they do not run a Provider.
+
+- Merge commit `f3b211b0eed0e8230046d966e66f92e646282467` integrates capture
+  `7acbf652250ebba68005520ddfd3d22625229228` with notes and bilingual reading.
+- 2026-10-13: `swift test --jobs 2 --filter
+  'ReaderFeatureIntegrationTests|CaptureInboxTests|NotesCenterTests|NotesExportTests|NotesNavigationTests|TranslationTests|ReleaseMetadataTests|LibraryDatabaseTests'`
+  passed 57 tests with zero failures in 3.274 seconds after the first debug build.
+  The two new integration tests verify ordered 11/12/13 migrations, original
+  Annotation/progress retention after captured-source organization, source
+  search/private-note/translation-cache separation, and cold notes-link routing.
+  Translation data is a generated cache fixture; no real model or network call
+  is made by the new tests.
+- XcodeGen regeneration, 89-file documentation index, 28-slot Apple metadata,
+  project consistency, entitlement fixtures and whitespace checks pass. Dependency
+  pins and release versions are unchanged. No release, Xcode/device or production
+  operation was performed; OCR 14 and final acceptance remain separate.
+
 ## Non-goals
 
 iPad device acceptance, hosted Xcode migration, cloud sync, distribution/signing and v0.3.3 rework.
