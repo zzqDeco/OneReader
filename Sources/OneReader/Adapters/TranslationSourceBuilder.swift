@@ -230,18 +230,34 @@ enum TranslationSourceBuilder {
         }
         if elements.isEmpty, let body = document.body() { elements = [body] }
         let requestedPath = selection?.locator.payload["domPath"] ?? locator.payload["domPath"]
-        let start = try requestedPath.flatMap { path in
-            try elements.firstIndex { try HTMLSanitizer.stableDOMPath(for: $0) == path }
-        } ?? 0
+        let start: Int
+        if let selection {
+            guard selection.locator.sourceID == locator.sourceID,
+                  selection.locator.snapshotID == locator.snapshotID,
+                  selection.locator.adapterID == locator.adapterID,
+                  let selectionPath = selection.locator.payload["domPath"],
+                  let owner = try owningHTMLBlock(path: selectionPath, document: document, blocks: elements) else {
+                throw TranslationError.selectionNotGrounded
+            }
+            start = owner
+        } else if let requestedPath, !requestedPath.isEmpty, requestedPath != "body" {
+            guard let owner = try owningHTMLBlock(path: requestedPath, document: document, blocks: elements) else {
+                throw TranslationError.noText
+            }
+            start = owner
+        } else {
+            start = 0
+        }
         var output: [TranslationSegment] = []
         var total = 0
-        for element in elements.dropFirst(start) {
+        let scopedElements = selection == nil ? Array(elements.dropFirst(start)) : [elements[start]]
+        for element in scopedElements {
             if selection == nil, !output.isEmpty, element.tagName().hasPrefix("h"), element.tagName().count == 2 { break }
             var body = try element.text()
             if let selection {
                 let quote = selection.locator.textQuote?.exact ?? selection.text
                 let matches = ranges(of: quote, in: body)
-                if matches.count != 1 { continue }
+                guard matches.count == 1 else { throw TranslationError.selectionNotGrounded }
                 body = (body as NSString).substring(with: matches[0])
             }
             guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
@@ -261,6 +277,23 @@ enum TranslationSourceBuilder {
         }
         if selection != nil, output.isEmpty { throw TranslationError.selectionNotGrounded }
         return output
+    }
+
+    /// Native selection paths can name an inline <em>/<a>/<span>. Resolve that actual DOM node
+    /// and walk only its ancestors, never scan unrelated paragraphs for the same selected words.
+    private static func owningHTMLBlock(path: String, document: SwiftSoup.Document,
+                                        blocks: [Element]) throws -> Int? {
+        guard !path.isEmpty, path.utf8.count <= 4_096 else { return nil }
+        let matches: [Element]
+        do { matches = try document.select(path).array() }
+        catch { return nil }
+        guard matches.count == 1 else { return nil }
+        var candidate: Element? = matches[0]
+        while let node = candidate {
+            if let index = blocks.firstIndex(where: { $0 === node }) { return index }
+            candidate = node.parent()
+        }
+        return nil
     }
 
     private static func makeSegment(_ text: String, locator: Locator, order: Int,

@@ -41,14 +41,14 @@ struct BilingualReadingView: View {
                 }
                 .onChange(of: controller.rows.map(\.id)) { _, _ in
                     guard let locator = model.currentPositionLocator,
-                          let row = controller.rows.first(where: { matches($0.segment.locator, locator) }) else { return }
-                    proxy.scrollTo(row.id, anchor: .top)
+                          let id = BilingualAnchorResolver.segmentID(for: locator, among: controller.rows.map(\.segment)) else { return }
+                    proxy.scrollTo(id, anchor: .top)
                 }
                 .onChange(of: model.currentPositionLocator?.stableID) { _, _ in
                     guard controller.followsSource, !isUserScrolling,
                           let locator = model.currentPositionLocator,
-                          let row = controller.rows.first(where: { matches($0.segment.locator, locator) }) else { return }
-                    proxy.scrollTo(row.id, anchor: .top)
+                          let id = BilingualAnchorResolver.segmentID(for: locator, among: controller.rows.map(\.segment)) else { return }
+                    proxy.scrollTo(id, anchor: .top)
                 }
             }
             Divider()
@@ -183,12 +183,6 @@ struct BilingualReadingView: View {
         .padding(12)
     }
 
-    private func matches(_ anchor: Locator, _ current: Locator) -> Bool {
-        guard anchor.sourceID == current.sourceID, anchor.snapshotID == current.snapshotID else { return false }
-        if let page = anchor.pdfPageIndex { return page == current.pdfPageIndex }
-        if let line = current.lineRange?.lowerBound { return anchor.lineRange?.contains(line) == true }
-        return anchor.payload["domPath"] == current.payload["domPath"]
-    }
 }
 
 private struct BilingualPositionKey: PreferenceKey {
