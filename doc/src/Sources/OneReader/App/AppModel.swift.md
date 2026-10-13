@@ -16,6 +16,11 @@ replaced by this isolated managed fixture.
 
 Owns main-actor application orchestration:
 
+Capture queue and inbox actions are composed through AppModel+Capture and the
+host-only CaptureCoordinator. Isolated test/acceptance roots never read the
+production App Group. Capture completion refreshes Library/index state without
+stealing the current reading selection.
+
 - empty-first-launch Library/Space/Source selection;
 - generic local, drag/drop, Open With/Open In, URL, and GitHub import coordination;
 - selected deterministic AdapterPlan, content tree, Observation, and native

@@ -102,6 +102,8 @@ struct WorkspaceView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 model.flushReadingPosition()
+            } else {
+                model.resumeCaptures()
             }
         }
         .onChange(of: model.readerNavigationRequestID) { _, _ in
@@ -120,7 +122,7 @@ struct WorkspaceView: View {
         // the vertical pan recognizers owned by Library and reader scroll views.
         // iOS keeps the document picker / Open In entry points instead.
         .dropDestination(for: URL.self) { urls, _ in
-            model.importLocalURLs(urls)
+            model.captureURLs(urls)
             return !urls.isEmpty
         } isTargeted: { isTargeted in
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {

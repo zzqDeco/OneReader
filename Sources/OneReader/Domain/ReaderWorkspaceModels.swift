@@ -2,6 +2,7 @@ import Foundation
 
 enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
     case allSpaces
+    case inbox, reading, read, archived
     case recent
     case processing
     case favorites
@@ -14,6 +15,10 @@ enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
         case .recent: "最近阅读"
         case .processing: "处理中"
         case .favorites: "收藏"
+        case .inbox: "待整理"
+        case .reading: "在读"
+        case .read: "已读"
+        case .archived: "归档"
         }
     }
 
@@ -23,6 +28,10 @@ enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
         case .recent: "clock"
         case .processing: "waveform.path.ecg"
         case .favorites: "star"
+        case .inbox: "tray"
+        case .reading: "book"
+        case .read: "checkmark.circle"
+        case .archived: "archivebox"
         }
     }
 }
@@ -85,6 +94,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum ImportDestination: String, CaseIterable, Identifiable, Sendable {
+    case inbox
     case newSpace
     case currentSpace
 

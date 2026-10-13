@@ -14,6 +14,12 @@ wrapper around the public `OneReaderScene`.
 | --- | --- |
 | `OneReader-macOS` | native AppKit application, Sandbox, user-selected read/write for explicit notes export, client network entitlement |
 | `OneReader-iOS` | native universal iPhone/iPad application with device families 1 and 2; Catalyst disabled |
+| `OneReader-Share` | iOS/iPadOS Share Extension with bounded file/URL receipt; no Library or model linkage |
+
+The iOS app embeds the Share Extension. Both use the same configurable App
+Group for receipt-only staging and a small Space catalog. This capability must
+be present in the team's provisioning profile; source entitlements alone are
+not physical-device acceptance. See [capture and inbox](capture-inbox.md).
 
 `OneReader.xcodeproj` is checked in so the app can be opened immediately, but it
 must match a fresh XcodeGen rendering of `project.yml`. Both targets consume the

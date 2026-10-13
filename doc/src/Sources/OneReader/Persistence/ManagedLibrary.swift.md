@@ -1,5 +1,12 @@
 # `Sources/OneReader/Persistence/ManagedLibrary.swift`
 
+Capture imports reuse the same inspector, sidecar rules, digest storage and
+transaction. An optional attempt token records the Source/Snapshot/Space IDs
+atomically with the capture job and reuses them after interruption. Captured
+temporary file URLs are not persisted as refreshable original-source URLs.
+The post-copy capacity rollback clears capture result IDs and current FTS rows
+with the source transaction.
+
 Owns local file/directory inspection, streaming SHA-256 and tree digests,
 staging-copy verification, content-addressed storage, digest deduplication,
 free-space enforcement, and the source/snapshot/Space commit boundary.

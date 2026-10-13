@@ -50,6 +50,16 @@ device visibility separately from unit/build results. Preserve production apps, 
 
 Pending. A feature remains open while its required implementation or acceptance is incomplete.
 
+### Capture / notes / bilingual merge slice
+
+Resolve the delegated capture merge without replacing existing notes or bilingual
+hooks. Preserve ordered migrations v11 → v12 → v13 and metadata 13/runtime 6,
+all native entrypoints and documentation rows. Regenerate the project and run
+static checks before committing the merge. A subsequent focused cross-feature
+test will verify capture organization, notes identity/export and translation
+cache isolation with only generated fixtures. OCR v14 and full native/device/CI
+validation remain with the root integrator.
+
 ## Non-goals
 
 iPad device acceptance, hosted Xcode migration, cloud sync, distribution/signing and v0.3.3 rework.

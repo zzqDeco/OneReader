@@ -7,6 +7,11 @@ plans and commits Source removal with Space detachment, annotation/history
 cleanup, graph/plan invalidation, progress reset, active-Run cancellation, and
 durable Agent-generation advancement in one transaction.
 
+Migration v11 and capture claims live in CapturePersistence. commitImport
+fences capture attempts and records job result IDs in the source transaction;
+it does not allow a replay to insert a second Source.
+
+The integrated migration order is capture v11, notes v12, then translation v13.
 DB v13 delegates to `TranslationPersistence.registerTranslationMigration` for
 versioned derived translation cache and Agent runtime schema 6. No old Run,
 source content, annotation or progress is rewritten by that additive migration.
