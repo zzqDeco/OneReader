@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 13
+    static let schemaVersion = 14
     static let adapterSchemaVersion = 1
     static let agentRuntimeSchemaVersion = 6
 
@@ -41,6 +41,7 @@ final class LibraryDatabase: @unchecked Sendable {
         try migrator.migrate(pool)
         try recoverInterruptedObservationIndexes()
         try interruptIncompleteAgentRuns()
+        try interruptIncompleteOCRJobs()
         try LegacyProgressMigration.backUpIfNeeded(layout: layout, pool: pool)
     }
 
@@ -1415,6 +1416,7 @@ final class LibraryDatabase: @unchecked Sendable {
         registerCaptureInboxMigration(&migrator)
         registerNotesMigration(&migrator)
         registerTranslationMigration(&migrator)
+        registerOCRMigration(&migrator)
         return migrator
     }
 

@@ -15,9 +15,10 @@ actor AdapterRegistry {
         self.adapters = table
     }
 
-    static func standard() throws -> AdapterRegistry {
-        try AdapterRegistry(adapters: [
+    static func standard(database: LibraryDatabase? = nil) throws -> AdapterRegistry {
+        var adapters: [any ContentAdapter] = [
             PDFAdapter(),
+            ImageAdapter(),
             EPUBAdapter(),
             MarkdownAdapter(),
             HTMLAdapter(),
@@ -26,7 +27,9 @@ actor AdapterRegistry {
             PlainTextAdapter(),
             DirectoryAdapter(),
             QuickLookAdapter(),
-        ])
+        ]
+        if let database { adapters.append(OCRAdapter(database: database)) }
+        return try AdapterRegistry(adapters: adapters)
     }
 
     func descriptors() -> [AdapterDescriptor] {
@@ -82,12 +85,15 @@ actor AdapterRegistry {
         auxiliary.append(contentsOf: matches.dropFirst().map(\.adapterID))
         auxiliary = Array(Set(auxiliary.filter { $0 != primary.adapterID })).sorted()
         let evidence = matches.flatMap(\.evidence) + probeFailures
-        let seed = [
+        var seedParts = [
             context.source.id,
             context.snapshot.id,
             primary.adapterID,
             auxiliary.joined(separator: ","),
-        ].joined(separator: "::")
+        ]
+        let derivedRevisions = evidence.filter { $0.rule == "ocr-revision" }.map(\.detail).sorted()
+        if !derivedRevisions.isEmpty { seedParts.append(contentsOf: derivedRevisions) }
+        let seed = seedParts.joined(separator: "::")
 
         return AdapterPlan(
             id: "adapter-plan:\(AdapterUtilities.sha256(seed).prefix(24))",

@@ -75,6 +75,11 @@ retried independently. Remote use requires the existing data-disclosure approval
 Machine translation is not original evidence; review terminology, numbers and
 negation. Scanned material needs valid OCR text first. See [bilingual reading](doc/bilingual-reading.md).
 
+The local OCR feature adds explicit on-device recognition for scanned PDF pages and
+single JPEG/PNG/HEIC images. Recognition results retain page regions and immutable versions;
+native text remains preferred, and old notes are not rewritten. See [OCR behavior and limits](doc/local-ocr.md)
+and [pending acceptance](plan/local-ocr.plan.md) before treating the feature as device-validated.
+
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
 unused SwiftAgent transitive product whose upstream manifest requires a newer

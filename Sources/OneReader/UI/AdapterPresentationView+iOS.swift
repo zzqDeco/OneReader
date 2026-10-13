@@ -972,6 +972,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     let onPositionChange: (ReadingPositionUpdate) -> Void
     var zoomRequest: PDFZoomRequest? = nil
     var onZoomChange: ((Double) -> Void)? = nil
+    var ocrRevision: OCRRevision? = nil
+    var ocrTextSelectionEnabled = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -990,6 +992,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
     func updateUIView(_ view: ReadingPDFView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.ocrOverlay.install(in: view, revision: ocrRevision,
+            selectable: ocrTextSelectionEnabled, locator: documentLocator, onSelection: onSelectionChange)
         if context.coordinator.loadedURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
@@ -1064,6 +1068,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var parent: ManagedPDFPresentation
+        let ocrOverlay = OCRPDFOverlayProvider()
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false

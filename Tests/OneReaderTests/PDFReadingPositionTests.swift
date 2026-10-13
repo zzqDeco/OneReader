@@ -5,6 +5,19 @@ import XCTest
 
 @MainActor
 final class PDFReadingPositionTests: XCTestCase {
+    func testOCRSelectionDoesNotTurnDocumentProgressIntoDerivedEvidence() throws {
+        let view = makeView()
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: OCRAdapter.id,
+            payload: ["ocrRevisionID": "revision", "ocrSchema": "1", "ocrSpanID": "span", "derivedText": "ocr", "pageIndex": "0"],
+            textQuote: TextQuote(prefix: nil, exact: "Recognized line", suffix: nil), fingerprint: "fingerprint")
+        let captured = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: base))
+        XCTAssertEqual(captured.locator.adapterID, PDFAdapter.id)
+        XCTAssertNil(captured.locator.payload["ocrRevisionID"])
+        XCTAssertNil(captured.locator.payload["ocrSpanID"])
+        XCTAssertNil(captured.locator.textQuote)
+        XCTAssertNotNil(captured.locator.payload["viewportY"])
+    }
+
     func testViewportPointRejectsMalformedOutOfPageAndSelectionLocators() {
         let bounds = CGRect(x: 0, y: 0, width: 420, height: 1_600)
         XCTAssertEqual(PDFViewportAnchor.point(in: locator(x: "20", y: "920"), pageBounds: bounds), CGPoint(x: 20, y: 920))

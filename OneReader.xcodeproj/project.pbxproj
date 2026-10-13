@@ -16,8 +16,10 @@
 		63AFE40C2D27FCD03F76719D /* OneReaderAppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */; };
 		7E711F706DE61DE4A024D81A /* CaptureStagingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2173F378D95BCDB8863E1DDE /* CaptureStagingStore.swift */; };
 		87829D4261C000A7D0B88D73 /* OneReader in Frameworks */ = {isa = PBXBuildFile; productRef = 1155E2A027D2A803661F2668 /* OneReader */; };
+		9D271553BC31B366C10E3197 /* LocalOCRDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2DF273C7AE79DEBD1A3720 /* LocalOCRDeviceTests.swift */; };
 		A9B52A3CC9D98D269C0EC8D1 /* FileImportAndPDFZoomUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF13CD63F83BEDDEE29B39D /* FileImportAndPDFZoomUITests.swift */; };
 		ADC23702128832AA7CC40F4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71F828313B2491EBEE250316 /* Assets.xcassets */; };
+		ADCD1BF8ADB1509C520755B4 /* OCRPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B15D4487BA748939CB0249 /* OCRPresentationTests.swift */; };
 		B4FFED676BC2F2DA3238BA66 /* OneReaderAppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */; };
 		C013C5CBAA576313253A81E2 /* OneReader-Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 861F0267DE9B53E64E33C4C7 /* OneReader-Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C848FDB4DCDF402114E25962 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71F828313B2491EBEE250316 /* Assets.xcassets */; };
@@ -76,9 +78,11 @@
 		861F0267DE9B53E64E33C4C7 /* OneReader-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "OneReader-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC35A80D4A1FB8234BB3609C /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		B2E4A19D0EC5A6B3300BE687 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		CA2DF273C7AE79DEBD1A3720 /* LocalOCRDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOCRDeviceTests.swift; sourceTree = "<group>"; };
 		D879AFF6EDD02DA574722F3B /* OneReader-iOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "OneReader-iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DBBD99416CA13C7BA877D649 /* OneReaderAppMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneReaderAppMain.swift; sourceTree = "<group>"; };
 		DBEF1849163B46570CEA9A4D /* OneReader-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "OneReader-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2B15D4487BA748939CB0249 /* OCRPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRPresentationTests.swift; sourceTree = "<group>"; };
 		E3E0827D8ED8AB0013796B4E /* OneReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OneReader; path = .; sourceTree = SOURCE_ROOT; };
 		F2A9FBF0456879F944C03B40 /* ReaderTextViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTextViewportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -179,6 +183,8 @@
 		98A210E8751BFFDCEB10E00C /* OneReaderiOSTests */ = {
 			isa = PBXGroup;
 			children = (
+				CA2DF273C7AE79DEBD1A3720 /* LocalOCRDeviceTests.swift */,
+				E2B15D4487BA748939CB0249 /* OCRPresentationTests.swift */,
 				5B16F9C52EC2B36DD8B3E562 /* PDFZoomControllerTests.swift */,
 				F2A9FBF0456879F944C03B40 /* ReaderTextViewportTests.swift */,
 			);
@@ -429,6 +435,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9D271553BC31B366C10E3197 /* LocalOCRDeviceTests.swift in Sources */,
+				ADCD1BF8ADB1509C520755B4 /* OCRPresentationTests.swift in Sources */,
 				401CDDF144091281C1FD2C94 /* PDFZoomControllerTests.swift in Sources */,
 				CC528FF16A933B19B7822CC5 /* ReaderTextViewportTests.swift in Sources */,
 			);

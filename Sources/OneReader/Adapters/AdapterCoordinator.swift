@@ -103,7 +103,7 @@ actor AdapterCoordinator {
     }
 
     static func standard(database: LibraryDatabase) throws -> AdapterCoordinator {
-        AdapterCoordinator(database: database, registry: try .standard())
+        AdapterCoordinator(database: database, registry: try .standard(database: database))
     }
 
     func prepare(sourceID: String, snapshotID: String) async throws -> AdapterPlan {
