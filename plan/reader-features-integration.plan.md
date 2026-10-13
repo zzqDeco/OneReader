@@ -110,6 +110,14 @@ source/annotation/progress identity; they do not run a Provider.
   measured geometry (including canonical image reading points). Full macOS regression
   passes 371 tests, zero skips/failures, including both PDF/image production bridges and
   real AppModel save/reopen flows. Final re-review and fresh CI/native build remain gates.
+- Visible macOS acceptance of `00ceb4c` confirms OCR search/jump and creation/readback of
+  a generated test note. It also exposes a missing export action in the sheet's grouped
+  toolbar. Move macOS export to a persistent native footer, keep an explicit separate iOS
+  toolbar item, and test accessible action visibility/enabled state before rebuilding.
+- The footer repair passes four mounted native-control regressions (visibility, disabled
+  empty state, latest action callback and async count reload) and the full macOS suite:
+  375 tests, zero skips/failures. Its code is still subject to fresh CI/native packaging,
+  final Sol max re-review and visible export acceptance; prior candidate CI is not reused.
 - Code candidate `37f53db36d99d1405ebdaa8ad36187b83189d8ad` integrates bilingual
   `c91b5b7`, capture `13470ee`, notes `fd61ee7` and OCR `b4f837a` review repairs.
   Source code remains DB14/runtime6 with ordered v11/v12/v13/v14 migrations.

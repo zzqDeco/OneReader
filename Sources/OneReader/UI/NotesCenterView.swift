@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct NotesCenterView: View {
     @EnvironmentObject private var app: AppModel
@@ -38,21 +41,17 @@ struct NotesCenterView: View {
                     .listStyle(.plain)
                 }
                 if model.isLoading || isRebuilding { ProgressView(isRebuilding ? "正在重建笔记搜索…" : "正在载入笔记…").padding(8) }
-                HStack {
-                    Text("共 \(model.totalCount) 条 · 已选 \(model.selectedIDs.count) 条")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("删除所选", role: .destructive) {
+                NotesCenterFooter(totalCount: model.totalCount, selectedCount: model.selectedIDs.count,
+                    onExport: { showsExport = true }, onDelete: {
                         pendingDeletion = NotesDeletion(entries: model.entries.filter { model.selectedIDs.contains($0.id) })
-                    }.disabled(model.selectedIDs.isEmpty)
-                }.padding(12)
+                    })
             }
             .background(ReaderTheme.grouped)
             .navigationTitle("笔记中心")
             .searchable(text: $model.query.search, prompt: "搜索摘录与用户笔记")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("管理标签", systemImage: "tag") { showsTags = true }
                         Button("重建笔记搜索索引", systemImage: "arrow.clockwise") {
@@ -64,9 +63,14 @@ struct NotesCenterView: View {
                             }
                         }.disabled(isRebuilding)
                     } label: { Label("笔记选项", systemImage: "tag") }
+                }
+#if !os(macOS)
+                ToolbarItem(placement: .primaryAction) {
                     Button { showsExport = true } label: { Label("导出", systemImage: "square.and.arrow.up") }
                         .disabled(model.totalCount == 0)
+                        .accessibilityIdentifier("notes-export")
                 }
+#endif
             }
             .task(id: NotesRefreshKey(query: model.query, revision: model.revision)) {
                 do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
@@ -149,6 +153,70 @@ struct NotesCenterView: View {
         })
     }
 }
+
+/// Keep the macOS export action in the content hierarchy. A sheet toolbar can
+/// compact or omit grouped items; that must not make the main workflow disappear.
+struct NotesCenterFooter: View {
+    let totalCount: Int
+    let selectedCount: Int
+    let onExport: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack {
+            Text("共 \(totalCount) 条 · 已选 \(selectedCount) 条")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+#if os(macOS)
+            NativeNotesExportButton(enabled: totalCount > 0, action: onExport)
+                .disabled(totalCount == 0)
+                .fixedSize()
+#endif
+            Button("删除所选", role: .destructive, action: onDelete)
+                .disabled(selectedCount == 0)
+                .accessibilityIdentifier("notes-delete-selected")
+        }.padding(12)
+    }
+}
+
+#if os(macOS)
+/// A real AppKit action stays visible and accessible independently of sheet
+/// toolbar compaction. Its keyboard equivalent belongs to this testable control.
+private struct NativeNotesExportButton: NSViewRepresentable {
+    let enabled: Bool
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action, enabled: enabled) }
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: "导出 Markdown", target: context.coordinator, action: #selector(Coordinator.export))
+        button.bezelStyle = .rounded
+        button.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.keyEquivalent = "e"; button.keyEquivalentModifierMask = [.command, .shift]
+        context.coordinator.enabled = enabled && context.environment.isEnabled
+        button.isEnabled = context.coordinator.enabled
+        button.setAccessibilityElement(true)
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel("导出 Markdown")
+        button.setAccessibilityIdentifier("notes-export")
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        return button
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.action = action
+        context.coordinator.enabled = enabled && context.environment.isEnabled
+        button.isEnabled = context.coordinator.enabled
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? { nsView.intrinsicContentSize }
+
+    @MainActor final class Coordinator: NSObject {
+        var action: () -> Void
+        var enabled: Bool
+        init(action: @escaping () -> Void, enabled: Bool) { self.action = action; self.enabled = enabled }
+        @objc func export() { if enabled { action() } }
+    }
+}
+#endif
 
 private struct NotesRefreshKey: Equatable { let query: NotesQuery; let revision: UUID }
 private struct NotesDeletion: Identifiable {

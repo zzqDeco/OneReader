@@ -17,6 +17,11 @@
   provide native controls, selectable retained content, scope previews, explicit
   destructive confirmations, error feedback, cancellation and directory consent.
   The Inspector uses the same editor and mutation service.
+  macOS export is a persistent AppKit button in `NotesCenterFooter`, with explicit
+  accessibility identity and a keyboard equivalent. Enabled state respects both
+  current note count and the SwiftUI environment; its coordinator rejects stale
+  disabled actions and updates the callback on reload. iOS export is a separate
+  toolbar item rather than a second child in a compacted group.
 
 See [notes center contracts](../../../../notes-center.md). Native/device
 acceptance is not implied by the unit-level data and export regression suite.
