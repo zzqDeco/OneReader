@@ -47,6 +47,9 @@ extension LibraryDatabase {
     }
 
     func startOCRJob(_ job: OCRJob) throws {
+        guard !job.engineVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OCRError.invalidInput("识别任务未记录宿主引擎。")
+        }
         guard !job.pageIndices.isEmpty, job.pageIndices.count <= OCRSettings.maximumPagesPerJob,
               job.pageIndices.allSatisfy({ $0 >= 0 }), Set(job.pageIndices).count == job.pageIndices.count else {
             throw OCRError.resourceLimit
@@ -69,11 +72,39 @@ extension LibraryDatabase {
             var job = try Self.readOCRJob(jobID, db: db)
             try Self.validateOCRSource(job, db: db)
             guard job.state == .running, job.pageIndices.contains(page.pageIndex) else { throw OCRError.staleJob }
-            let data = try JSONEncoder().encode(page)
-            try db.execute(sql: "INSERT OR REPLACE INTO ocr_job_pages VALUES (?, ?, ?)", arguments: [jobID, page.pageIndex, data])
-            job.completedPages = Array(Set(job.completedPages + [page.pageIndex])).sorted()
-            job.updatedAt = .now
-            try Self.writeOCRJob(job, db: db)
+            // The engine's page metadata is untrusted. Bind it to the persisted host job
+            // and the time this result was received, not to fields in the engine response.
+            try Self.writeOCRPage(page.hostStamped(job: job, at: .now), job: &job, db: db)
+            return job
+        }
+    }
+
+    /// Reuses only authentic persisted draft pages. Carryover is not a new recognition:
+    /// retain the original host stamp (or explicit legacy unknown), even on a new engine.
+    func resumeOCRDraftPages(fromJobID: String, intoJobID: String) throws -> OCRJob {
+        try pool.write { db in
+            let previous = try Self.readOCRJob(fromJobID, db: db)
+            var job = try Self.readOCRJob(intoJobID, db: db)
+            try Self.validateOCRSource(previous, db: db)
+            try Self.validateOCRSource(job, db: db)
+            guard previous.id != job.id, job.state == .running,
+                  [.interrupted, .cancelled, .partial, .failed].contains(previous.state),
+                  previous.sourceID == job.sourceID, previous.snapshotID == job.snapshotID,
+                  previous.settings == job.settings else { throw OCRError.staleJob }
+            let rows = try Row.fetchAll(db,
+                sql: "SELECT page_index, payload FROM ocr_job_pages WHERE job_id = ? ORDER BY page_index",
+                arguments: [previous.id])
+            for row in rows {
+                let pageIndex: Int = row["page_index"]
+                guard job.pageIndices.contains(pageIndex), !job.completedPages.contains(pageIndex) else { continue }
+                guard previous.pageIndices.contains(pageIndex), previous.completedPages.contains(pageIndex) else {
+                    throw OCRError.staleJob
+                }
+                let page = try JSONDecoder().decode(OCRPage.self, from: row["payload"])
+                guard page.pageIndex == pageIndex else { throw OCRError.staleJob }
+                try page.validate()
+                try Self.writeOCRPage(page, job: &job, db: db)
+            }
             return job
         }
     }
@@ -110,7 +141,7 @@ extension LibraryDatabase {
             try Self.writeOCRJob(job, db: db)
             guard !newPages.isEmpty else { return nil }
             let revision = OCRRevision(id: UUID().uuidString.lowercased(), sourceID: job.sourceID,
-                snapshotID: job.snapshotID, jobID: job.id, engineVersion: OCRSettings.engineVersion,
+                snapshotID: job.snapshotID, jobID: job.id, engineVersion: job.engineVersion,
                 settings: job.settings, pages: pages, createdAt: .now)
             let encoded = try JSONEncoder().encode(revision)
             guard encoded.count <= OCRSettings.maximumRevisionBytes else { throw OCRError.resourceLimit }
@@ -191,5 +222,13 @@ extension LibraryDatabase {
     private static func writeOCRJob(_ job: OCRJob, db: Database) throws {
         try db.execute(sql: "INSERT INTO ocr_jobs (id, source_id, snapshot_id, state, payload, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state, payload = excluded.payload, updated_at = excluded.updated_at",
             arguments: [job.id, job.sourceID, job.snapshotID, job.state.rawValue, try JSONEncoder().encode(job), job.updatedAt])
+    }
+
+    private static func writeOCRPage(_ page: OCRPage, job: inout OCRJob, db: Database) throws {
+        try db.execute(sql: "INSERT OR REPLACE INTO ocr_job_pages VALUES (?, ?, ?)",
+                       arguments: [job.id, page.pageIndex, try JSONEncoder().encode(page)])
+        job.completedPages = Array(Set(job.completedPages + [page.pageIndex])).sorted()
+        job.updatedAt = .now
+        try writeOCRJob(job, db: db)
     }
 }

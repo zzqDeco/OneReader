@@ -107,16 +107,17 @@ actor AdapterCoordinator {
     }
 
     func prepare(sourceID: String, snapshotID: String) async throws -> AdapterPlan {
-        let context = try context(sourceID: sourceID, snapshotID: snapshotID)
-        let plan = try await registry.deterministicPlan(for: context)
-        if plan.capabilityRoutes[.revision] != nil {
-            try await registry.verifyRevision(
-                adapterID: plan.capabilityRoutes[.revision] ?? plan.primaryAdapterID,
-                in: context
-            )
+        for _ in 0..<3 {
+            try Task.checkCancellation()
+            let context = try context(sourceID: sourceID, snapshotID: snapshotID)
+            let plan = try await registry.deterministicPlan(for: context)
+            if plan.capabilityRoutes[.revision] != nil {
+                try await registry.verifyRevision(adapterID: plan.capabilityRoutes[.revision] ?? plan.primaryAdapterID, in: context)
+            }
+            do { try database.saveAdapterPlan(plan); return plan }
+            catch LibraryDatabaseError.staleOCRPlan { continue }
         }
-        try database.saveAdapterPlan(plan)
-        return plan
+        throw LibraryDatabaseError.staleOCRPlan
     }
 
     func deterministicPlan(sourceID: String, snapshotID: String) async throws -> AdapterPlan {
@@ -189,6 +190,7 @@ actor AdapterCoordinator {
         limit: Int = 20,
         preferIndex: Bool = true
     ) async throws -> [ContentSearchHit] {
+        try database.validateCurrentOCRPlan(plan)
         if preferIndex {
             let indexed = try database.searchObservations(
                 query: query,

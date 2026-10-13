@@ -3,11 +3,14 @@ import GRDB
 
 enum LibraryDatabaseError: LocalizedError, Equatable {
     case corruptValue(table: String, column: String, value: String)
+    case staleOCRPlan
 
     var errorDescription: String? {
         switch self {
         case let .corruptValue(table, column, value):
             "数据库字段无法解码：\(table).\(column)=\(value)"
+        case .staleOCRPlan:
+            "识别版本在探测或索引期间发生变化，请重新探测来源。"
         }
     }
 }
@@ -42,6 +45,7 @@ final class LibraryDatabase: @unchecked Sendable {
         try recoverInterruptedObservationIndexes()
         try interruptIncompleteAgentRuns()
         try interruptIncompleteOCRJobs()
+        try invalidateStaleOCRPlans()
         try LegacyProgressMigration.backUpIfNeeded(layout: layout, pool: pool)
     }
 
@@ -681,6 +685,7 @@ final class LibraryDatabase: @unchecked Sendable {
     func saveAdapterPlan(_ plan: AdapterPlan) throws {
         let payload = try JSONEncoder.databaseEncoder.encode(plan)
         try pool.write { db in
+            try Self.validateOCRPlanBinding(plan, db: db)
             try db.execute(
                 sql: """
                     INSERT INTO adapter_plans
@@ -717,6 +722,44 @@ final class LibraryDatabase: @unchecked Sendable {
         }
     }
 
+    /// Probe results are only a candidate. Activation and index publication must compare
+    /// their derived revision with the current OCR layer in the same database transaction.
+    static func validateOCRPlanBinding(_ plan: AdapterPlan, db: Database) throws {
+        let bindings = Set(plan.evidence.filter { $0.adapterID == OCRAdapter.id && $0.rule == "ocr-revision" }.map(\.detail))
+        guard bindings.count <= 1 else { throw LibraryDatabaseError.staleOCRPlan }
+        let current = try String.fetchOne(db, sql: "SELECT revision_id FROM ocr_active WHERE snapshot_id = ?", arguments: [plan.snapshotID])
+        guard current == bindings.first else { throw LibraryDatabaseError.staleOCRPlan }
+        let selectsOCR = plan.primaryAdapterID == OCRAdapter.id || plan.auxiliaryAdapterIDs.contains(OCRAdapter.id)
+            || plan.capabilityRoutes.values.contains(OCRAdapter.id)
+        guard !selectsOCR || current != nil else { throw LibraryDatabaseError.staleOCRPlan }
+    }
+
+    func validateCurrentOCRPlan(_ plan: AdapterPlan) throws {
+        try pool.read { try Self.validateOCRPlanBinding(plan, db: $0) }
+    }
+
+    private static func storedIndexPlan(snapshotID: String, planID: String, db: Database) throws -> AdapterPlan {
+        guard let data = try Data.fetchOne(db, sql: "SELECT payload_json FROM adapter_plans WHERE id = ? AND snapshot_id = ?", arguments: [planID, snapshotID]) else {
+            throw CancellationError()
+        }
+        let plan = try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: data)
+        try validateOCRPlanBinding(plan, db: db)
+        return plan
+    }
+
+    private func invalidateStaleOCRPlans() throws {
+        try pool.write { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT p.payload_json FROM adapter_plans p JOIN active_adapter_plans a ON a.plan_id = p.id")
+            for row in rows {
+                let plan = try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: row["payload_json"])
+                do { try Self.validateOCRPlanBinding(plan, db: db) }
+                catch LibraryDatabaseError.staleOCRPlan {
+                    try db.execute(sql: "DELETE FROM active_adapter_plans WHERE snapshot_id = ? AND plan_id = ?", arguments: [plan.snapshotID, plan.id])
+                }
+            }
+        }
+    }
+
     func fetchAdapterPlan(snapshotID: String) throws -> AdapterPlan? {
         try pool.read { db in
             guard let data = try Data.fetchOne(
@@ -729,7 +772,10 @@ final class LibraryDatabase: @unchecked Sendable {
                     """,
                 arguments: [snapshotID]
             ) else { return nil }
-            return try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: data)
+            let plan = try JSONDecoder.databaseDecoder.decode(AdapterPlan.self, from: data)
+            do { try Self.validateOCRPlanBinding(plan, db: db) }
+            catch LibraryDatabaseError.staleOCRPlan { return nil }
+            return plan
         }
     }
 
@@ -803,6 +849,7 @@ final class LibraryDatabase: @unchecked Sendable {
     func beginObservationIndex(snapshotID: String, planID: String) throws -> String {
         let generationID = UUID().uuidString.lowercased()
         try pool.write { db in
+            _ = try Self.storedIndexPlan(snapshotID: snapshotID, planID: planID, db: db)
             guard try Bool.fetchOne(
                 db,
                 sql: """
@@ -858,6 +905,12 @@ final class LibraryDatabase: @unchecked Sendable {
     ) throws {
         let locatorJSON = try JSONEncoder.databaseEncoder.encode(observation.locator)
         try pool.write { db in
+            guard let planID = try String.fetchOne(db, sql: "SELECT plan_id FROM observation_index_runs WHERE snapshot_id = ? AND generation_id = ? AND state = 'running'", arguments: [observation.snapshotID, generationID]) else { throw CancellationError() }
+            let plan = try Self.storedIndexPlan(snapshotID: observation.snapshotID, planID: planID, db: db)
+            guard plan.sourceID == observation.sourceID else { throw CancellationError() }
+            if observation.adapterID == OCRAdapter.id {
+                guard observation.locator.payload["ocrRevisionID"] == plan.evidence.first(where: { $0.adapterID == OCRAdapter.id && $0.rule == "ocr-revision" })?.detail else { throw LibraryDatabaseError.staleOCRPlan }
+            }
             guard try Bool.fetchOne(
                 db,
                 sql: """
@@ -912,6 +965,7 @@ final class LibraryDatabase: @unchecked Sendable {
         generationID: String
     ) throws {
         try pool.write { db in
+            _ = try Self.storedIndexPlan(snapshotID: snapshotID, planID: planID, db: db)
             guard try Bool.fetchOne(
                 db,
                 sql: """

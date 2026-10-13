@@ -98,6 +98,39 @@ struct OCRSpan: Identifiable, Codable, Hashable, Sendable {
     let order: Int
 }
 
+/// Immutable host metadata, not a claim accepted from a recognition engine.
+struct OCRPageProvenanceRecord: Codable, Hashable, Sendable {
+    let engineVersion: String
+    let settings: OCRSettings
+    let jobID: String
+    let recognizedAt: Date
+}
+
+enum OCRPageProvenance: Codable, Hashable, Sendable {
+    /// Older page payloads did not record provenance. Never infer it from a revision.
+    case unknown
+    case recognized(OCRPageProvenanceRecord)
+    /// PDFKit's existing text was retained; no OCR was performed for this page.
+    case nativeText(OCRPageProvenanceRecord)
+
+    static let unknownEngineVersion = "unknown"
+    static let nativeTextEngineVersion = "pdfkit-native-text-v1"
+
+    var record: OCRPageProvenanceRecord? {
+        switch self {
+        case .unknown: nil
+        case .recognized(let record), .nativeText(let record): record
+        }
+    }
+
+    static func hostStamped(job: OCRJob, usesNativeText: Bool, at date: Date) -> Self {
+        let record = OCRPageProvenanceRecord(
+            engineVersion: usesNativeText ? nativeTextEngineVersion : job.engineVersion,
+            settings: job.settings, jobID: job.id, recognizedAt: date)
+        return usesNativeText ? .nativeText(record) : .recognized(record)
+    }
+}
+
 struct OCRPage: Identifiable, Codable, Hashable, Sendable {
     var id: Int { pageIndex }
     let pageIndex: Int
@@ -105,7 +138,34 @@ struct OCRPage: Identifiable, Codable, Hashable, Sendable {
     let geometry: OCRGeometry
     let spans: [OCRSpan]
     let usesNativeText: Bool
+    let provenance: OCRPageProvenance
     var text: String { spans.sorted { $0.order < $1.order }.map(\.text).joined(separator: "\n") }
+
+    init(pageIndex: Int, inputDigest: String, geometry: OCRGeometry, spans: [OCRSpan],
+         usesNativeText: Bool, provenance: OCRPageProvenance = .unknown) {
+        self.pageIndex = pageIndex; self.inputDigest = inputDigest; self.geometry = geometry
+        self.spans = spans; self.usesNativeText = usesNativeText; self.provenance = provenance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pageIndex, inputDigest, geometry, spans, usesNativeText, provenance
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        pageIndex = try values.decode(Int.self, forKey: .pageIndex)
+        inputDigest = try values.decode(String.self, forKey: .inputDigest)
+        geometry = try values.decode(OCRGeometry.self, forKey: .geometry)
+        spans = try values.decode([OCRSpan].self, forKey: .spans)
+        usesNativeText = try values.decode(Bool.self, forKey: .usesNativeText)
+        provenance = try values.decodeIfPresent(OCRPageProvenance.self, forKey: .provenance) ?? .unknown
+    }
+
+    func hostStamped(job: OCRJob, at date: Date) -> OCRPage {
+        OCRPage(pageIndex: pageIndex, inputDigest: inputDigest, geometry: geometry, spans: spans,
+                usesNativeText: usesNativeText,
+                provenance: .hostStamped(job: job, usesNativeText: usesNativeText, at: date))
+    }
 
     func validate() throws {
         guard pageIndex >= 0, geometry.isValid, !inputDigest.isEmpty,
@@ -127,17 +187,30 @@ struct OCRJob: Identifiable, Codable, Hashable, Sendable {
     let snapshotID: String
     let pageIndices: [Int]
     let settings: OCRSettings
+    /// The host-selected engine for this job, never supplied by an OCRPage.
+    let engineVersion: String
     var completedPages: [Int]
     var failedPages: [Int]
     var failureReasons: [Int: String] = [:]
     var state: OCRJobState
     let createdAt: Date
     var updatedAt: Date
+
+    init(id: String, sourceID: String, snapshotID: String, pageIndices: [Int], settings: OCRSettings,
+         engineVersion: String = OCRPageProvenance.unknownEngineVersion,
+         completedPages: [Int], failedPages: [Int], failureReasons: [Int: String] = [:],
+         state: OCRJobState, createdAt: Date, updatedAt: Date) {
+        self.id = id; self.sourceID = sourceID; self.snapshotID = snapshotID
+        self.pageIndices = pageIndices; self.settings = settings; self.engineVersion = engineVersion
+        self.completedPages = completedPages; self.failedPages = failedPages
+        self.failureReasons = failureReasons; self.state = state
+        self.createdAt = createdAt; self.updatedAt = updatedAt
+    }
 }
 
 extension OCRJob {
     private enum CodingKeys: String, CodingKey {
-        case id, sourceID, snapshotID, pageIndices, settings, completedPages, failedPages
+        case id, sourceID, snapshotID, pageIndices, settings, engineVersion, completedPages, failedPages
         case failureReasons, state, createdAt, updatedAt
     }
 
@@ -148,6 +221,8 @@ extension OCRJob {
         snapshotID = try values.decode(String.self, forKey: .snapshotID)
         pageIndices = try values.decode([Int].self, forKey: .pageIndices)
         settings = try values.decode(OCRSettings.self, forKey: .settings)
+        engineVersion = try values.decodeIfPresent(String.self, forKey: .engineVersion)
+            ?? OCRPageProvenance.unknownEngineVersion
         completedPages = try values.decode([Int].self, forKey: .completedPages)
         failedPages = try values.decode([Int].self, forKey: .failedPages)
         failureReasons = try values.decodeIfPresent([Int: String].self, forKey: .failureReasons) ?? [:]
@@ -161,6 +236,7 @@ struct OCRRevision: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let sourceID: String
     let snapshotID: String
+    /// These parameters describe only the publishing job. Merged pages retain their own origins.
     let jobID: String
     let engineVersion: String
     let settings: OCRSettings

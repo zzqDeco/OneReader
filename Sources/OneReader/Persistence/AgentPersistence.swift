@@ -1647,6 +1647,7 @@ extension LibraryDatabase {
             guard manifest[plan.sourceID] == plan.snapshotID else {
                 throw ReadingAgentError.validationRejected("snapshot-not-current")
             }
+            try validateOCRPlanBinding(plan, db: db)
             let payload = try AgentPersistenceCoder.encoder.encode(plan)
             try db.execute(
                 sql: """

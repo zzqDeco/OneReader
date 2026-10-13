@@ -142,9 +142,13 @@ struct OCRReaderPanel: View {
                         Toggle("在原图上选择识别行", isOn: $model.ocrTextSelectionEnabled)
                         Text("开启后点击原图中的文字区域；双指缩放与滚动保持原生行为。也可从下方定位、复制或添加高亮。")
                             .font(.caption).foregroundStyle(.secondary)
-                        ForEach(revision.pages.filter { !$0.usesNativeText }) { page in
-                            DisclosureGroup("第 \(page.pageIndex + 1) 页 · \(page.spans.count) 行") {
-                                if page.spans.isEmpty {
+                        ForEach(revision.pages) { page in
+                            DisclosureGroup("第 \(page.pageIndex + 1) 页 · \(page.usesNativeText ? "原生文字（未 OCR）" : "\(page.spans.count) 行")") {
+                                OCRPageProvenanceView(page: page)
+                                if page.usesNativeText {
+                                    Text("本页保留 PDF 原生文字，没有执行 OCR；请在原文中选择文字。")
+                                        .foregroundStyle(.secondary)
+                                } else if page.spans.isEmpty {
                                     Text("本页未识别出可用文字，可调整语言后重试。").foregroundStyle(.secondary)
                                 }
                                 ForEach(page.spans) { span in
@@ -184,6 +188,8 @@ struct OCRReaderPanel: View {
                         }
                         Text("旧版本保留，已有笔记和引用不会悄悄改用新识别结果。")
                             .font(.caption).foregroundStyle(.secondary)
+                        Text("版本的引擎和设置只描述发布这次任务；沿用页的生成设置请在对应页查看。")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -215,5 +221,29 @@ struct OCRReaderPanel: View {
 #else
         UIPasteboard.general.string = value
 #endif
+    }
+}
+
+private struct OCRPageProvenanceView: View {
+    let page: OCRPage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch page.provenance {
+            case .unknown:
+                Text("生成来源未知：旧记录未保存逐页引擎、设置、任务及时间；不会用本次设置补填。")
+            case .recognized(let record), .nativeText(let record):
+                Text(page.usesNativeText ? "来源：PDF 原生文字（未执行 OCR）" : "来源：本机 OCR")
+                Text("引擎：\(record.engineVersion == OCRPageProvenance.unknownEngineVersion ? "未知" : record.engineVersion)")
+                Text("\(page.usesNativeText ? "任务语言（未用于 OCR）" : "识别语言")：\(record.settings.languages.joined(separator: "、"))")
+                Text("原生文字策略：\(record.settings.replaceNativeText ? "使用 OCR 替代" : "保留有效原生文字")")
+                Text("任务：\(record.jobID)")
+                Text("\(page.usesNativeText ? "保留时间" : "识别结果接收时间")：\(record.recognizedAt.formatted(date: .numeric, time: .standard))")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
     }
 }

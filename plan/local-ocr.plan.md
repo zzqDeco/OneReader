@@ -41,6 +41,12 @@ Publish immutable OCR revisions through a registered adapter, never as model-aut
 - A result becomes active only after validating its source snapshot and current job generation.
 - Prior revisions remain available for old annotations and evidence. No destructive cache clearing.
 - Index plan identity includes OCR revision; the existing projection swap rejects stale work.
+- Adapter-plan activation and every index transition validate the active OCR revision in the
+  same database transaction. Late probes retry; historical evidence does not become current search.
+- Native PDFKit text selection always creates a native PDF locator, even when the view was
+  opened from an OCR page. It must not inherit OCR revision, span or derived text offsets.
+- Each recognized page retains the actual host-selected engine, language/settings, job and time.
+  Partial reruns and resume preserve carried-page provenance; legacy pages remain explicitly unknown.
 
 ## Implementation
 
@@ -55,6 +61,9 @@ Publish immutable OCR revisions through a registered adapter, never as model-aut
 
 - Deterministic geometry across crop offsets and 0/90/180/270 degree rotation; <=2pt error.
 - Fake-engine cancellation, stale generation/revision rejection, partial failure, restart and retry.
+- Deterministic paused-probe race, late index publication, startup recovery and Agent-plan activation.
+- Native mixed-PDF selection through both production presentation bridges; valid read/resolve/highlight.
+- Mixed-engine/language partial reruns, native-text provenance and legacy decoding/resume.
 - Immutable revision resolution, native/OCR deduplication, evidence retention and migration.
 - Corrupt/encrypted input, size/pixel/page bounds, unsupported language and no network dependency.
 - Locally generated bilingual printed-image/PDF fixture: real Vision phrases, ordering and regions.
@@ -79,6 +88,13 @@ Publish immutable OCR revisions through a registered adapter, never as model-aut
   now run by default, including CI; no environment opt-in hides an OCR failure.
 - Source-switch callback invalidation and same-image search navigation are covered by new
   regressions. The focused OCR/image/PDF suite passed 30 tests before removing smoke skips.
+- Reviewer repair candidate, 2026-10-13: full macOS suite passes 298 tests, zero skips and
+  failures. New regressions cover late probe retry, stale completed-index activation, index
+  publication, startup legacy-plan repair, atomic Agent-plan rejection, native mixed-PDF
+  bridge selection and eight provenance/legacy/resume cases. Real Vision fixtures run.
+- The prior committed OCR head passed 21 physical-iPhone hosted tests. The reviewer repair
+  candidate adds an iPhone native mixed-PDF selection test; that new device run is pending.
+  No completed automated run is substituted for visible reader or gesture acceptance.
 
 No automated test substitutes for visual acceptance. OCR is not yet accepted for delivery.
 

@@ -1144,22 +1144,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             }
             let index = document.index(for: page)
             let rect = selection.bounds(for: page)
-            var payload = parent.documentLocator.payload
-            PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
-            payload["pageIndex"] = String(index)
-            payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
-                .map { String(format: "%.3f", $0) }
-                .joined(separator: ",")
-            let locator = Locator(
-                sourceID: parent.documentLocator.sourceID,
-                snapshotID: parent.documentLocator.snapshotID,
-                adapterID: parent.documentLocator.adapterID,
-                payload: payload,
-                structuralPath: "page/\(index)",
-                textQuote: TextQuote(prefix: nil, exact: selected, suffix: nil),
-                fingerprint: AdapterUtilities.sha256(selected)
-            )
-            parent.onSelectionChange(ReaderSelection(text: selected, locator: locator))
+            parent.onSelectionChange(NativePDFSelectionAnchor.selection(base: parent.documentLocator,
+                pageIndex: index, rectangle: rect, text: selected))
         }
     }
 }

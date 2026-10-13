@@ -13,6 +13,11 @@ from `search_documents`, records one active AdapterPlan per Snapshot, keys index
 runs by Snapshot plus plan ID, and publishes only after an active-plan
 compare-and-swap. Startup drops interrupted staging so a partial or superseded
 plan can never be mistaken for current searchable data.
+OCR adds a second compare-and-swap boundary: plan activation and every index transition
+must match the active OCR revision in the same transaction. Completed historical indexes
+cannot be reactivated after partial or full recognition publishes a new layer. Startup
+invalidates pre-fix stale active pointers without deleting old plans, revisions or evidence.
+Agent plan finalization uses the same guard.
 After a v8-to-v9 migration, active searchable plans without a completed
 projection are queryable as deterministic rebuild work. App bootstrap schedules
 all of them, so global search recovers without opening each Space.
