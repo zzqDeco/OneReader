@@ -81,6 +81,23 @@ source/annotation/progress identity; they do not run a Provider.
   pins and release versions are unchanged. No release, Xcode/device or production
   operation was performed; OCR 14 and final acceptance remain separate.
 
+### OCR integration slice
+
+- `21d0a99` integrates OCR `d58276c` while preserving all native entrypoints and
+  ordered migrations v11 → v12 → v13 → v14. Release metadata is DB14/runtime6.
+- OCR topic validation: 283 macOS tests, zero skips/failures; 21 physical-iPhone
+  hosted tests, zero failures, including real local Chinese/English recognition.
+  Accurate Vision revision 2 is the validated macOS compatibility pipeline;
+  iOS uses revision 3. The actual engine is recorded in immutable OCR evidence.
+- Integration additionally adapts native-image and mixed-PDF translation reads.
+  Full OCR pages become bounded, readable UTF-16 evidence fragments; repeated
+  selected OCR lines use verified span offsets. Native PDF pages are not
+  reinterpreted as OCR. `OCRFeatureIntegrationTests` passes the complete generated
+  capture → image → OCR → source-fragment → notes/export path, old evidence after
+  re-recognition, original-byte/position retention and four-migration ordering.
+- Full integrated/native/visible acceptance and Sol max conclusions remain gates,
+  not implied by topic or cross-feature test success. No real Provider is called.
+
 ## Non-goals
 
 iPad device acceptance, hosted Xcode migration, cloud sync, distribution/signing and v0.3.3 rework.

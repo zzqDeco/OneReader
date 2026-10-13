@@ -17,23 +17,38 @@ enum TranslationSourceBuilder {
         case .sanitizedWeb:
             guard let html = document.content else { throw TranslationError.noText }
             values = try htmlSegments(html, locator: locator, selection: selection)
-        case .pdfKit, .quickLook:
+        case .pdfKit, .nativeImage, .quickLook:
             // OCR can supply a real read route without changing the PDF/image presentation.
             guard let readID = plan.capabilityRoutes[.read] else { throw TranslationError.noText }
             var readLocator = locator
-            if readID != locator.adapterID, plan.capabilityRoutes[.list] == readID {
+            if readID == OCRAdapter.id, locator.adapterID != OCRAdapter.id,
+               let revision = try database.activeOCRRevision(snapshotID: locator.snapshotID),
+               revision.sourceID == locator.sourceID,
+               let page = revision.pages.first(where: { $0.pageIndex == (locator.pdfPageIndex ?? 0) && !$0.usesNativeText }) {
+                readLocator = revision.locator(page: page)
+            } else if readID != locator.adapterID, plan.capabilityRoutes[.list] == readID {
                 let nodes = try await coordinator.list(plan: plan, limit: 2_000)
                 if let current = nodes.first(where: {
                     $0.isReadable && $0.locator.adapterID == readID && $0.locator.pdfPageIndex == locator.pdfPageIndex
                 }) { readLocator = current.locator }
             }
+            // A mixed PDF keeps native page locators even when OCR owns the document's
+            // read route. Never reinterpret an untreated native page as OCR evidence.
+            let effectiveReadID = readLocator.adapterID == PDFAdapter.id ? PDFAdapter.id : readID
+            var payload = readLocator.payload
+            if effectiveReadID == OCRAdapter.id {
+                for key in ["ocrSpanID", "rect", "startUTF16", "endUTF16", "indexTextRange"] { payload[key] = nil }
+            }
             let anchor = Locator(sourceID: readLocator.sourceID, snapshotID: readLocator.snapshotID,
-                adapterID: readID, payload: readLocator.payload, structuralPath: readLocator.structuralPath,
-                textQuote: readLocator.textQuote, fingerprint: readLocator.fingerprint)
+                adapterID: effectiveReadID, payload: payload, structuralPath: readLocator.structuralPath,
+                textQuote: effectiveReadID == OCRAdapter.id ? nil : readLocator.textQuote,
+                fingerprint: effectiveReadID == OCRAdapter.id ? nil : readLocator.fingerprint)
             let observation = try await coordinator.read(plan: plan, locator: anchor,
                 maxCharacters: TranslationRequest.maximumCharacters, persistObservation: false)
+            let groundedSelection = try await normalizedOCRSelection(selection, page: anchor,
+                plan: plan, coordinator: coordinator, database: database)
             values = try textSegments(observation.content, locator: observation.locator,
-                nextLocator: nil, selection: selection, markdown: false, pageRelative: true)
+                nextLocator: nil, selection: groundedSelection, markdown: false, pageRelative: true)
         case .nativeCode:
             throw TranslationError.noText
         }
@@ -57,7 +72,7 @@ enum TranslationSourceBuilder {
         let source = text as NSString
         let scope: NSRange
         if let selection {
-            if !pageRelative,
+            if (!pageRelative || locator.adapterID == OCRAdapter.id),
                let start = Int(selection.locator.payload["startUTF16"] ?? ""),
                let end = Int(selection.locator.payload["endUTF16"] ?? ""), end > start,
                let range = Range(NSRange(location: start, length: end - start), in: text),
@@ -140,8 +155,13 @@ enum TranslationSourceBuilder {
                 let body = String(text[lower..<upper])
                 var payload = cleanPayload(locator.payload)
                 if pageRelative {
-                    payload["pageTextStartUTF16"] = String(part.location)
-                    payload["pageTextEndUTF16"] = String(NSMaxRange(part))
+                    if locator.adapterID == OCRAdapter.id {
+                        payload["startUTF16"] = String(part.location)
+                        payload["endUTF16"] = String(NSMaxRange(part))
+                    } else {
+                        payload["pageTextStartUTF16"] = String(part.location)
+                        payload["pageTextEndUTF16"] = String(NSMaxRange(part))
+                    }
                 } else {
                     payload["indexTextRange"] = "utf16"
                     payload["startUTF16"] = String(part.location)
@@ -164,6 +184,40 @@ enum TranslationSourceBuilder {
             if total >= TranslationRequest.maximumCharacters || values.count >= TranslationRequest.maximumSegments { break }
         }
         return values
+    }
+
+    private static func normalizedOCRSelection(_ selection: ReaderSelection?, page: Locator,
+        plan: AdapterPlan, coordinator: AdapterCoordinator, database: LibraryDatabase) async throws -> ReaderSelection? {
+        guard let selection, page.adapterID == OCRAdapter.id else { return selection }
+        let selected = selection.locator
+        guard selected.sourceID == page.sourceID, selected.snapshotID == page.snapshotID,
+              selected.payload["ocrRevisionID"] == page.payload["ocrRevisionID"],
+              selected.pdfPageIndex == page.pdfPageIndex else { throw TranslationError.selectionNotGrounded }
+        let verified = try await coordinator.read(plan: plan, locator: selected,
+            maxCharacters: TranslationRequest.maximumCharacters, persistObservation: false)
+        guard verified.content == selection.text else { throw TranslationError.selectionNotGrounded }
+        guard let spanID = selected.payload["ocrSpanID"] else { return selection }
+        guard let revisionID = page.payload["ocrRevisionID"],
+              let revision = try database.ocrRevision(id: revisionID, sourceID: page.sourceID, snapshotID: page.snapshotID),
+              let result = revision.pages.first(where: { $0.pageIndex == page.pdfPageIndex }) else {
+            throw TranslationError.selectionNotGrounded
+        }
+        var offset = 0
+        for span in result.spans.sorted(by: { $0.order < $1.order }) {
+            if span.id == spanID {
+                let start = offset + (Int(selected.payload["startUTF16"] ?? "") ?? 0)
+                var payload = page.payload
+                payload["startUTF16"] = String(start)
+                payload["endUTF16"] = String(start + verified.content.utf16.count)
+                return ReaderSelection(text: verified.content, locator: Locator(sourceID: page.sourceID,
+                    snapshotID: page.snapshotID, adapterID: page.adapterID, payload: payload,
+                    structuralPath: page.structuralPath,
+                    textQuote: TextQuote(prefix: nil, exact: verified.content, suffix: nil),
+                    fingerprint: AdapterUtilities.sha256(verified.content)))
+            }
+            offset += span.text.utf16.count + 1
+        }
+        throw TranslationError.selectionNotGrounded
     }
 
     static func htmlSegments(_ html: String, locator: Locator, selection: ReaderSelection?) throws -> [TranslationSegment] {
