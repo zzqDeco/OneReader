@@ -8,6 +8,11 @@ architecture document.
 | Source, Snapshot, adapter, and evidence contracts | [Domain models](Sources/OneReader/Domain/Models.swift.md) |
 | Reader annotations, progress, presentation, and preferences | [Reader workspace models](Sources/OneReader/Domain/ReaderWorkspaceModels.swift.md) |
 | Application state | [App model](Sources/OneReader/App/AppModel.swift.md) |
+| Capture/import and Space organization contracts | [Capture models](Sources/OneReader/Domain/CaptureModels.swift.md) |
+| Atomic capture handoff | [Capture staging](Sources/OneReader/Persistence/CaptureStagingStore.swift.md) |
+| Inbox migration and attempt fencing | [Capture persistence](Sources/OneReader/Persistence/CapturePersistence.swift.md) |
+| Unified host capture/import orchestration | [Capture coordinator](Sources/OneReader/App/CaptureCoordinator.swift.md) |
+| Native bounded iPhone/iPad sharing | [Share Extension](Apps/OneReaderShareExtension/ShareViewController.swift.md) |
 | Shared executable entry | [OneReader app main](Apps/OneReaderApp/OneReaderAppMain.swift.md) |
 | Generated Apple application targets | [XcodeGen project](project.yml.md) |
 | Native workspace and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |

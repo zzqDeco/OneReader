@@ -1,5 +1,11 @@
 # `project.yml`
 
+The universal iOS app embeds OneReader-Share. Its source list contains only the
+native extension UI, CaptureModels and CaptureStagingStore, with
+APPLICATION_EXTENSION_API_ONLY enabled. The app and extension use a matching
+ONEREADER_CAPTURE_APP_GROUP entitlement and Info.plist lookup value; no online
+capability registration or signing configuration is performed by generation.
+
 Owns generated native target metadata: macOS and universal iPhone/iPad
 application targets, deployment versions, local package-product linkage,
 document declarations, platform plists, entitlements, app-icon catalog, bundle

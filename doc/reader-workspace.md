@@ -10,7 +10,7 @@ the optional Reading Agent may later propose additional structure.
 
 The primary workspace contains:
 
-- All Spaces, Recent, Processing, Favorites, and Space navigation while the
+- All Spaces, Inbox, Reading, Read, Archived, Recent, Processing, Favorites, and Space navigation while the
   Library is active;
 - Outline, Sources, Route, and Search navigation in the same leading column
   after a Space opens;
@@ -23,9 +23,12 @@ a Provider.
 
 ## Import and Processing
 
-Drag/drop, Command-O, Finder Open With, SwiftUI `fileImporter`, iOS/iPadOS Open
-In, and URL paste share `AppModel` import coordination. The import first appears
-as Processing, then commits a managed
+Drag/drop, Finder Open With, the system file picker, iOS/iPadOS Open In, system
+sharing and URL paste can enter the durable capture coordinator. Add Materials
+defaults to Inbox; Command-O and the explicit direct-reading option retain
+immediate reading. A received task is durable before the host downloads or
+imports it. See [capture and inbox](capture-inbox.md) for receipt recovery and
+reversible Space organization. The import then commits a managed
 Snapshot and installs a deterministic AdapterPlan. Index work is keyed by
 Source ID, Snapshot ID, AdapterPlan ID, and a generation token. A second request
 for the same plan attaches to the existing job; a new Snapshot or plan cancels

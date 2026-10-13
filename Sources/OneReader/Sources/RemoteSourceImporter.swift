@@ -82,20 +82,26 @@ actor RemoteSourceImporter {
     func importSource(
         from url: URL,
         intoSpaceID spaceID: String? = nil,
-        allowLargeImport: Bool = false
+        allowLargeImport: Bool = false,
+        capture: CaptureImportContext? = nil
     ) async throws -> ManagedImportResult {
+        if let capture, let existing = try await library.existingCaptureImport(capture) {
+            return existing
+        }
         if Self.isGitHubRepositoryURL(url) {
             return try await importGitHubRepository(
                 from: url,
                 intoSpaceID: spaceID,
-                allowLargeImport: allowLargeImport
+                allowLargeImport: allowLargeImport,
+                capture: capture
             )
         }
         return try await importRemoteURL(
             from: url,
             intoSpaceID: spaceID,
             allowLargeImport: allowLargeImport,
-            requiresHTML: false
+            requiresHTML: false,
+            capture: capture
         )
     }
 
@@ -203,7 +209,8 @@ actor RemoteSourceImporter {
         from requestedURL: URL,
         intoSpaceID spaceID: String?,
         allowLargeImport: Bool,
-        requiresHTML: Bool
+        requiresHTML: Bool,
+        capture: CaptureImportContext? = nil
     ) async throws -> ManagedImportResult {
         try Self.validateWebURL(requestedURL)
         guard let requestedHost = requestedURL.host else {
@@ -243,7 +250,8 @@ actor RemoteSourceImporter {
                 revisionKind: .contentDigest,
                 revision: nil,
                 intoSpaceID: spaceID,
-                allowLargeImport: allowLargeImport
+                allowLargeImport: allowLargeImport,
+                capture: capture
             )
         }
 
@@ -274,14 +282,16 @@ actor RemoteSourceImporter {
             revisionKind: .webSnapshot,
             revision: nil,
             intoSpaceID: spaceID,
-            allowLargeImport: allowLargeImport
+            allowLargeImport: allowLargeImport,
+            capture: capture
         )
     }
 
     func importGitHubRepository(
         from repositoryURL: URL,
         intoSpaceID spaceID: String? = nil,
-        allowLargeImport: Bool = false
+        allowLargeImport: Bool = false,
+        capture: CaptureImportContext? = nil
     ) async throws -> ManagedImportResult {
         let coordinate = try Self.parseGitHubCoordinate(from: repositoryURL)
         let allowedAPIHosts: Set<String> = ["api.github.com"]
@@ -345,7 +355,8 @@ actor RemoteSourceImporter {
             revisionKind: .gitCommit,
             revision: commit.sha,
             intoSpaceID: spaceID,
-            allowLargeImport: allowLargeImport
+            allowLargeImport: allowLargeImport,
+            capture: capture
         )
     }
 

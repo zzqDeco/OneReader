@@ -38,7 +38,7 @@ struct LibrarySidebarView: View {
 
                 if !model.spaces.isEmpty {
                     Section("阅读空间") {
-                        ForEach(model.spaces) { space in
+                        ForEach(model.spaces.filter { $0.organizationState != .archived }) { space in
                             Button {
                                 model.openSpace(space.id)
                             } label: {
@@ -58,6 +58,8 @@ struct LibrarySidebarView: View {
                                 Button(space.isFavorite ? "取消收藏" : "收藏") {
                                     model.toggleSpaceFavorite(space.id)
                                 }
+                                Divider()
+                                SpaceOrganizationMenu(spaceIDs: [space.id])
                             }
                         }
                     }
@@ -108,12 +110,17 @@ struct LibrarySidebarView: View {
 
     private func count(for collection: LibraryCollection) -> Int {
         switch collection {
-        case .allSpaces: model.spaces.count
-        case .recent: model.spaces.filter { $0.lastOpenedAt != nil }.count
+        case .allSpaces: model.spaces.filter { $0.organizationState != .archived }.count
+        case .recent: model.spaces.filter { $0.lastOpenedAt != nil && $0.organizationState != .archived }.count
         case .processing: model.activePendingImportCount + model.agentRuns.filter {
             $0.state == .queued || $0.state == .running
         }.count
-        case .favorites: model.spaces.filter(\.isFavorite).count
+        case .favorites: model.spaces.filter { $0.isFavorite && $0.organizationState != .archived }.count
+        case .inbox: model.spaces.filter { $0.organizationState == .inbox }.count
+            + model.captureJobs.filter { $0.phase != .ready && $0.sourceID == nil }.count
+        case .reading: model.spaces.filter { $0.organizationState == .reading }.count
+        case .read: model.spaces.filter { $0.organizationState == .read }.count
+        case .archived: model.spaces.filter { $0.organizationState == .archived }.count
         }
     }
 }

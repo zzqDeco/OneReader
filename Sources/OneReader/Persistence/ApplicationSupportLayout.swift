@@ -29,8 +29,8 @@ struct LibraryStoragePolicy: Sendable {
 }
 
 struct ApplicationSupportLayout: Sendable {
-    static let minimumFreeCapacity: Int64 = 2 * 1_024 * 1_024 * 1_024
-    static let largeImportThreshold: Int64 = 4 * 1_024 * 1_024 * 1_024
+    static let minimumFreeCapacity = CaptureStagingStore.minimumFreeCapacity
+    static let largeImportThreshold = CaptureStagingStore.largeImportThreshold
 
     let rootURL: URL
 

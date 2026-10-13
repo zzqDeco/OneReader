@@ -147,6 +147,16 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSearching = false
 
     @Published private(set) var pendingImports: [PendingImport] = []
+    @Published var captureJobs: [CaptureJob] = []
+    @Published var librarySearchText = ""
+    @Published var isReceivingCaptures = 0
+    @Published var activeCaptureJobID: String?
+    var captureCoordinator: CaptureCoordinator?
+    var captureQueueTask: Task<Void, Never>?
+    var captureItemTask: Task<CapturePreparedResult?, Never>?
+    var captureQueueNeedsRun = false
+    var pendingExternalCaptureURLs: [URL] = []
+    var pendingCaptureScopedURLs: [URL] = []
     @Published private(set) var refreshingSourceIDs: Set<String> = []
     @Published var largeImportConfirmation: LargeImportConfirmation?
     @Published var pendingSourceRemoval: Source?
@@ -220,18 +230,26 @@ final class AppModel: ObservableObject {
         refreshTasks.values.forEach { $0.cancel() }
         agentTask?.cancel()
         indexTasks.values.forEach { $0.cancel() }
+        captureQueueTask?.cancel()
+        captureItemTask?.cancel()
+        pendingCaptureScopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
     }
 
     var visibleSpaces: [ReadingSpace] {
+        let candidates = spaces.filter { space in
+            (selectedCollection == .archived || space.organizationState != .archived)
+                && (librarySearchText.isEmpty || space.title.localizedStandardContains(librarySearchText)
+                    || sourceIDs(in: space.id).contains { source(id: $0)?.displayName.localizedStandardContains(librarySearchText) == true })
+        }
         switch selectedCollection {
         case .allSpaces:
-            spaces
+            return candidates
         case .recent:
-            spaces
+            return candidates
                 .filter { $0.lastOpenedAt != nil }
                 .sorted { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
         case .processing:
-            spaces.filter { space in
+            return candidates.filter { space in
                 sourceIDs(in: space.id).contains { sourceID in
                     source(id: sourceID)?.managedState == .processing
                 } || agentRuns.contains {
@@ -239,11 +257,15 @@ final class AppModel: ObservableObject {
                 }
             }
         case .favorites:
-            spaces.filter { space in
+            return candidates.filter { space in
                 space.isFavorite || sourceIDs(in: space.id).contains {
                     source(id: $0)?.isFavorite == true
                 }
             }
+        case .inbox: return candidates.filter { $0.organizationState == .inbox }
+        case .reading: return candidates.filter { $0.organizationState == .reading }
+        case .read: return candidates.filter { $0.organizationState == .read }
+        case .archived: return candidates.filter { $0.organizationState == .archived }
         }
     }
 
@@ -432,12 +454,36 @@ final class AppModel: ObservableObject {
             self.coordinator = coordinator
             self.remoteImporter = remoteImporter
             self.agentRuntime = runtime
+            let sharedCapture: CaptureStagingStore?
+            // Isolated test/acceptance Libraries never access production handoffs.
+            if libraryRootURL == nil {
+#if os(iOS)
+                sharedCapture = try? CaptureStagingStore.shared()
+#else
+                sharedCapture = nil
+#endif
+            } else { sharedCapture = nil }
+            let captures = CaptureCoordinator(
+                database: database, library: managedLibrary, remoteImporter: remoteImporter,
+                adapters: coordinator, sharedStaging: sharedCapture
+            )
+            self.captureCoordinator = captures
+            if try await captures.recover() > 0 {
+                notice = AppNotice(title: "部分收集记录需要检查", message: "不完整的接收副本已保留，其他材料仍可继续处理。请从原 App 重新分享受影响的项目。")
+            }
+            reloadCaptureJobs()
             try reloadLibraryState()
             try schedulePendingSearchIndexRebuilds()
         } catch {
             notice = AppNotice(title: "资料库无法打开", message: error.localizedDescription)
         }
         isBootstrapComplete = true
+        if captureCoordinator != nil && !pendingExternalCaptureURLs.isEmpty {
+            let urls = pendingExternalCaptureURLs
+            pendingExternalCaptureURLs.removeAll()
+            captureURLs(urls)
+        }
+        resumeCaptures()
     }
 
     func selectCollection(_ collection: LibraryCollection) {
@@ -489,7 +535,7 @@ final class AppModel: ObservableObject {
         presentationState = .empty
     }
 
-    func presentLocalSourceImporter(destination: ImportDestination = .newSpace) {
+    func presentLocalSourceImporter(destination: ImportDestination = .inbox) {
 #if os(macOS)
         let panel = NSOpenPanel()
         panel.title = "添加到 OneReader"
@@ -571,6 +617,10 @@ final class AppModel: ObservableObject {
         destination: ImportDestination = .newSpace,
         allowLargeImport: Bool = false
     ) {
+        if destination == .inbox {
+            captureURLs(urls, allowLargeImport: allowLargeImport)
+            return
+        }
         guard !urls.isEmpty else { return }
         let taskID = UUID()
         importTasks[taskID] = Task { [weak self] in
@@ -592,6 +642,10 @@ final class AppModel: ObservableObject {
         destination: ImportDestination = .newSpace,
         allowLargeImport: Bool = false
     ) {
+        if destination == .inbox {
+            captureURLs([url], allowLargeImport: allowLargeImport)
+            return
+        }
         let taskID = UUID()
         importTasks[taskID] = Task { [weak self] in
             guard let self else { return }
@@ -625,9 +679,9 @@ final class AppModel: ObservableObject {
 
     func handleOpenURL(_ url: URL) {
         if url.isFileURL {
-            importLocalURLs([url])
+            captureURLs([url])
         } else if url.scheme?.lowercased() == "https" {
-            importRemoteURL(url)
+            captureURLs([url])
         } else {
             notice = AppNotice(title: "无法打开", message: "OneReader 只接受本地材料或 HTTPS URL。")
         }
@@ -2563,6 +2617,16 @@ final class AppModel: ObservableObject {
         if let selectedSpaceID, !spaces.contains(where: { $0.id == selectedSpaceID }) {
             closeReadingWorkspace()
         }
+    }
+
+    func reloadCaptureLibrary() {
+        do { try reloadLibraryState(preservingSelection: true); reloadCaptureJobs() }
+        catch { notice = AppNotice(title: "无法更新资料库", message: CaptureCoordinator.safeMessage(for: error)) }
+    }
+
+    func applyCaptureResult(_ result: CapturePreparedResult) {
+        reloadCaptureLibrary()
+        startIndexing(plan: result.plan, spaceID: result.imported.space.id)
     }
 
     private func replacePending(_ pending: PendingImport) {

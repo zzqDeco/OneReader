@@ -21,6 +21,7 @@ cp "$repo_root/Package.resolved" "$temporary_root/Package.resolved"
 cp -R "$repo_root/Apps" "$temporary_root/Apps"
 cp -R "$repo_root/Resources" "$temporary_root/Resources"
 cp -R "$repo_root/Tests" "$temporary_root/Tests"
+cp -R "$repo_root/Sources" "$temporary_root/Sources"
 
 xcodegen generate \
   --spec "$temporary_root/project.yml" \
@@ -39,5 +40,6 @@ diff -ru \
   "$temporary_root/OneReader.xcodeproj/xcshareddata/xcschemes"
 cmp "$repo_root/Resources/Info.plist" "$temporary_root/Resources/Info.plist"
 cmp "$repo_root/Resources/Info-iOS.plist" "$temporary_root/Resources/Info-iOS.plist"
+cmp "$repo_root/Resources/Info-Share.plist" "$temporary_root/Resources/Info-Share.plist"
 
 echo "Xcode project matches project.yml."

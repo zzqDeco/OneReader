@@ -3,19 +3,25 @@ import SwiftUI
 struct LibraryHomeView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isSelectingSpaces = false
+    @State private var selectedSpaceIDs: Set<String> = []
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: compactLayout ? 24 : 30) {
-                if !model.spaces.isEmpty || !model.pendingImports.isEmpty {
+                if !model.spaces.isEmpty || !model.pendingImports.isEmpty || !model.captureJobs.isEmpty {
                     libraryHeader
+                }
+
+                if !model.visibleCaptureJobs.isEmpty || model.isReceivingCaptures > 0 {
+                    CaptureInboxSection()
                 }
 
                 if !model.pendingImports.isEmpty {
                     pendingSection
                 }
 
-                if model.spaces.isEmpty && model.pendingImports.isEmpty {
+                if model.spaces.isEmpty && model.pendingImports.isEmpty && model.captureJobs.isEmpty {
                     emptyLibrary
                 } else if model.visibleSpaces.isEmpty {
                     ContentUnavailableView(
@@ -40,6 +46,7 @@ struct LibraryHomeView: View {
         .accessibilityIdentifier("library-scroll-view")
         .background(ReaderTheme.grouped)
         .navigationTitle(model.selectedCollection.title)
+        .searchable(text: $model.librarySearchText, prompt: "搜索空间或收集任务")
     }
 
     private var libraryHeader: some View {
@@ -81,7 +88,10 @@ struct LibraryHomeView: View {
     }
 
     private var libraryDescription: String {
-        compactLayout
+        if model.selectedCollection == .archived { return "归档只隐藏阅读空间，不删除托管副本、标注、历史或阅读进度。" }
+        if model.selectedCollection == .read { return "已读是整理标记，不会把阅读位置改到最后一页。" }
+        if model.selectedCollection == .inbox { return "随手保存材料，在这里查看接收状态并整理到阅读空间。" }
+        return compactLayout
             ? "从上次停下的位置继续，或打开一本资料。"
             : "PDF、电子书、网页和代码，都在同一个安静的阅读空间里。"
     }
@@ -181,10 +191,32 @@ struct LibraryHomeView: View {
 
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(model.selectedCollection == .allSpaces ? "书架" : model.selectedCollection.title)
+            HStack {
+                sectionTitle(model.selectedCollection == .allSpaces ? "书架" : model.selectedCollection.title)
+                Spacer()
+                if isSelectingSpaces && !selectedSpaceIDs.isEmpty {
+                    Menu("整理 \(selectedSpaceIDs.count) 项") {
+                        SpaceOrganizationMenu(spaceIDs: selectedSpaceIDs)
+                    }
+                }
+                Button(isSelectingSpaces ? "完成选择" : "选择空间") {
+                    isSelectingSpaces.toggle()
+                    if !isSelectingSpaces { selectedSpaceIDs.removeAll() }
+                }
+                .buttonStyle(.borderless)
+            }
             LazyVGrid(columns: shelfColumns, alignment: .leading, spacing: compactLayout ? 24 : 30) {
                 ForEach(model.visibleSpaces) { space in
-                    SpaceBookCard(space: space)
+                    SpaceBookCard(
+                        space: space,
+                        isSelecting: isSelectingSpaces,
+                        isSelected: selectedSpaceIDs.contains(space.id),
+                        onSelect: {
+                            if !selectedSpaceIDs.insert(space.id).inserted {
+                                selectedSpaceIDs.remove(space.id)
+                            }
+                        }
+                    )
                         .environmentObject(model)
                 }
             }
@@ -304,6 +336,9 @@ struct LibraryHomeView: View {
 private struct SpaceBookCard: View {
     @EnvironmentObject private var model: AppModel
     let space: ReadingSpace
+    var isSelecting = false
+    var isSelected = false
+    var onSelect: () -> Void = {}
 
     private var sources: [Source] {
         model.sourceIDs(in: space.id).compactMap(model.source(id:))
@@ -311,7 +346,7 @@ private struct SpaceBookCard: View {
 
     var body: some View {
         Button {
-            model.openSpace(space.id)
+            if isSelecting { onSelect() } else { model.openSpace(space.id) }
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 EditorialCover(
@@ -333,6 +368,18 @@ private struct SpaceBookCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    Label(space.organizationState.title, systemImage: space.organizationState.systemImage)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isSelecting {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? ReaderTheme.accent : Color.secondary)
+                        .padding(8)
+                        .background(.regularMaterial, in: Circle())
                 }
             }
             .contentShape(Rectangle())
@@ -342,11 +389,14 @@ private struct SpaceBookCard: View {
             Button(space.isFavorite ? "取消收藏" : "收藏") {
                 model.toggleSpaceFavorite(space.id)
             }
+            Divider()
+            SpaceOrganizationMenu(spaceIDs: [space.id])
         }
         .accessibilityLabel(
             "\(space.title)，\(sources.count) 个来源，进度 \(Int(model.progressFraction(for: space.id) * 100))%"
         )
         .accessibilityIdentifier("space-card-\(space.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var cardDetail: String {

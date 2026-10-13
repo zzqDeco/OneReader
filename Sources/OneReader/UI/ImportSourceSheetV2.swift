@@ -9,7 +9,7 @@ struct ImportSourceSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var urlText = ""
-    @State private var destination: ImportDestination = .newSpace
+    @State private var destination: ImportDestination = .inbox
     @FocusState private var isURLFocused: Bool
 
     var body: some View {
@@ -27,11 +27,13 @@ struct ImportSourceSheet: View {
                     Button("取消") { dismiss() }
                 }
 
-                if model.selectedSpace != nil {
+                Group {
                     Picker("添加方式", selection: $destination) {
-                        Text("创建新的阅读空间").tag(ImportDestination.newSpace)
-                        Text("加入“\(model.selectedSpace?.title ?? "当前空间")”")
-                            .tag(ImportDestination.currentSpace)
+                        Text("收集到待整理").tag(ImportDestination.inbox)
+                        Text("导入后直接阅读").tag(ImportDestination.newSpace)
+                        if model.selectedSpace != nil {
+                            Text("加入当前空间").tag(ImportDestination.currentSpace)
+                        }
                     }
                     .pickerStyle(.segmented)
                 }
@@ -76,7 +78,7 @@ struct ImportSourceSheet: View {
                         }
                     }
 #endif
-                    Text("网页会保存离线副本；GitHub 仓库会固定到导入时的准确版本。仅支持 HTTPS 和公开仓库。")
+                    Text("收集链接无需联网；打开 OneReader 后取回离线副本。已接收不等于下载完成。仅支持 HTTPS 和公开仓库。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -119,7 +121,7 @@ struct ImportSourceSheet: View {
     }
 
     private var importButton: some View {
-        Button("导入") { importURL() }
+        Button(destination == .inbox ? "接收链接" : "导入") { importURL() }
             .buttonStyle(.borderedProminent)
             .disabled(parsedURL == nil)
     }

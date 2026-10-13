@@ -7,6 +7,10 @@ plans and commits Source removal with Space detachment, annotation/history
 cleanup, graph/plan invalidation, progress reset, active-Run cancellation, and
 durable Agent-generation advancement in one transaction.
 
+Migration v11 and capture claims live in CapturePersistence. commitImport
+fences capture attempts and records job result IDs in the source transaction;
+it does not allow a replay to insert a second Source.
+
 Adapter plans and Observations are encoded with stable JSON settings. Schema v7
 introduced atomic index staging. Schema v9 separates raw evidence Observations
 from `search_documents`, records one active AdapterPlan per Snapshot, keys index

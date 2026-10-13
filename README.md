@@ -34,6 +34,22 @@ scripts/build-ios-simulator.sh
 The shared target remains iPad-capable, but v0.3.3 release acceptance is scoped
 to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
 
+### Quick capture and inbox
+
+Add Materials can collect files or HTTPS links into **待整理**, or import and
+open them directly. The native Library exposes **待整理 / 在读 / 已读 / 归档**,
+search, multi-selection, retry and cancellation. Archive preserves content,
+notes and actual reading progress; marking read does not jump to the last page.
+Links can be received offline and wait for a foreground app/network connection.
+
+The universal OneReader-Share target adds iPhone/iPad system sharing for URLs,
+PDF/EPUB, images, HTML, Markdown, text and code. “已接收” means its receipt and
+attachment are saved, not that download/indexing has completed. Both app and
+extension require a matching App Group provisioning capability; configure
+ONEREADER_CAPTURE_APP_GROUP for the signing team. No account/provider is
+required. Physical Share Sheet acceptance and release distribution remain
+separate gates; see [capture and inbox](doc/capture-inbox.md).
+
 On iPhone, Add Materials opens the system Files picker. Selected files are
 copied into the managed Library and remain readable after relaunch. PDF reading
 starts at fit width and supports native two-finger zoom plus zoom-out, zoom-in,

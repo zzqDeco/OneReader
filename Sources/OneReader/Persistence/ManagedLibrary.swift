@@ -218,8 +218,10 @@ actor ManagedLibrary {
     func importLocalSource(
         at sourceURL: URL,
         intoSpaceID spaceID: String? = nil,
-        allowLargeImport: Bool = false
+        allowLargeImport: Bool = false,
+        capture: CaptureImportContext? = nil
     ) async throws -> ManagedImportResult {
+        if let capture, let existing = try existingCaptureImport(capture) { return existing }
         guard sourceURL.isFileURL else {
             throw LibraryStorageError.unsupportedSource(sourceURL.absoluteString)
         }
@@ -253,13 +255,14 @@ actor ManagedLibrary {
             inspection: inspection,
             displayName: inspection.displayName,
             originKind: inspection.isDirectory ? .localDirectory : .localFile,
-            originURL: sourceURL.standardizedFileURL,
+            originURL: capture == nil ? sourceURL.standardizedFileURL : nil,
             revisionKind: inspection.isDirectory ? .directoryTreeDigest : .contentDigest,
             revision: inspection.primaryRevision,
             intoSpaceID: spaceID,
             allowLargeImport: allowLargeImport,
-            accessBookmark: accessBookmark,
-            authorizationWarning: authorizationWarning
+            accessBookmark: capture == nil ? accessBookmark : nil,
+            authorizationWarning: capture == nil ? authorizationWarning : nil,
+            capture: capture
         )
     }
 
@@ -271,8 +274,10 @@ actor ManagedLibrary {
         revisionKind: SourceRevisionKind,
         revision: String? = nil,
         intoSpaceID spaceID: String? = nil,
-        allowLargeImport: Bool = false
+        allowLargeImport: Bool = false,
+        capture: CaptureImportContext? = nil
     ) async throws -> ManagedImportResult {
+        if let capture, let existing = try existingCaptureImport(capture) { return existing }
         guard stagedSourceURL.isFileURL,
               originKind == .remoteURL || originKind == .githubRepository else {
             throw LibraryStorageError.unsupportedSource(originURL.absoluteString)
@@ -290,7 +295,40 @@ actor ManagedLibrary {
             revisionKind: revisionKind,
             revision: revision ?? inspection.digest,
             intoSpaceID: spaceID,
-            allowLargeImport: allowLargeImport
+            allowLargeImport: allowLargeImport,
+            capture: capture
+        )
+    }
+
+    /// The same local inspector validates sidecars for direct and captured imports.
+    func receiveLocalCapture(
+        at sourceURL: URL, store: CaptureStagingStore, targetSpaceID: String?,
+        allowLargeImport: Bool = false
+    ) async throws -> CaptureReceipt {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+        let inspection = try await Task.detached(priority: .userInitiated) {
+            try LocalSourceInspector.inspect(sourceURL)
+        }.value
+        return try store.receiveFile(
+            sourceURL, targetSpaceID: targetSpaceID, allowLargeImport: allowLargeImport,
+            companions: inspection.referencedResources.map { ($0.sourceURL, $0.relativePath) }
+        )
+    }
+
+    func existingCaptureImport(_ context: CaptureImportContext) throws -> ManagedImportResult? {
+        try database.validateCaptureClaim(context)
+        guard let job = try database.captureJob(context.jobID),
+              let sourceID = job.sourceID else { return nil }
+        guard let source = try database.fetchSources().first(where: { $0.id == sourceID }),
+              let snapshot = try database.fetchSnapshots(sourceID: sourceID).first(where: { $0.id == job.snapshotID }),
+              let space = try database.fetchSpaces().first(where: { $0.id == job.spaceID }),
+              let path = snapshot.managedRelativePath else { throw CaptureError.importedSourceRemoved }
+        let url = try database.layout.url(forRelativePath: path)
+        guard fileManager.fileExists(atPath: url.path) else { throw CaptureError.missingPayload }
+        return ManagedImportResult(
+            space: space, source: source, snapshot: snapshot, managedURL: url,
+            reusedContent: true, authorizationWarning: nil
         )
     }
 
@@ -489,14 +527,17 @@ actor ManagedLibrary {
         inspection: LocalSourceInspection,
         displayName: String,
         originKind: SourceOriginKind,
-        originURL: URL,
+        originURL: URL?,
         revisionKind: SourceRevisionKind,
         revision: String,
         intoSpaceID spaceID: String?,
         allowLargeImport: Bool,
         accessBookmark: Data? = nil,
-        authorizationWarning: String? = nil
+        authorizationWarning: String? = nil,
+        capture: CaptureImportContext? = nil
     ) throws -> ManagedImportResult {
+        try Task.checkCancellation()
+        if let capture, let existing = try existingCaptureImport(capture) { return existing }
         guard !revision.isEmpty, revisionKind != .unresolved else {
             throw LibraryStorageError.unsupportedSource("来源缺少不可变 revision")
         }
@@ -567,7 +608,10 @@ actor ManagedLibrary {
             createsSpace = false
         } else {
             let title = (displayName as NSString).deletingPathExtension
-            space = ReadingSpace(title: title.isEmpty ? displayName : title)
+            space = ReadingSpace(
+                title: title.isEmpty ? displayName : title,
+                organizationState: capture == nil ? .reading : .inbox
+            )
             createsSpace = true
         }
 
@@ -577,7 +621,8 @@ actor ManagedLibrary {
                 snapshot: snapshot,
                 space: space,
                 createsSpace: createsSpace,
-                accessBookmark: accessBookmark
+                accessBookmark: accessBookmark,
+                capture: capture
             )
         } catch {
             if stored.createdContainer {
@@ -592,7 +637,8 @@ actor ManagedLibrary {
                 sourceID: source.id,
                 spaceID: space.id,
                 removesSpace: createsSpace,
-                stored: stored
+                stored: stored,
+                capture: capture
             )
             throw LibraryStorageError.insufficientFreeSpace(
                 required: storagePolicy.minimumFreeCapacity,
@@ -881,11 +927,18 @@ actor ManagedLibrary {
         sourceID: String,
         spaceID: String,
         removesSpace: Bool,
-        stored: StoredContent
+        stored: StoredContent,
+        capture: CaptureImportContext? = nil
     ) throws {
         try database.pool.write { db in
+            if let capture {
+                try db.execute(sql: """
+                    UPDATE capture_jobs SET source_id = NULL, snapshot_id = NULL, space_id = NULL
+                    WHERE id = ? AND source_id = ?
+                    """, arguments: [capture.jobID, sourceID])
+            }
             try db.execute(
-                sql: "DELETE FROM observation_fts WHERE source_id = ?",
+                sql: "DELETE FROM search_document_fts WHERE source_id = ?",
                 arguments: [sourceID]
             )
             try db.execute(sql: "DELETE FROM sources WHERE id = ?", arguments: [sourceID])

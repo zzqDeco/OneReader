@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 10
+    static let schemaVersion = 11
     static let adapterSchemaVersion = 1
     static let agentRuntimeSchemaVersion = 5
 
@@ -181,15 +181,25 @@ final class LibraryDatabase: @unchecked Sendable {
         snapshot: SourceSnapshot,
         space: ReadingSpace,
         createsSpace: Bool,
-        accessBookmark: Data? = nil
+        accessBookmark: Data? = nil,
+        capture: CaptureImportContext? = nil
     ) throws {
         try pool.write { db in
+            if let capture {
+                try Self.validateCaptureClaim(capture, in: db)
+                guard try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS(SELECT 1 FROM capture_jobs
+                        WHERE id = ? AND phase = 'importing' AND source_id IS NULL)
+                    """, arguments: [capture.jobID]) == true else {
+                    throw CaptureError.noLongerActive
+                }
+            }
             if createsSpace {
                 try db.execute(
                     sql: """
                         INSERT INTO reading_spaces
-                            (id, title, is_favorite, created_at, updated_at, last_opened_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                            (id, title, is_favorite, created_at, updated_at, last_opened_at, organization_state)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         space.id,
@@ -198,6 +208,7 @@ final class LibraryDatabase: @unchecked Sendable {
                         space.createdAt,
                         space.updatedAt,
                         space.lastOpenedAt,
+                        space.organizationState.rawValue,
                     ]
                 )
             } else {
@@ -275,6 +286,16 @@ final class LibraryDatabase: @unchecked Sendable {
                     """,
                 arguments: [space.id, source.id, position, Date.now]
             )
+            if let capture {
+                try db.execute(
+                    sql: """
+                        UPDATE capture_jobs SET source_id = ?, snapshot_id = ?, space_id = ?,
+                            phase = 'preparing', updated_at = ?
+                        WHERE id = ? AND attempt_id = ?
+                        """,
+                    arguments: [source.id, snapshot.id, space.id, Date.now, capture.jobID, capture.attemptID]
+                )
+            }
         }
     }
 
@@ -1391,6 +1412,7 @@ final class LibraryDatabase: @unchecked Sendable {
                 UPDATE library_metadata SET value = '10' WHERE key = 'database_schema';
                 """)
         }
+        registerCaptureInboxMigration(&migrator)
 
         return migrator
     }
@@ -1894,7 +1916,8 @@ final class LibraryDatabase: @unchecked Sendable {
             isFavorite: row["is_favorite"],
             createdAt: row["created_at"],
             updatedAt: row["updated_at"],
-            lastOpenedAt: row["last_opened_at"]
+            lastOpenedAt: row["last_opened_at"],
+            organizationState: SpaceOrganizationState(rawValue: row["organization_state"]) ?? .reading
         )
     }
 
