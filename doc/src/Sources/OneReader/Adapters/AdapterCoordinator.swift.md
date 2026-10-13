@@ -4,6 +4,9 @@ Reconstructs managed contexts, validates selected adapters, and orchestrates
 active-plan-bound atomic search projection. Text index hooks bypass outline
 listing; directory children receive their path-scoped context. PDF/EPUB child
 nodes retain page/spine identity.
+OCR-aware preparation retries up to three times if a recognition layer changes between
+probe and transactional plan activation. Search rejects a stale OCR-bound plan, while
+explicit historical reads/resolution remain available for evidence and annotations.
 
 `SearchIndexGate` is process-wide, cancellable, FIFO, and allows one active
 Source index, not one per actor instance. Queued work has no staging generation.

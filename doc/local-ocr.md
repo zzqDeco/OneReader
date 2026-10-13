@@ -4,7 +4,7 @@ The OCR feature derives text locally with Apple Vision. It never changes a manag
 Snapshot digest, original PDF/image or existing reading-position anchor. Supported inputs are
 PDF and single JPEG, PNG or HEIC images. The UI offers Chinese/English or English printed-text
 recognition; unsupported system languages produce an explicit failure, not a cloud fallback.
-The engine revision is pinned and recorded per result: accurate revision 2 on macOS and
+The engine revision is pinned and host-recorded per recognized page: accurate revision 2 on macOS and
 accurate revision 3 on iOS. On the validated macOS 27 host, revision 3 stalls even in a
 standalone native diagnostic; revision 2 recognizes the same Chinese/English fixture.
 This is a deliberate local compatibility path, not a switch to Latin-only fast recognition.
@@ -25,6 +25,23 @@ counted as recognized. Native PDF text is preferred unless the user explicitly r
 Completed page records commit independently. Cancellation publishes only validated completed
 pages; restart marks unfinished jobs interrupted, and resume is explicit. Publication checks
 the latest Source Snapshot and active job. A new job supersedes older workers.
+
+Each `OCRPage` has immutable host-stamped provenance: actual engine identity, selected settings,
+original job ID and the time the host received the recognized page. The selected engine identity
+is bound when the host creates the job; persistence ignores any provenance supplied in the
+engine's page response. A page that retains PDFKit native text is explicitly marked **not OCR**,
+with its native-text path and host processing metadata; its job language settings were not used
+for recognition. The recognition panel exposes these details in each page's disclosure group.
+
+Re-recognizing a subset of pages replaces only those pages. Pages merged from earlier revisions
+retain their original provenance. The revision-level `jobID`, `engineVersion` and `settings`
+describe only the job that published that revision, not every page in the merged result.
+Resuming a draft reads the actual persisted old job, validates Source/Snapshot, resumable state,
+settings and page membership, and carries the old pages' stamps forward instead of claiming they
+were newly recognized. Resumed jobs may use a new engine without relabeling completed pages.
+Legacy page payloads without provenance decode as explicit `unknown`; missing old job engine
+identities also remain unknown. Neither the current engine nor revision-level settings backfill
+these missing facts. This is an additive payload change; it does not change the OCR migration.
 
 `onereader.ocr` is a registered read/search/index adapter layered over the native PDF/image
 presentation. OCR Locators bind the immutable revision, page, span, exact quote and original

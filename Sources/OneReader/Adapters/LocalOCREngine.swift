@@ -7,7 +7,14 @@ import PDFKit
 import Vision
 
 protocol LocalOCREngine: Sendable {
+    /// The host-selected implementation identity, not provenance inside its page response.
+    var identity: String { get }
     func recognize(context: AdapterContext, pageIndex: Int, settings: OCRSettings) async throws -> OCRPage
+}
+
+extension LocalOCREngine {
+    // Existing/custom engines without an explicit identity must not impersonate Vision.
+    var identity: String { OCRPageProvenance.unknownEngineVersion }
 }
 
 final class OCRCancellation: @unchecked Sendable {
@@ -77,6 +84,7 @@ struct VisionOCREngine: LocalOCREngine {
     private static let requestRevision = VNRecognizeTextRequestRevision3
 #endif
     static var engineVersion: String { "apple-vision-accurate-r\(requestRevision)-cpu-v1" }
+    var identity: String { Self.engineVersion }
     // A single queue bounds both decode memory and Vision compute across documents.
     private static let queue = DispatchQueue(label: "OneReader.LocalOCR", qos: .utility)
     private static let gate = OCRWorkerGate()
@@ -253,14 +261,14 @@ actor OCRService {
         }
         var job = OCRJob(id: UUID().uuidString.lowercased(), sourceID: context.source.id,
             snapshotID: context.snapshot.id, pageIndices: pages, settings: settings,
+            engineVersion: engine.identity,
             completedPages: [], failedPages: [], state: .running, createdAt: .now, updatedAt: .now)
         try database.startOCRJob(job); await progress(job)
         do {
-            if let resuming, resuming.sourceID == context.source.id,
-               resuming.snapshotID == context.snapshot.id, resuming.settings == settings {
-                for page in try database.ocrDraftPages(jobID: resuming.id) where pages.contains(page.pageIndex) {
-                    job = try database.saveOCRPage(page, jobID: job.id)
-                }
+            if let resuming {
+                // The database authenticates the old job and preserves its pages' origins.
+                // Calling saveOCRPage here would falsely stamp carried-over text as new OCR.
+                job = try database.resumeOCRDraftPages(fromJobID: resuming.id, intoJobID: job.id)
             }
             pageLoop: for pageIndex in pages where !job.completedPages.contains(pageIndex) {
                 try Task.checkCancellation()
