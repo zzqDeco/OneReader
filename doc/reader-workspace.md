@@ -26,6 +26,12 @@ The primary workspace contains:
 The Agent never replaces the reading surface and basic reading never waits for
 a Provider.
 
+The Library also provides a native [notes center](notes-center.md) for global
+Annotation search, tags, safe edits/deletions and static Markdown exports. It
+shares the Inspector's original Annotation IDs and resolves the original
+snapshot before opening a read-only-progress preview. Historical evidence is
+never relabeled as the current snapshot merely to navigate successfully.
+
 ## Import and Processing
 
 Drag/drop, Command-O, Finder Open With, SwiftUI `fileImporter`, iOS/iPadOS Open

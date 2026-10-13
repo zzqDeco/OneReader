@@ -7,6 +7,11 @@ struct LibraryHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: compactLayout ? 24 : 30) {
+                Button(action: model.openNotesCenter) {
+                    Label("笔记中心", systemImage: "note.text")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("library-open-notes-center")
                 if !model.spaces.isEmpty || !model.pendingImports.isEmpty {
                     libraryHeader
                 }

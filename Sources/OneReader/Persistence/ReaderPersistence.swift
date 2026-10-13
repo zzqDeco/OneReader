@@ -441,7 +441,7 @@ extension LibraryDatabase {
         }
     }
 
-    private static func decodeAnnotation(_ row: Row) throws -> Annotation {
+    static func decodeAnnotation(_ row: Row) throws -> Annotation {
         let kindValue: String = row["kind"]
         let stateValue: String = row["anchor_state"]
         guard let kind = AnnotationKind(rawValue: kindValue) else {

@@ -12,7 +12,7 @@ wrapper around the public `OneReaderScene`.
 
 | Target | Platform behavior |
 | --- | --- |
-| `OneReader-macOS` | native AppKit application, Sandbox, read-only user-selected files, client network entitlement |
+| `OneReader-macOS` | native AppKit application, Sandbox, user-selected read/write for explicit notes export, client network entitlement |
 | `OneReader-iOS` | native universal iPhone/iPad application with device families 1 and 2; Catalyst disabled |
 
 `OneReader.xcodeproj` is checked in so the app can be opened immediately, but it
@@ -111,8 +111,11 @@ Provider protocol, or Agent tool would violate the shared-product contract.
 
 ## Permissions and privacy
 
-- macOS entitlements allow App Sandbox, outbound client network, and read-only
-  access to user-selected files.
+- macOS entitlements allow App Sandbox, outbound client network, and read/write
+  access only to user-selected locations for explicit notes export. Imported
+  materials still use read-only bookmarks and are never edited. The export
+  writes only a new child directory of the destination chosen for that run;
+  broad absolute-path and home-relative write exceptions remain forbidden.
 - iOS/iPadOS add no private entitlement. File access comes from the document
   picker; ordinary client networking follows the platform sandbox.
 - The iOS plist explains local-network access used only for a user-configured

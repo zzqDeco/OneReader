@@ -21,6 +21,16 @@ struct ReaderSurfaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.isAnnotationPreview {
+                HStack {
+                    Label("原快照回看 · 不改变阅读进度", systemImage: "clock.arrow.circlepath")
+                        .font(.caption)
+                    Spacer()
+                    Button("返回笔记", action: model.openNotesCenter).font(.caption)
+                }
+                .padding(10)
+                .background(ReaderTheme.teal.opacity(0.1))
+            }
             if !usesCompactLayout {
                 readerHeader
                 Divider()

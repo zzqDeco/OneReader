@@ -16,6 +16,7 @@ architecture document.
 | Native workspace and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
 | Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
 | Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
+| Global annotation queries, tags, routes and Markdown export | [Notes center](Sources/OneReader/Persistence/NotesPersistence.swift.md) |
 | Application Support layout | [Library paths](Sources/OneReader/Persistence/ApplicationSupportLayout.swift.md) |
 | Database and migrations | [Library database](Sources/OneReader/Persistence/LibraryDatabase.swift.md) |
 | Atomic managed import | [Managed Library](Sources/OneReader/Persistence/ManagedLibrary.swift.md) |

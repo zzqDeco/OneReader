@@ -109,6 +109,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var readerNavigationRequestID = UUID()
     @Published var inspectorTab: ReaderInspectorTab = .annotations
     @Published var isInspectorPresented = false
+    @Published var isNotesCenterPresented = false
+    @Published private(set) var notesCenter: NotesCenterModel?
+    @Published private(set) var annotationPreviewSnapshotID: String?
+    private var notesOpenGeneration = UUID()
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -260,9 +264,11 @@ final class AppModel: ObservableObject {
 
     var selectedSnapshot: SourceSnapshot? {
         guard let source = selectedSource,
-              let snapshotID = source.latestSnapshotID else { return nil }
+              let snapshotID = annotationPreviewSnapshotID ?? source.latestSnapshotID else { return nil }
         return snapshots.first { $0.id == snapshotID }
     }
+
+    var isAnnotationPreview: Bool { annotationPreviewSnapshotID != nil }
 
     var presentationDocument: PresentationDocument? {
         guard case .ready(let document) = presentationState else { return nil }
@@ -295,6 +301,9 @@ final class AppModel: ObservableObject {
     }
 
     var currentPositionDescription: String? {
+        if isAnnotationPreview, let locator = currentPositionLocator {
+            return "原快照回看 · \(Self.positionDescription(for: locator))"
+        }
         guard let sourceID = selectedSourceID else { return nil }
         if let pendingPositionUpdate,
            pendingPositionUpdate.spaceID == selectedSpaceID,
@@ -434,6 +443,11 @@ final class AppModel: ObservableObject {
             self.remoteImporter = remoteImporter
             self.agentRuntime = runtime
             bilingualReading.configure(database: database, coordinator: coordinator, runtime: runtime, defaults: defaults)
+            self.notesCenter = NotesCenterModel(database: database, onMutation: { [weak self] in
+                self?.loadAnnotations()
+            }, onOpen: { [weak self] entry in
+                try await self?.openNotesEntry(entry)
+            })
             try reloadLibraryState()
             try schedulePendingSearchIndexRebuilds()
         } catch {
@@ -626,7 +640,20 @@ final class AppModel: ObservableObject {
     }
 
     func handleOpenURL(_ url: URL) {
-        if url.isFileURL {
+        if url.scheme?.lowercased() == NotesLocalRoute.scheme {
+            Task { [weak self] in
+                guard let self else { return }
+                if !isBootstrapComplete { await bootstrap() }
+                do {
+                    let route = try NotesLocalRoute(url: url)
+                    guard let database else { throw NotesError.differentLibrary }
+                    let entry = try await database.notesEntry(route: route)
+                    try await openNotesEntry(entry)
+                } catch {
+                    notice = AppNotice(title: "无法打开笔记回链", message: error.localizedDescription)
+                }
+            }
+        } else if url.isFileURL {
             importLocalURLs([url])
         } else if url.scheme?.lowercased() == "https" {
             importRemoteURL(url)
@@ -646,18 +673,20 @@ final class AppModel: ObservableObject {
     private func openSource(
         _ sourceID: String,
         locator: Locator?,
-        captureOutgoingPosition: Bool
+        captureOutgoingPosition: Bool,
+        annotationSnapshotID: String? = nil
     ) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(sourceID),
               let source = source(id: sourceID),
-              let snapshotID = source.latestSnapshotID,
+              let snapshotID = annotationSnapshotID ?? source.latestSnapshotID,
               let database,
               let coordinator else { return }
 
         if captureOutgoingPosition {
             flushReadingPosition()
         }
+        annotationPreviewSnapshotID = annotationSnapshotID
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
         bilingualReading.sourceWillChange(spaceID: spaceID, sourceID: sourceID, snapshotID: snapshotID)
         selectedSourceID = sourceID
@@ -735,7 +764,9 @@ final class AppModel: ObservableObject {
                     message: "基础阅读界面已准备好。",
                     state: .completed
                 )
-                startIndexing(plan: plan, spaceID: spaceID)
+                if annotationSnapshotID == nil {
+                    startIndexing(plan: plan, spaceID: spaceID)
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -782,7 +813,46 @@ final class AppModel: ObservableObject {
     func openLocator(_ locator: Locator) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(locator.sourceID) else { return }
-        openSource(locator.sourceID, locator: locator)
+        openSource(locator.sourceID, locator: locator, captureOutgoingPosition: true,
+                   annotationSnapshotID: isAnnotationPreview ? locator.snapshotID : nil)
+    }
+
+    func openNotesCenter() { isNotesCenterPresented = true }
+
+    func notesEntry(for annotation: Annotation) async throws -> NotesEntry? {
+        try await database?.notesEntry(id: annotation.id)
+    }
+
+    private func openNotesEntry(_ staleEntry: NotesEntry) async throws {
+        notesOpenGeneration = UUID()
+        let generation = notesOpenGeneration
+        let workspace = workspaceGeneration
+        guard let database, let coordinator,
+              let entry = try await database.notesEntry(id: staleEntry.id),
+              entry.annotation.sourceID == staleEntry.annotation.sourceID,
+              entry.annotation.snapshotID == staleEntry.annotation.snapshotID,
+              entry.sourceAvailable,
+              try database.sourceIDs(in: entry.annotation.spaceID).contains(entry.annotation.sourceID) else {
+            throw NotesError.unavailableSource
+        }
+        let annotation = entry.annotation
+        // Never silently resolve against latest. Historical content and evidence
+        // keep their snapshot, even if a new source version exists.
+        let resolution = try await coordinator.resolve(annotation.locator, against: annotation.snapshotID)
+        try Task.checkCancellation()
+        guard notesOpenGeneration == generation, workspaceGeneration == workspace else { throw CancellationError() }
+        guard resolution.state != .orphaned, let locator = resolution.resolved else {
+            throw AdapterError.invalidLocator("原快照定位失败：\(resolution.reason)。保留的摘录与笔记仍可查看。")
+        }
+        transitionWorkspace(to: annotation.spaceID)
+        selectedSpaceID = annotation.spaceID
+        isReadingWorkspaceOpen = true
+        navigationTab = .outline
+        try reloadLibraryState(preservingSelection: true)
+        try loadSpaceState(spaceID: annotation.spaceID)
+        isNotesCenterPresented = false
+        openSource(annotation.sourceID, locator: locator, captureOutgoingPosition: false,
+                   annotationSnapshotID: annotation.snapshotID)
     }
 
     func revealReaderNavigation(_ tab: WorkspaceNavigationTab) {
@@ -833,6 +903,13 @@ final class AppModel: ObservableObject {
         fromBilingual: Bool = false
     ) {
         let locator = update.locator
+        if isAnnotationPreview {
+            guard presentationToken == contentGeneration,
+                  selectedSourceID == locator.sourceID,
+                  annotationPreviewSnapshotID == locator.snapshotID else { return }
+            currentPositionLocator = locator
+            return
+        }
         guard presentationToken == contentGeneration,
               let spaceID = selectedSpaceID,
               let source = selectedSource,
@@ -868,6 +945,7 @@ final class AppModel: ObservableObject {
     }
 
     func flushReadingPosition() {
+        guard !isAnnotationPreview else { return }
         // Commit the latest coalesced update before asking the presentation for
         // an exact boundary capture. A synchronous WebKit fallback must not be
         // overwritten by an older pending sample after the notification returns.
@@ -1074,12 +1152,15 @@ final class AppModel: ObservableObject {
     }
 
     func deleteAnnotation(_ annotation: Annotation) {
-        guard let database, let spaceID = selectedSpaceID else { return }
-        do {
-            try database.deleteAnnotation(id: annotation.id, spaceID: spaceID)
-            loadAnnotations()
-        } catch {
-            notice = AppNotice(title: "无法删除标注", message: error.localizedDescription)
+        guard let database else { return }
+        Task {
+            do {
+                try await database.deleteNotes([annotation.id: annotation.updatedAt])
+                loadAnnotations()
+                notesCenter?.invalidate()
+            } catch {
+                notice = AppNotice(title: "无法删除标注", message: error.localizedDescription)
+            }
         }
     }
 
@@ -1947,6 +2028,7 @@ final class AppModel: ObservableObject {
         do {
             try database.saveAnnotation(annotation)
             loadAnnotations()
+            notesCenter?.invalidate()
             inspectorTab = .annotations
             isInspectorPresented = true
         } catch {
@@ -1969,6 +2051,7 @@ final class AppModel: ObservableObject {
     private func recordPositionAndHistory(locator: Locator) {
         guard let database, let spaceID = selectedSpaceID else { return }
         currentPositionLocator = locator
+        guard !isAnnotationPreview else { return }
         let existing = currentProgress.sourcePositions[locator.sourceID]
         if var existing, existing.locator == locator {
             // The exact position is already durable. In particular, a relocated
@@ -2037,6 +2120,8 @@ final class AppModel: ObservableObject {
 
     private func transitionWorkspace(to _: String?) {
         flushReadingPosition()
+        notesOpenGeneration = UUID()
+        annotationPreviewSnapshotID = nil
         workspaceGeneration = UUID()
         contentGeneration = UUID()
         contentTask?.cancel()
@@ -2592,6 +2677,7 @@ final class AppModel: ObservableObject {
             (space.id, try database.sourceIDs(in: space.id))
         })
         providerProfiles = try database.fetchProviderProfiles()
+        notesCenter?.invalidate()
         for space in spaces {
             setReadingProgress(try? database.fetchReadingProgress(spaceID: space.id), for: space.id)
             try? refreshReadingStructureState(spaceID: space.id)

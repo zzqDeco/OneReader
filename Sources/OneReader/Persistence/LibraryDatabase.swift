@@ -1392,6 +1392,7 @@ final class LibraryDatabase: @unchecked Sendable {
                 """)
         }
 
+        registerNotesMigration(&migrator)
         registerTranslationMigration(&migrator)
         return migrator
     }

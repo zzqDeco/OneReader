@@ -5,6 +5,10 @@ iPad. It turns heterogeneous material into a managed, searchable, locatable
 reading space and starts with an empty Library: no example book, downloaded
 document, account, or model is required.
 
+Library 的“笔记中心”可跨空间查找书签、高亮和笔记，管理标签，并预览后导出
+按来源分组的静态 Markdown。它完全离线工作；本机原文回链只适用于同一份
+资料库，导出不会自动同步或覆盖外部编辑。详见[笔记中心](doc/notes-center.md)。
+
 The Library core, source adapters, optional Reading Agent, and reading facts are
 shared by all three platforms. SwiftUI adapts the shell to an iPhone drill-down
 reader, an iPad split workspace, and a macOS window without introducing
