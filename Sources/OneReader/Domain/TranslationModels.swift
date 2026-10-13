@@ -188,3 +188,69 @@ enum BilingualProgressMapping {
             structuralPath: locator.structuralPath, textQuote: nil, fingerprint: nil)
     }
 }
+
+/// Resolve within the already-loaded bounded unit. A coarse page/line hint never selects
+/// the first of several plausible paragraphs, and never overrides explicit text offsets.
+enum BilingualAnchorResolver {
+    static func segmentID(for current: Locator, among segments: [TranslationSegment]) -> String? {
+        guard segments.count <= TranslationRequest.maximumSegments else { return nil }
+        var candidates = segments.filter { segment in
+            let anchor = segment.locator
+            guard anchor.sourceID == current.sourceID, anchor.snapshotID == current.snapshotID else { return false }
+            if let path = current.relativePath, anchor.relativePath != path { return false }
+            if let page = current.pdfPageIndex, anchor.pdfPageIndex != page { return false }
+            let nativeOCRPair = (current.adapterID == "onereader.ocr" && ["onereader.pdf", "onereader.image"].contains(anchor.adapterID))
+                || (anchor.adapterID == "onereader.ocr" && ["onereader.pdf", "onereader.image"].contains(current.adapterID))
+            return anchor.adapterID == current.adapterID || nativeOCRPair
+        }
+        if let exact = uniqueID(candidates.filter { $0.locator.stableID == current.stableID }) { return exact }
+
+        for (startKey, endKey) in [("pageTextStartUTF16", "pageTextEndUTF16"), ("startUTF16", "endUTF16")] {
+            guard let raw = current.payload[startKey] else { continue }
+            guard let start = Int(raw), start >= 0 else { return nil }
+            let ranges = candidates.compactMap { segment -> (TranslationSegment, Int, Int)? in
+                guard let lower = segment.locator.payload[startKey].flatMap(Int.init),
+                      let upper = segment.locator.payload[endKey].flatMap(Int.init),
+                      lower >= 0, upper > lower else { return nil }
+                return (segment, lower, upper)
+            }
+            if let exactStart = uniqueID(ranges.filter { $0.1 == start }.map { $0.0 }) { return exactStart }
+            // Ranges are half-open: offset 40 belongs to 40–45, not the preceding 0–40.
+            return uniqueID(ranges.filter { $0.1 <= start && start < $0.2 }.map { $0.0 })
+        }
+
+        if let rect = current.payload["rect"],
+           let exactRect = uniqueID(candidates.filter { $0.locator.payload["rect"] == rect }) { return exactRect }
+
+        if let quote = current.textQuote?.exact, !quote.isEmpty {
+            let needle = Data(quote.utf8)
+            let quoted = candidates.filter { Data($0.originalText.utf8).range(of: needle) != nil }
+            let path = current.payload["domPath"]
+            if (path == nil || path == "body"), let exactQuote = uniqueID(quoted) { return exactQuote }
+            if !quoted.isEmpty { candidates = quoted }
+        }
+
+        if let path = current.payload["domPath"], !path.isEmpty, path != "body" {
+            let exact = candidates.filter { $0.locator.payload["domPath"] == path }
+            if !exact.isEmpty { return uniqueID(exact) }
+            let owners = candidates.filter {
+                guard let owner = $0.locator.payload["domPath"], !owner.isEmpty else { return false }
+                return path.hasPrefix(owner + " > ")
+            }
+            guard let depth = owners.compactMap({ $0.locator.payload["domPath"]?.count }).max() else { return nil }
+            return uniqueID(owners.filter { $0.locator.payload["domPath"]?.count == depth })
+        }
+
+        if let line = current.lineRange {
+            let exact = candidates.filter { $0.locator.lineRange == line }
+            if !exact.isEmpty { return uniqueID(exact) }
+            return uniqueID(candidates.filter { $0.locator.lineRange?.contains(line.lowerBound) == true })
+        }
+        // Page-only, root-only or source-only restoration is safe only with a single candidate.
+        return uniqueID(candidates)
+    }
+
+    private static func uniqueID(_ segments: [TranslationSegment]) -> String? {
+        segments.count == 1 ? segments.first?.id : nil
+    }
+}

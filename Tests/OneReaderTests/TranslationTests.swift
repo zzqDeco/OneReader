@@ -95,6 +95,113 @@ final class TranslationTests: XCTestCase {
         XCTAssertFalse(segments[1].modelText.contains("let x"))
     }
 
+    func testHTMLNestedSelectionResolvesItsOwningParagraphWithRepeatedText() throws {
+        let html = "<body><p><em>Repeat</em> here.</p><p><em>Repeat</em> here.</p></body>"
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: HTMLAdapter.id)
+        let selected = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: ["domPath": "body > p:nth-of-type(2) > em:nth-of-type(1)"],
+            textQuote: TextQuote(prefix: nil, exact: "Repeat", suffix: nil))
+        let result = try TranslationSourceBuilder.htmlSegments(html, locator: base,
+            selection: ReaderSelection(text: "Repeat", locator: selected))
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].locator.payload["domPath"], "body > p:nth-of-type(2)")
+        XCTAssertEqual(result[0].originalText, "Repeat")
+    }
+
+    func testHTMLSelectionFailsClosedForMissingOrNonOwningDOMPaths() throws {
+        let html = "<body><p><em>Repeat</em> here.</p><p>Repeat here.</p></body>"
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: HTMLAdapter.id,
+            payload: ["domPath": "body > p:nth-of-type(1)"])
+        for path in [nil, "body", "#missing", "body > p:nth-of-type(2) > em:nth-of-type(1)", "p"] as [String?] {
+            let selected = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+                payload: path.map { ["domPath": $0] } ?? [:],
+                textQuote: TextQuote(prefix: nil, exact: "Repeat", suffix: nil))
+            XCTAssertThrowsError(try TranslationSourceBuilder.htmlSegments(html, locator: base,
+                selection: ReaderSelection(text: "Repeat", locator: selected))) {
+                XCTAssertEqual($0 as? TranslationError, .selectionNotGrounded)
+            }
+        }
+    }
+
+    func testHTMLAmbiguousTextWithinOwnerDoesNotFallThroughToAnotherParagraph() throws {
+        let html = "<body><p><em>Repeat</em> Repeat</p><p>Repeat</p></body>"
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: HTMLAdapter.id)
+        let selected = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: ["domPath": "body > p:nth-of-type(1) > em:nth-of-type(1)"],
+            textQuote: TextQuote(prefix: nil, exact: "Repeat", suffix: nil))
+        XCTAssertThrowsError(try TranslationSourceBuilder.htmlSegments(html, locator: base,
+            selection: ReaderSelection(text: "Repeat", locator: selected))) {
+            XCTAssertEqual($0 as? TranslationError, .selectionNotGrounded)
+        }
+    }
+
+    func testHTMLNestedListSelectionUsesNearestIncludedBlock() throws {
+        let html = "<body><ul><li>Same <a><strong>word</strong></a></li><li>Same <a><strong>word</strong></a></li></ul></body>"
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: HTMLAdapter.id)
+        let selected = Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            payload: ["domPath": "body > ul:nth-of-type(1) > li:nth-of-type(2) > a:nth-of-type(1) > strong:nth-of-type(1)"],
+            textQuote: TextQuote(prefix: nil, exact: "word", suffix: nil))
+        let result = try TranslationSourceBuilder.htmlSegments(html, locator: base,
+            selection: ReaderSelection(text: "word", locator: selected))
+        XCTAssertEqual(result[0].locator.payload["domPath"], "body > ul:nth-of-type(1) > li:nth-of-type(2)")
+    }
+
+    func testBilingualRestorePrefersExactAndHalfOpenPDFOffsetsOverPage() {
+        let segments = [mappedSegment("first", adapter: PDFAdapter.id, payload: ["pageIndex": "4", "pageTextStartUTF16": "0", "pageTextEndUTF16": "40"]),
+                        mappedSegment("target", adapter: PDFAdapter.id, payload: ["pageIndex": "4", "pageTextStartUTF16": "40", "pageTextEndUTF16": "45"]),
+                        mappedSegment("last", adapter: PDFAdapter.id, payload: ["pageIndex": "4", "pageTextStartUTF16": "45", "pageTextEndUTF16": "70"])]
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: segments[1].locator, among: segments), "target")
+        for (offset, expected) in [(40, "target"), (42, "target"), (45, "last")] {
+            let current = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+                payload: ["pageIndex": "4", "pageTextStartUTF16": String(offset), "pageTextEndUTF16": String(offset)])
+            XCTAssertEqual(BilingualAnchorResolver.segmentID(for: current, among: segments), expected)
+        }
+        let outside = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "4", "pageTextStartUTF16": "80"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: outside, among: segments))
+        let coarse = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id, payload: ["pageIndex": "4"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: coarse, among: segments))
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: coarse, among: [segments[1]]), "target")
+    }
+
+    func testBilingualRestoreDistinguishesSegmentsOnSameTextLine() {
+        let first = mappedSegment("first", payload: ["path": "book.md", "startLine": "40", "endLine": "40", "startUTF16": "0", "endUTF16": "40"])
+        let target = mappedSegment("target", payload: ["path": "book.md", "startLine": "40", "endLine": "40", "startUTF16": "40", "endUTF16": "45"])
+        let current = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: MarkdownAdapter.id,
+            payload: ["path": "book.md", "startLine": "40", "startUTF16": "42"])
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: current, among: [first, target]), "target")
+        let coarse = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: MarkdownAdapter.id,
+            payload: ["path": "book.md", "startLine": "40"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: coarse, among: [first, target]))
+        let otherFile = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: MarkdownAdapter.id,
+            payload: ["path": "another.md", "startUTF16": "42"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: otherFile, among: [first, target]))
+    }
+
+    func testBilingualRestorePrefersExactLineRangeAndPreservedOCRRectangle() {
+        let broad = mappedSegment("broad", payload: ["path": "book.md", "startLine": "1", "endLine": "50"])
+        let target = mappedSegment("target", payload: ["path": "book.md", "startLine": "40", "endLine": "45"])
+        let current = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: MarkdownAdapter.id,
+            payload: ["path": "book.md", "startLine": "40", "endLine": "45", "positionKind": "textViewport"])
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: current, among: [broad, target]), "target")
+        let firstOCR = mappedSegment("first-ocr", adapter: "onereader.ocr", payload: ["pageIndex": "4", "rect": "0.1,0.2,0.2,0.1", "ocrSpanID": "a"])
+        let targetOCR = mappedSegment("target-ocr", adapter: "onereader.ocr", payload: ["pageIndex": "4", "rect": "0.3,0.6,0.2,0.1", "ocrSpanID": "b"])
+        let native = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "4", "rect": "0.3,0.6,0.2,0.1"])
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: native, among: [firstOCR, targetOCR]), "target-ocr")
+    }
+
+    private func mappedSegment(_ id: String, adapter: String = MarkdownAdapter.id,
+                               payload: [String: String]) -> TranslationSegment {
+        let text = "Repeated source text"
+        let anchor = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: adapter,
+            payload: payload, textQuote: TextQuote(prefix: nil, exact: text, suffix: nil))
+        return TranslationSegment(id: id, order: 0,
+            fragment: SourceFragment(id: id, sourceID: "source", locator: anchor, role: .primary, label: id),
+            originalText: text, originalDigest: AdapterUtilities.sha256(text), modelText: text,
+            protectedSpans: [], isVerbatim: false)
+    }
+
     func testOCRProgressMapsToNativePageWithoutPretendingRecognizedTextIsOriginal() {
         let ocr = Locator(sourceID: "scan", snapshotID: "snapshot", adapterID: "onereader.ocr",
             payload: ["derivedText": "ocr", "ocrRevisionID": "r1", "ocrSchema": "1", "ocrSpanID": "s1", "pageIndex": "4", "rect": "0.1,0.2,0.3,0.4"],

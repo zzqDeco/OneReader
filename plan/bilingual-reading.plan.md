@@ -33,3 +33,10 @@ Issue #25。基线 `origin/dev` / `a3c5b241d8678c806cf2f4a5d04cf21c2f909063`。
 ## 当前状态
 
 2026-10-13：实现完成。首次 `swift test --jobs 2 --skip-update` 完成 265 项，4 个失败均为 schema 元数据旧断言，已同步为当前 schema；其余通过。最终 `swift test --jobs 2 --skip-update --filter 'TranslationTests|ReleaseMetadataTests|AppModelLibraryTests.testV[89]'`：18/18 通过（15 个双语测试、2 个旧库迁移回归、1 个 schema metadata）。文档索引校验通过（78 Markdown 文件），`git diff --check` 通过。依赖 pin 与 app 版本未改；CI、集成后全量、macOS/iPhone 原生可见验收、真实模型质量及发布均未执行，交由集成门禁。
+
+### PR #29 复审修复
+
+- [x] HTML 行内选区沿实际 DOM 祖先解析所属正文块；缺失、多义或 owner 内重复文字时拒绝，不回退扫描首段或其他段落。
+- [x] 双语恢复/跟随使用稳定 Locator、原文半开偏移和唯一候选匹配，同页/同行有多段时不粗略选中首段。
+- [x] 新增 7 项回归覆盖重复 HTML 文本、嵌套列表行内选区、错误 DOM path、PDF 40–45 边界、同行分段、原文范围与 OCR rect。
+- [x] `swift test --jobs 2 --skip-update --filter TranslationTests`：22/22 通过；文档索引（78 Markdown 文件）与 `git diff --check` 通过。获授权后提交并推送既有 PR #29；原生集成验收由根任务串行执行，本次未运行 release/native 构建。
