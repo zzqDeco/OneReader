@@ -128,6 +128,27 @@ Native file-picker delivery, installed custom-URL dispatch, PDF/EPUB/HTML/
 Quick Look notes navigation, narrow layouts, VoiceOver, restart, signed package
 and required CI remain integration acceptance. No worker merge, push or PR.
 
+## CI metadata follow-up — 2026-10-13
+
+PR #30 at `b4cef69` failed `ReleaseMetadataTests` in run `38336374400` because
+`Resources/ReleaseMetadata.plist` still declared database schema 10 while this
+branch's migration/schema constant is 12. Align only the release schema to 12;
+retain manifest 1, adapter 1, runtime 5 and application version 0.3.3/build 6.
+Both platform Info plists already agree and have no separate database-schema
+field. Add a regression against a newly migrated temporary Library as well as
+the existing constant check. Record targeted test/static results before push;
+the rerun of required hosted CI remains a separate gate.
+This narrow follow-up is explicitly authorized to update existing PR #30;
+it does not authorize merging, release publication or integration/OCR edits.
+
+- `swift test --jobs 2 --filter 'ReleaseMetadataTests|NotesCenterTests'`: 10 tests,
+  zero failures (2026-10-13), including the new migrated-Library comparison.
+- Apple metadata (both platforms), documentation index, Xcode project
+  consistency, release plist syntax and diff checks pass. Both Info plists,
+  `project.yml`, app version and dependency pins are unchanged.
+- Hosted CI for the forthcoming commit remains pending; the prior run's
+  schema mismatch is reproduced by the existing regression and corrected here.
+
 ## Delivery checklist
 
 - [x] User behavior implemented
