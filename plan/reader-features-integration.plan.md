@@ -98,6 +98,38 @@ source/annotation/progress identity; they do not run a Provider.
 - Full integrated/native/visible acceptance and Sol max conclusions remain gates,
   not implied by topic or cross-feature test success. No real Provider is called.
 
+### Reviewer repair integration and final candidate
+
+- Code candidate `37f53db36d99d1405ebdaa8ad36187b83189d8ad` integrates bilingual
+  `c91b5b7`, capture `13470ee`, notes `fd61ee7` and OCR `b4f837a` review repairs.
+  Source code remains DB14/runtime6 with ordered v11/v12/v13/v14 migrations.
+- 2026-10-13: full integrated `swift test --jobs 2` passes 363 tests, zero skips
+  and failures. This includes generated fixtures and real local Vision, but no
+  real Provider call. The 10,000-note pagination fixture reads 50 bounded pages
+  in 0.464 seconds on the local host; this is not a UI frame-rate benchmark.
+- OCR topic `b4f837a` passes 298 macOS tests and 22 hosted tests on the connected
+  physical iPhone 18 Pro Max. The latter includes the production native
+  mixed-PDF selection bridge, actual bilingual Vision, native OCR overlay/image
+  geometry and position, and twelve PDF zoom contracts. These are topic tests,
+  not integrated share-extension or manual-gesture acceptance.
+- The repaired contracts reject late OCR plan activation/index publication and
+  stale Agent finalization atomically, repair old active pointers at startup,
+  retain old evidence, and preserve each carried/resumed page's actual processing
+  provenance. Native PDFKit text selection does not inherit an OCR locator.
+- Current dependency, documentation, generated-project, Apple metadata,
+  entitlement/release fixtures and whitespace checks pass. Final release
+  packaging, unsigned iOS app/share build, exact-head CI and final Sol max
+  conclusions are separate pending gates.
+- The isolated macOS preview visibly imports a generated image and produces four
+  bilingual OCR lines. It is a pre-final candidate. Native mouse input currently
+  reports `noWindowsAvailable`; selection/search/notes/export/restart acceptance
+  has not been substituted with automated results. The preview was quit normally
+  through its application menu; its isolated Library is preserved for the rebuild.
+- Integrated iPhone signing is pending provisioning support for the isolated
+  `group.io.github.zzqDeco.OneReader.features-preview.capture` App Group. No
+  production group, trust, or security setting is altered to bypass this gate.
+  No Simulator is created or booted, and no main/release mutation is performed.
+
 ## Non-goals
 
 iPad device acceptance, hosted Xcode migration, cloud sync, distribution/signing and v0.3.3 rework.
