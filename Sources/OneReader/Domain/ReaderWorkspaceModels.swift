@@ -157,6 +157,7 @@ enum ReaderContentNavigation {
     ]
 
     static func isVisible(_ node: ContentNode) -> Bool {
+        if node.locator.adapterID == ImageAdapter.id || node.locator.adapterID == OCRAdapter.id { return true }
         let path = (node.locator.relativePath ?? node.locator.structuralPath ?? "")
             .lowercased()
         let pathExtension = (path as NSString).pathExtension

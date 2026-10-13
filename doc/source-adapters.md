@@ -13,6 +13,8 @@ The v1 registry contains:
 | Adapter | Source shape | Presentation | Capabilities |
 | --- | --- | --- | --- |
 | PDF | PDF signature or extension | PDFKit | probe, revision, list, read, search, render, resolve |
+| Image | single JPEG/PNG/HEIC | native image zoom/pan | probe, revision, list, render, resolve |
+| Local OCR | immutable processed PDF/image pages | original PDFKit/image plus recognition regions | all adapter capabilities |
 | EPUB | validated EPUB ZIP/package | sanitized WebKit | all adapter capabilities |
 | Markdown | UTF-8 Markdown | native selectable text | all adapter capabilities |
 | Text | UTF-8 text | native selectable text | all adapter capabilities |

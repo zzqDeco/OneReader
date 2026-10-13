@@ -85,6 +85,10 @@ enum PDFViewportAnchor {
         let visible = view.convert(view.bounds, to: page).intersection(bounds)
         guard !visible.isNull, !visible.isEmpty else { return nil }
         var payload = base.payload
+        if base.adapterID == OCRAdapter.id {
+            // Progress remains an original-document position, not a derived OCR span.
+            ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText"].forEach { payload[$0] = nil }
+        }
         payload["pageIndex"] = String(index)
         payload["positionKind"] = "viewport"
         payload["viewportX"] = String(Double(point.x))
@@ -104,7 +108,8 @@ enum PDFViewportAnchor {
         payload["rect"] = [visible.minX, visible.minY, visible.width, visible.height]
             .map { String(Double($0)) }.joined(separator: ",")
         let locator = Locator(
-            sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            sourceID: base.sourceID, snapshotID: base.snapshotID,
+            adapterID: base.adapterID == OCRAdapter.id ? PDFAdapter.id : base.adapterID,
             payload: payload, structuralPath: "page/\(index)", textQuote: nil, fingerprint: nil
         )
         // Measure progress on the displayed vertical axis, not page-space y:

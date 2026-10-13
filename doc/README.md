@@ -11,6 +11,7 @@ implementation sequencing belongs in `plan/`.
 | [Apple platforms](apple-platforms.md) | Shared target model, native shells, import/storage permissions, and multiplatform validation |
 | [Interfaces](interfaces.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
 | [Source adapters](source-adapters.md) | Deterministic format routing, snapshots, presentation, search, and safety |
+| [Local OCR](local-ocr.md) | Original-aligned local recognition, immutable OCR evidence and explicit job recovery |
 | [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and recovery |
 | [Reader workspace](reader-workspace.md) | Library-first native workspace, reading surfaces, search, annotations, and adaptive layout |
 | [Acceptance](acceptance.md) | Automated/native acceptance and scoped frame-profile evidence |

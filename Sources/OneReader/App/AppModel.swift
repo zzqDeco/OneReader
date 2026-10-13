@@ -90,6 +90,10 @@ final class ReadingPositionDisplayState: ObservableObject {
 
 @MainActor
 final class AppModel: ObservableObject {
+    let ocrController = OCRReaderController()
+    @Published var isOCRPanelPresented = false
+    @Published var ocrTextSelectionEnabled = false
+    @Published private(set) var ocrDisplayRevision: OCRRevision?
     @Published private(set) var spaces: [ReadingSpace] = []
     @Published private(set) var sources: [Source] = []
     @Published private(set) var snapshots: [SourceSnapshot] = []
@@ -269,7 +273,13 @@ final class AppModel: ObservableObject {
     }
 
     var presentationDescriptor: PresentationSurfaceDescriptor? {
-        presentationDocument.flatMap { presentationRegistry.descriptor(for: $0.surface) }
+        if presentationDocument?.surface == .nativeImage {
+            let hasText = ocrDisplayRevision?.pages.contains(where: { !$0.usesNativeText && !$0.spans.isEmpty }) == true
+            return PresentationSurfaceDescriptor(id: .nativeImage, supportsTextSelection: hasText,
+                supportsStructuredHighlight: hasText, supportsFind: hasText,
+                limitation: hasText ? "识别文字可能有误，请对照原图核实" : "原始图像没有文字层，可在本机识别后搜索和标注")
+        }
+        return presentationDocument.flatMap { presentationRegistry.descriptor(for: $0.surface) }
     }
 
     var currentGraph: ReadingGraph? {
@@ -410,7 +420,7 @@ final class AppModel: ObservableObject {
         do {
             let database = try LibraryDatabase(rootURL: libraryRootURL)
             let managedLibrary = try ManagedLibrary(database: database)
-            let registry = try AdapterRegistry.standard()
+            let registry = try AdapterRegistry.standard(database: database)
             let coordinator = AdapterCoordinator(database: database, registry: registry)
             let remoteImporter = RemoteSourceImporter(library: managedLibrary)
             let toolHost = ReadingToolHost(
@@ -427,6 +437,7 @@ final class AppModel: ObservableObject {
                 driverFactory: agentDriverFactory
             )
             self.database = database
+            ocrController.configure(database: database)
             self.managedLibrary = managedLibrary
             self.registry = registry
             self.coordinator = coordinator
@@ -657,7 +668,16 @@ final class AppModel: ObservableObject {
             flushReadingPosition()
         }
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
+        if selectedSourceID != sourceID || selectedSnapshot?.id != snapshotID {
+            ocrController.reset()
+            ocrTextSelectionEnabled = false
+        }
         selectedSourceID = sourceID
+        if let revisionID = requestedLocator?.payload["ocrRevisionID"] {
+            ocrDisplayRevision = try? database.ocrRevision(id: revisionID, sourceID: sourceID, snapshotID: snapshotID)
+        } else {
+            ocrDisplayRevision = try? database.activeOCRRevision(snapshotID: snapshotID)
+        }
         currentPositionLocator = nil
         presentationState = .loading
         currentObservation = nil
@@ -2834,4 +2854,58 @@ final class AppModel: ObservableObject {
         isBootstrapComplete = true
     }
 #endif
+}
+
+extension AppModel {
+    var canUseLocalOCR: Bool {
+        guard let source = selectedSource, source.originKind == .localFile || source.originKind == .remoteURL else { return false }
+        return presentationDocument?.surface == .pdfKit || presentationDocument?.surface == .nativeImage
+    }
+
+    func showLocalOCR() {
+        guard let database, let source = selectedSource, let snapshot = selectedSnapshot,
+              let relative = snapshot.managedRelativePath,
+              let url = try? database.layout.url(forRelativePath: relative) else { return }
+        ocrController.load(context: AdapterContext(source: source, snapshot: snapshot, managedURL: url,
+            derivedRootURL: database.layout.derivedURL))
+        isOCRPanelPresented = true
+    }
+
+    func startLocalOCR(pages: [Int], settings: OCRSettings, resume: OCRJob? = nil) {
+        guard let sourceID = selectedSourceID, let snapshotID = selectedSnapshot?.id else { return }
+        ocrController.start(pages: pages, settings: settings, resume: resume) { [weak self] revision in
+            guard let self, let coordinator else { return }
+            do {
+                _ = try await coordinator.prepare(sourceID: sourceID, snapshotID: snapshotID)
+                if selectedSourceID == sourceID, selectedSnapshot?.id == snapshotID {
+                    let active = try database?.activeOCRRevision(snapshotID: snapshotID)
+                    ocrDisplayRevision = revision ?? active
+                    openSource(sourceID)
+                }
+            } catch { notice = AppNotice(title: "识别结果未启用", message: error.localizedDescription) }
+        }
+    }
+
+    func selectLocalOCRRevision(_ revision: OCRRevision) {
+        guard let database else { return }
+        do {
+            try database.selectOCRRevision(revision.id, snapshotID: revision.snapshotID)
+            Task { [weak self] in
+                guard let self, let coordinator else { return }
+                do {
+                    _ = try await coordinator.prepare(sourceID: revision.sourceID, snapshotID: revision.snapshotID)
+                    if selectedSourceID == revision.sourceID {
+                        ocrDisplayRevision = revision
+                        openSource(revision.sourceID)
+                    }
+                } catch { notice = AppNotice(title: "无法切换识别版本", message: error.localizedDescription) }
+            }
+        } catch { notice = AppNotice(title: "无法切换识别版本", message: error.localizedDescription) }
+    }
+
+    func selectOCRSpan(revision: OCRRevision, page: OCRPage, span: OCRSpan) {
+        let locator = revision.locator(page: page, span: span)
+        openLocator(locator)
+        currentSelection = ReaderSelection(text: span.text, locator: locator)
+    }
 }

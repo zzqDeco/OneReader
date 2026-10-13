@@ -19,6 +19,8 @@ struct PresentationSurfaceDescriptor: Identifiable, Hashable, Sendable {
 
 struct PresentationRegistry: Sendable {
     static let standard = PresentationRegistry(descriptors: [
+        PresentationSurfaceDescriptor(id: .nativeImage, supportsTextSelection: true,
+            supportsStructuredHighlight: true, supportsFind: true, limitation: "文字选择和搜索需先在本机识别"),
         PresentationSurfaceDescriptor(
             id: .pdfKit,
             supportsTextSelection: true,
@@ -84,6 +86,8 @@ struct AdapterPresentationView: View {
     let onPositionChange: (ReadingPositionUpdate) -> Void
     var pdfZoomRequest: PDFZoomRequest? = nil
     var onPDFZoomChange: ((Double) -> Void)? = nil
+    var ocrRevision: OCRRevision? = nil
+    var ocrTextSelectionEnabled = false
 
     var body: some View {
         Group {
@@ -100,7 +104,9 @@ struct AdapterPresentationView: View {
                         onSelectionChange: onSelectionChange,
                         onPositionChange: onPositionChange,
                         zoomRequest: pdfZoomRequest,
-                        onZoomChange: onPDFZoomChange
+                        onZoomChange: onPDFZoomChange,
+                        ocrRevision: ocrRevision,
+                        ocrTextSelectionEnabled: ocrTextSelectionEnabled
                     )
 #else
                     ManagedPDFPresentation(
@@ -110,7 +116,9 @@ struct AdapterPresentationView: View {
                         pageIndex: document.locator.pdfPageIndex ?? 0,
                         scale: preferences.pdfScale,
                         onSelectionChange: onSelectionChange,
-                        onPositionChange: onPositionChange
+                        onPositionChange: onPositionChange,
+                        ocrRevision: ocrRevision,
+                        ocrTextSelectionEnabled: ocrTextSelectionEnabled
                     )
 #endif
                 } else {
@@ -118,6 +126,9 @@ struct AdapterPresentationView: View {
                 }
             case .nativeMarkdown:
                 nativePresentation(kind: .markdown)
+            case .nativeImage:
+                OCRImagePresentation(document: document, revision: ocrRevision, selectable: ocrTextSelectionEnabled,
+                    onSelection: onSelectionChange, onPosition: onPositionChange, captureTargetID: captureTargetID)
             case .nativeText:
                 nativePresentation(kind: .text)
             case .nativeCode:
@@ -940,6 +951,8 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
     let scale: Double
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var ocrRevision: OCRRevision? = nil
+    var ocrTextSelectionEnabled = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -957,6 +970,8 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
 
     func updateNSView(_ view: ReadingPDFView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.ocrOverlay.install(in: view, revision: ocrRevision,
+            selectable: ocrTextSelectionEnabled, locator: documentLocator, onSelection: onSelectionChange)
         if context.coordinator.loadedURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
@@ -1021,6 +1036,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var parent: ManagedPDFPresentation
+        let ocrOverlay = OCRPDFOverlayProvider()
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false
