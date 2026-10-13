@@ -95,6 +95,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
     let targetSnapshotID: String?
     let expectedSnapshotIDs: Set<String>
     let snapshotManifest: [String: String]
+    let translation: TranslationRequest?
 
     init(
         spaceID: String,
@@ -105,7 +106,8 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         targetSourceID: String? = nil,
         targetSnapshotID: String? = nil,
         expectedSnapshotIDs: Set<String> = [],
-        snapshotManifest: [String: String] = [:]
+        snapshotManifest: [String: String] = [:],
+        translation: TranslationRequest? = nil
     ) {
         self.spaceID = spaceID
         self.task = task
@@ -116,6 +118,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         self.targetSnapshotID = targetSnapshotID
         self.expectedSnapshotIDs = expectedSnapshotIDs
         self.snapshotManifest = snapshotManifest
+        self.translation = translation
     }
 }
 
@@ -156,6 +159,7 @@ enum AgentStructuredOutput: Codable, Hashable, Sendable {
     case readingPlan(ReadingPlanDraft)
     case evidenceAnswer(EvidenceAnswer)
     case scoutingSummary(String)
+    case translation(TranslationDraft)
 }
 
 struct AgentModelRequest: Codable, Hashable, Sendable {

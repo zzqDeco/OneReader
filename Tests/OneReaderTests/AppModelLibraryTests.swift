@@ -1584,7 +1584,7 @@ final class AppModelLibraryTests: XCTestCase {
                 XCTAssertEqual(records, [.scoutSpace, .materializeGraph, .projectRoute])
             case .materializeGraph:
                 XCTAssertEqual(records, [.materializeGraph, .projectRoute])
-            case .routeAdapters, .projectRoute, .answerWithEvidence:
+            case .routeAdapters, .projectRoute, .answerWithEvidence, .translateFragments:
                 XCTFail("Unexpected fixture task")
             }
         }
@@ -1659,7 +1659,7 @@ final class AppModelLibraryTests: XCTestCase {
         try prior.close()
 
         let migrated = try LibraryDatabase(rootURL: fixture.libraryRoot)
-        XCTAssertEqual(try migrated.schemaMetadata()["database_schema"], "10")
+        XCTAssertEqual(try migrated.schemaMetadata()["database_schema"], String(LibraryDatabase.schemaVersion))
         XCTAssertEqual(try migrated.searchDocumentCount(), 0)
         XCTAssertEqual(try migrated.adapterPlansRequiringSearchIndex().map(\.id), [fixture.planID])
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
@@ -1722,7 +1722,7 @@ final class AppModelLibraryTests: XCTestCase {
         try observer.close()
 
         let verification = try LibraryDatabase(rootURL: fixture.libraryRoot)
-        XCTAssertEqual(try verification.schemaMetadata()["database_schema"], "10")
+        XCTAssertEqual(try verification.schemaMetadata()["database_schema"], String(LibraryDatabase.schemaVersion))
         XCTAssertEqual(
             try verification.searchObservations(query: "migration-evidence").count,
             1
@@ -2294,7 +2294,7 @@ private struct PipelineContinuationDriver: ReadingAgentModelDriver {
             return AgentModelResult(output: .graphPatch(patch), usage: nil)
         case .projectRoute:
             throw ReadingAgentError.providerUnavailable("pipeline-resume-test-stop")
-        case .routeAdapters, .answerWithEvidence:
+        case .routeAdapters, .answerWithEvidence, .translateFragments:
             throw ReadingAgentError.providerUnavailable(
                 "pipeline-resume-unexpected-\(request.request.task.rawValue)"
             )
@@ -2382,7 +2382,7 @@ private struct AppPipelineDriver: ReadingAgentModelDriver {
             )
         case .materializeGraph:
             throw ReadingAgentError.providerUnavailable("pipeline-test-stop")
-        case .projectRoute, .answerWithEvidence:
+        case .projectRoute, .answerWithEvidence, .translateFragments:
             throw ReadingAgentError.providerUnavailable("pipeline-test-unexpected-task")
         }
     }

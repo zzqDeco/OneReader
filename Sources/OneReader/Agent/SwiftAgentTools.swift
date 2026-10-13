@@ -87,6 +87,9 @@ actor ReadingToolRuntime {
         arguments: GeneratedReadingToolArguments
     ) async throws -> ReadingToolPromptOutput {
         try await clock.check(generation)
+        guard request.task != .translateFragments else {
+            throw ReadingAgentError.invalidToolArguments("translation-has-no-reading-tools")
+        }
         let callNumber = try await budget.consumeToolCall()
         let requestMetadata = auditMetadata(
             tool: tool,

@@ -158,6 +158,16 @@ struct ReadingTurnLoop: Sendable {
                 destinationIdentity: destinationIdentity,
                 revisionIdentity: revisionIdentity
             )
+            if request.task == .translateFragments {
+                guard let translation = request.translation,
+                      translation.settings.providerProfileID == profile.id,
+                      translation.settings.providerDestinationIdentity == destinationIdentity,
+                      translation.settings.providerRevisionIdentity == revisionIdentity,
+                      translation.settings.modelID == profile.modelID else {
+                    throw ReadingAgentError.validationRejected("translation-provider-changed")
+                }
+                try translation.validateShape()
+            }
             if try ProviderPolicy.requiresRemoteDisclosure(profile),
                try !database.hasAcknowledgedRemoteDisclosure(
                     spaceID: request.spaceID,
@@ -445,6 +455,7 @@ struct ReadingTurnLoop: Sendable {
         case .readingPlan: "readingPlan"
         case .evidenceAnswer: "evidenceAnswer"
         case .scoutingSummary: "scoutingSummary"
+        case .translation: "translation"
         }
     }
 
@@ -710,8 +721,23 @@ actor ReadingAgentSession {
             targetSourceID: requested.targetSourceID,
             targetSnapshotID: requested.targetSnapshotID,
             expectedSnapshotIDs: Set(manifest.values),
-            snapshotManifest: manifest
+            snapshotManifest: manifest,
+            translation: requested.translation
         )
+        if request.task == .translateFragments {
+            guard let translation = request.translation else {
+                throw ReadingAgentError.validationRejected("translation-request-missing")
+            }
+            try translation.validateShape()
+            for segment in translation.segments {
+                guard manifest[segment.locator.sourceID] == segment.locator.snapshotID,
+                      try database.hasObservation(for: segment.locator, containing: segment.originalText) else {
+                    throw ReadingAgentError.validationRejected("translation-not-grounded")
+                }
+            }
+        } else if request.translation != nil {
+            throw ReadingAgentError.validationRejected("translation-task-mismatch")
+        }
         if request.task == .routeAdapters {
             guard let targetSourceID = request.targetSourceID,
                   let targetSnapshotID = request.targetSnapshotID,
@@ -920,7 +946,8 @@ actor ReadingAgentSession {
                   request.targetSnapshotID?.isEmpty == false else {
                 throw ReadingAgentError.validationRejected("adapter-route-target-required")
             }
-        } else if request.targetSourceID != nil || request.targetSnapshotID != nil {
+        } else if request.task != .translateFragments,
+                  request.targetSourceID != nil || request.targetSnapshotID != nil {
             throw ReadingAgentError.validationRejected("adapter-route-target-unexpected")
         }
         if request.pipeline == .readingStructure,

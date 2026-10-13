@@ -59,6 +59,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
     case evidence
     case activity
     case ask
+    case translation
 
     var id: String { rawValue }
 
@@ -68,6 +69,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .evidence: "引用"
         case .activity: "运行"
         case .ask: "助手"
+        case .translation: "双语"
         }
     }
 
@@ -77,6 +79,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .evidence: "link"
         case .activity: "waveform.path"
         case .ask: "sparkles"
+        case .translation: "character.bubble"
         }
     }
 }

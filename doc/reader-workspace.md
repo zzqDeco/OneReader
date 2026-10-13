@@ -1,5 +1,10 @@
 # Reader Workspace
 
+The native reading-assistance 「双语」 tab provides explicit current-unit/selection
+translation, cache-first offline display and source-linked progress. It never
+replaces the PDF or writes translated offsets into source Locators. See
+[bilingual reading](bilingual-reading.md) for exact behavior and acceptance boundaries.
+
 ## Product shape
 
 OneReader opens as a Library, not a format picker or chat screen. A Reading

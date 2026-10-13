@@ -121,6 +121,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var evidenceAnswer: EvidenceAnswer?
     @Published var currentSelection: ReaderSelection?
     let readingPositionDisplayState = ReadingPositionDisplayState()
+    let bilingualReading = BilingualReadingModel()
     private(set) var currentPositionLocator: Locator? {
         willSet {
             // Navigation controls and menu shortcuts must change immediately
@@ -340,7 +341,7 @@ final class AppModel: ObservableObject {
     var availableInspectorTabs: [ReaderInspectorTab] {
         ReaderInspectorTab.allCases.filter { tab in
             switch tab {
-            case .annotations, .activity: true
+            case .annotations, .activity, .translation: true
             case .evidence, .ask: spaceSupportsAgentEvidence
             }
         }
@@ -432,6 +433,7 @@ final class AppModel: ObservableObject {
             self.coordinator = coordinator
             self.remoteImporter = remoteImporter
             self.agentRuntime = runtime
+            bilingualReading.configure(database: database, coordinator: coordinator, runtime: runtime, defaults: defaults)
             try reloadLibraryState()
             try schedulePendingSearchIndexRebuilds()
         } catch {
@@ -657,6 +659,7 @@ final class AppModel: ObservableObject {
             flushReadingPosition()
         }
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
+        bilingualReading.sourceWillChange(spaceID: spaceID, sourceID: sourceID, snapshotID: snapshotID)
         selectedSourceID = sourceID
         currentPositionLocator = nil
         presentationState = .loading
@@ -752,6 +755,30 @@ final class AppModel: ObservableObject {
         openLocator(node.locator)
     }
 
+    func prepareBilingualReading(useSelection: Bool) {
+        guard let spaceID = selectedSpaceID, let document = presentationDocument,
+              let plan = adapterPlan else { return }
+        let current = currentPositionLocator ?? document.locator
+        let chapterNodes = contentNodes.filter { $0.locator.relativePath == current.relativePath }
+        let prior = chapterNodes.last { ($0.locator.lineRange?.lowerBound ?? Int.max) <= (current.lineRange?.lowerBound ?? 1) }
+        let anchor = useSelection ? (currentSelection?.locator ?? current) : (prior?.locator ?? current)
+        let next = chapterNodes.first { ($0.locator.lineRange?.lowerBound ?? 0) > (anchor.lineRange?.lowerBound ?? Int.max) }
+        bilingualReading.prepare(spaceID: spaceID, document: document, locator: anchor,
+            nextLocator: next?.locator, selection: useSelection ? currentSelection : nil,
+            plan: plan, profile: activeProvider)
+        inspectorTab = .translation
+        isInspectorPresented = true
+    }
+
+    func returnToBilingualOriginal(_ segment: TranslationSegment, prepareAnnotation: Bool = false) {
+        bilingualReading.originalReaderBecameActive()
+        openLocator(segment.locator)
+        if prepareAnnotation {
+            currentSelection = ReaderSelection(text: segment.originalText, locator: segment.locator)
+            inspectorTab = .annotations
+        }
+    }
+
     func openLocator(_ locator: Locator) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(locator.sourceID) else { return }
@@ -784,6 +811,13 @@ final class AppModel: ObservableObject {
         updateReadingPosition(update, presentationToken: currentPresentationToken)
     }
 
+    func updateBilingualReadingPosition(_ locator: Locator) {
+        let source = BilingualProgressMapping.sourceLocator(locator, surface: presentationDocument?.surface)
+        bilingualReading.recordUserReading(source)
+        updateReadingPosition(Self.inferredPositionUpdate(for: source),
+            presentationToken: currentPresentationToken, fromBilingual: true)
+    }
+
     func activateReadingPositionCaptureTarget(_ targetID: UUID) {
         guard activeReadingPositionCaptureTargetID != targetID else { return }
         activeReadingPositionCaptureTargetID = targetID
@@ -795,7 +829,8 @@ final class AppModel: ObservableObject {
 
     func updateReadingPosition(
         _ update: ReadingPositionUpdate,
-        presentationToken: UUID
+        presentationToken: UUID,
+        fromBilingual: Bool = false
     ) {
         let locator = update.locator
         guard presentationToken == contentGeneration,
@@ -803,6 +838,7 @@ final class AppModel: ObservableObject {
               let source = selectedSource,
               source.id == locator.sourceID,
               source.latestSnapshotID == locator.snapshotID else { return }
+        if !fromBilingual { bilingualReading.originalReaderBecameActive() }
         let saveID = UUID()
         pendingPositionUpdate = PendingReadingPosition(
             id: saveID,
@@ -836,6 +872,10 @@ final class AppModel: ObservableObject {
         // an exact boundary capture. A synchronous WebKit fallback must not be
         // overwritten by an older pending sample after the notification returns.
         flushPendingReadingPosition()
+        // A hidden original surface must not overwrite genuine translated reading with its stale viewport.
+        if let anchor = bilingualReading.lastReadLocator,
+           anchor.sourceID == selectedSourceID,
+           anchor.snapshotID == selectedSource?.latestSnapshotID { return }
         let captureContext: ReadingPositionCaptureContext? = selectedSpaceID.flatMap { spaceID in
             guard let source = selectedSource,
                   let snapshotID = source.latestSnapshotID else { return nil }
@@ -2168,7 +2208,7 @@ final class AppModel: ObservableObject {
             await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
         case .materializeGraph:
             await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
-        case .projectRoute, .answerWithEvidence:
+        case .projectRoute, .answerWithEvidence, .translateFragments:
             return
         }
     }
@@ -2472,6 +2512,7 @@ final class AppModel: ObservableObject {
         guard let selectedSpaceID,
               spaceID == nil || spaceID == selectedSpaceID else { return }
         loadAgentActivity(spaceID: selectedSpaceID)
+        bilingualReading.providerDidChange(activeProvider)
     }
 
     private func refreshReadingStructureState(spaceID: String) throws {

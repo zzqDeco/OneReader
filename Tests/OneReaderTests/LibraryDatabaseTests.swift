@@ -15,8 +15,8 @@ final class LibraryDatabaseTests: XCTestCase {
             try database.schemaMetadata(),
             [
                 "adapter_schema": "1",
-                "agent_runtime_schema": "5",
-                "database_schema": "10",
+                "agent_runtime_schema": String(LibraryDatabase.agentRuntimeSchemaVersion),
+                "database_schema": String(LibraryDatabase.schemaVersion),
             ]
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))

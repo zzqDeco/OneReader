@@ -587,6 +587,7 @@ enum AgentTaskKind: String, Codable, CaseIterable, Sendable {
     case materializeGraph
     case projectRoute
     case answerWithEvidence
+    case translateFragments
 }
 
 struct AgentRun: Identifiable, Codable, Hashable, Sendable {
