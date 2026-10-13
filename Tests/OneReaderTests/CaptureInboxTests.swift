@@ -94,6 +94,172 @@ final class CaptureInboxTests: XCTestCase {
         XCTAssertThrowsError(try fixture.staging.receiveURL(URL(string: "https://example.com/different")!, id: id))
     }
 
+    func testSameIDNameAndSizeWithDifferentFileBytesPreservesOriginalPayload() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let input = try fixture.file("same.txt", "AAAA")
+        let id = UUID().uuidString.lowercased()
+        let first = try fixture.staging.receiveFile(input, id: id)
+        XCTAssertEqual(first.version, 2)
+        XCTAssertEqual(first.payloadDigest?.count, 64)
+        let payload = try XCTUnwrap(fixture.staging.payloadURL(for: first))
+        let manifest = fixture.staging.rootURL.appendingPathComponent("ready/\(id)/receipt.json")
+        let originalManifest = try Data(contentsOf: manifest)
+
+        XCTAssertEqual(try fixture.staging.receiveFile(input, id: id), first)
+        try Data("BBBB".utf8).write(to: input)
+        XCTAssertThrowsError(try fixture.staging.receiveFile(input, id: id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        XCTAssertEqual(try Data(contentsOf: payload), Data("AAAA".utf8))
+        XCTAssertEqual(try Data(contentsOf: manifest), originalManifest)
+        XCTAssertEqual(try fixture.staging.receipt(id: id), first)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(
+            atPath: fixture.staging.rootURL.appendingPathComponent("writing").path
+        ).isEmpty)
+    }
+
+    func testSameIDDirectoryRejectsChangedBytesNamesAndEmptyDirectoryStructure() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let tree = fixture.root.appendingPathComponent("Tree")
+        let chapter = tree.appendingPathComponent("nested/chapter.txt")
+        let empty = tree.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: chapter.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try Data("AAAA".utf8).write(to: chapter)
+        let id = UUID().uuidString.lowercased()
+        let first = try fixture.staging.receiveFile(tree, id: id)
+        let savedTree = try XCTUnwrap(fixture.staging.payloadURL(for: first))
+        XCTAssertEqual(try fixture.staging.receiveFile(tree, id: id), first)
+
+        try Data("BBBB".utf8).write(to: chapter)
+        XCTAssertThrowsError(try fixture.staging.receiveFile(tree, id: id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        try Data("AAAA".utf8).write(to: chapter)
+        let renamed = chapter.deletingLastPathComponent().appendingPathComponent("renamed.txt")
+        try FileManager.default.moveItem(at: chapter, to: renamed)
+        XCTAssertThrowsError(try fixture.staging.receiveFile(tree, id: id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        try FileManager.default.moveItem(at: renamed, to: chapter)
+        try FileManager.default.moveItem(at: empty, to: tree.appendingPathComponent("another-empty"))
+        XCTAssertThrowsError(try fixture.staging.receiveFile(tree, id: id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        XCTAssertEqual(try Data(contentsOf: savedTree.appendingPathComponent("nested/chapter.txt")), Data("AAAA".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedTree.appendingPathComponent("empty").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: savedTree.appendingPathComponent("another-empty").path))
+        XCTAssertEqual(try fixture.staging.receipt(id: id), first)
+    }
+
+    func testSameIDTextPayloadRejectsSameLengthDifferentBytes() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let id = UUID().uuidString.lowercased()
+        let first = try fixture.staging.receiveText(Data("AAAA".utf8), id: id)
+        XCTAssertEqual(try fixture.staging.receiveText(Data("AAAA".utf8), id: id), first)
+        XCTAssertThrowsError(try fixture.staging.receiveText(Data("BBBB".utf8), id: id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        let payload = try XCTUnwrap(fixture.staging.payloadURL(for: first))
+        XCTAssertEqual(try Data(contentsOf: payload), Data("AAAA".utf8))
+    }
+
+    func testDigestLessLegacyLocalReceiptFailsClosedWithoutDeletingItsPayload() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let input = try fixture.file("legacy.txt", "original")
+        let receipt = try fixture.staging.receiveFile(input)
+        let payload = try XCTUnwrap(fixture.staging.payloadURL(for: receipt))
+        let manifest = fixture.staging.rootURL.appendingPathComponent("ready/\(receipt.id)/receipt.json")
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        legacy["version"] = 1
+        legacy.removeValue(forKey: "payloadDigest")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacy, options: [.sortedKeys])
+        try legacyData.write(to: manifest)
+        let decoded = try JSONDecoder().decode(CaptureReceipt.self, from: legacyData)
+        try decoded.validate()
+        XCTAssertFalse(decoded.describesSameContent(as: decoded))
+        XCTAssertThrowsError(try fixture.staging.receipt(id: receipt.id)) {
+            XCTAssertEqual($0 as? CaptureError, .unverifiedReceipt)
+        }
+        XCTAssertThrowsError(try fixture.staging.receiveFile(input, id: receipt.id)) {
+            XCTAssertEqual($0 as? CaptureError, .unverifiedReceipt)
+        }
+        XCTAssertEqual(try Data(contentsOf: payload), Data("original".utf8))
+        XCTAssertEqual(try Data(contentsOf: manifest), legacyData)
+    }
+
+    func testLegacyRemoteReceiptStillHasURLBasedIdempotence() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let url = URL(string: "https://example.com/legacy")!
+        let receipt = try fixture.staging.receiveURL(url)
+        let manifest = fixture.staging.rootURL.appendingPathComponent("ready/\(receipt.id)/receipt.json")
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        legacy["version"] = 1
+        try JSONSerialization.data(withJSONObject: legacy).write(to: manifest)
+        let stored = try fixture.staging.receipt(id: receipt.id)
+        XCTAssertEqual(stored.version, 1)
+        XCTAssertEqual(try fixture.staging.receiveURL(url, id: receipt.id), stored)
+        XCTAssertThrowsError(try fixture.staging.receiveURL(URL(string: "https://example.com/changed")!, id: receipt.id))
+    }
+
+    func testTamperedPersistedBytesCannotPassReceiptLookupReplayOrAdoption() throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let shared = fixture.store("Shared")
+        let input = try fixture.file("tampered.txt", "AAAA")
+        let receipt = try shared.receiveFile(input)
+        let payload = try XCTUnwrap(shared.payloadURL(for: receipt))
+        try Data("BBBB".utf8).write(to: payload)
+        XCTAssertThrowsError(try shared.receipt(id: receipt.id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        XCTAssertThrowsError(try shared.receiveFile(input, id: receipt.id)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        XCTAssertThrowsError(try fixture.staging.adopt(receipt, from: shared)) {
+            XCTAssertEqual($0 as? CaptureError, .conflictingReceipt)
+        }
+        XCTAssertEqual(try Data(contentsOf: payload), Data("BBBB".utf8))
+        XCTAssertTrue(try fixture.staging.receiptIDs().isEmpty)
+    }
+
+    func testConcurrentSameIDWithDifferentBytesHasExactlyOneWinner() async throws {
+        let fixture = try CaptureFixture()
+        defer { fixture.cleanUp() }
+        let one = fixture.root.appendingPathComponent("one/item.txt")
+        let two = fixture.root.appendingPathComponent("two/item.txt")
+        for url in [one, two] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data("AAAA".utf8).write(to: one)
+        try Data("BBBB".utf8).write(to: two)
+        let store = fixture.staging
+        let id = UUID().uuidString.lowercased()
+        let outcomes = await withTaskGroup(of: Result<CaptureReceipt, CaptureError>.self) { group in
+            for input in [one, two] {
+                group.addTask {
+                    do { return .success(try store.receiveFile(input, id: id)) }
+                    catch { return .failure((error as? CaptureError) ?? .invalidReceipt) }
+                }
+            }
+            var outcomes: [Result<CaptureReceipt, CaptureError>] = []
+            for await outcome in group { outcomes.append(outcome) }
+            return outcomes
+        }
+        let winners = outcomes.compactMap { try? $0.get() }
+        XCTAssertEqual(winners.count, 1)
+        XCTAssertEqual(outcomes.filter { if case .failure(.conflictingReceipt) = $0 { true } else { false } }.count, 1)
+        let winner = try XCTUnwrap(winners.first)
+        XCTAssertEqual(try store.receipt(id: id), winner)
+        let payload = try XCTUnwrap(store.payloadURL(for: winner))
+        XCTAssertTrue([Data("AAAA".utf8), Data("BBBB".utf8)].contains(try Data(contentsOf: payload)))
+    }
+
     func testCancellationInvalidatesClaimBeforeSourceCreationAndAllowsRetry() async throws {
         let fixture = try CaptureFixture()
         defer { fixture.cleanUp() }

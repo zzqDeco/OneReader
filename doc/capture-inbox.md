@@ -58,12 +58,23 @@ Space ID/title catalog. It never contains Library SQLite, managed snapshots,
 provider configuration, Keychain contents or credentials.
 
 Each CaptureReceipt has a version, UUID, source descriptor, relative payload
-path, target Space, display name, byte count and creation time. A writer copies
+path, target Space, display name, byte count and creation time. Schema v2 local
+receipts also carry a SHA-256 digest of the full payload tree: relative entry
+names, entry kinds, file lengths/bytes and empty directories. A writer copies
 into a private nonce directory, syncs payload/manifest, then atomically renames
 the directory into ready/job-id. Only ready directories are visible.
 Path traversal, symbolic links, over-budget files and unsupported URL schemes
 are rejected; leaf file reads use O_NOFOLLOW. Logs never contain source text,
 private URL parameters or full input paths.
+
+A local replay always stages and hashes the candidate bytes before checking an
+existing task ID. Identical path/length is not proof of identical content.
+Existing payloads are revalidated against their recorded digest before lookup,
+replay, adoption or acknowledgment. A conflict never overwrites the original
+ready directory. Hashing is streamed in bounded chunks without a new dependency.
+Legacy local receipts without a digest remain decodable but fail closed at the
+payload boundary: keep the original copy and ask the user to share it again.
+Legacy and current remote receipts retain exact-URL-based idempotence.
 
 The host copies an incoming directory into its private Capture staging area,
 then inserts capture_jobs, and only then acknowledges/removes the shared copy.
