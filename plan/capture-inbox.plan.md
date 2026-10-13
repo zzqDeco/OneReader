@@ -56,6 +56,24 @@ Status: Active. Issue: #27. Base: `a3c5b24` (`dev`).
 
 ## Evidence
 
+### Review follow-up: payload-bound receipt identity
+
+- The initial receipt replay check compared path/size but not payload bytes.
+  Harden the handoff with a streamed SHA-256 digest over every payload entry,
+  including relative paths, file bytes and empty directory structure.
+- Always stage and verify the incoming local payload before returning an
+  existing receipt. Same-ID conflicts must preserve the original payload.
+- Add optional digest metadata with receipt schema v2. Old local receipts
+  without integrity metadata fail closed and retain their stored content;
+  remote URL receipts keep URL-based idempotence.
+- Add regressions for same ID/name/size with changed file bytes, changed nested
+  directory bytes/structure, concurrent conflicts, tampered persisted content
+  and digest-less legacy receipts. Run targeted tests with at most two jobs.
+- 2026-10-13 follow-up verification: `swift test --jobs 2 --filter CaptureInboxTests`
+  passes 26 tests with 0 failures. Share Extension iOS strict-concurrency/API
+  typecheck, generated-project consistency, Apple metadata, documentation index
+  and diff checks pass. No new database migration or capability changes.
+
 - 2026-10-13: implementation complete in the isolated feature worktree.
 - `swift test --jobs 2 --filter CaptureInboxTests`: 19 tests, 0 failures.
   Covers interruption/replay, cancellation fencing, shared handoff, partial

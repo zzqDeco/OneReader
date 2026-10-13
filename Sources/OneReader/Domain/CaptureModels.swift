@@ -41,7 +41,7 @@ enum CapturePhase: String, Codable, CaseIterable, Sendable {
 /// The extension writes only this bounded, versioned receipt and its payload.
 /// Absolute local paths, database locations and credentials never cross this seam.
 struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
     enum Source: Codable, Equatable, Sendable {
         case remote(URL)
         case local(relativePath: String, isDirectory: Bool)
@@ -53,6 +53,9 @@ struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
     let targetSpaceID: String?
     let createdAt: Date
     let byteCount: Int64
+    /// SHA-256 of the complete, path-framed payload tree. Missing only in
+    /// legacy local receipts or payload-free remote URL receipts.
+    let payloadDigest: String?
 
     init(
         id: String = UUID().uuidString.lowercased(),
@@ -60,7 +63,8 @@ struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
         displayName: String,
         targetSpaceID: String? = nil,
         createdAt: Date = .now,
-        byteCount: Int64 = 0
+        byteCount: Int64 = 0,
+        payloadDigest: String? = nil
     ) {
         version = Self.schemaVersion
         self.id = id
@@ -69,10 +73,11 @@ struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
         self.targetSpaceID = targetSpaceID
         self.createdAt = createdAt
         self.byteCount = byteCount
+        self.payloadDigest = payloadDigest
     }
 
-    func validate() throws {
-        guard version == Self.schemaVersion, UUID(uuidString: id) != nil,
+    func validate(requirePayloadDigest: Bool = true) throws {
+        guard (1...Self.schemaVersion).contains(version), UUID(uuidString: id) != nil,
               id == id.lowercased(), !displayName.isEmpty, displayName.count <= 512,
               byteCount >= 0, (targetSpaceID?.count ?? 0) <= 128 else {
             throw CaptureError.invalidReceipt
@@ -80,9 +85,18 @@ struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
         switch source {
         case .remote(let url):
             try Self.validateRemoteURL(url)
+            guard payloadDigest == nil else { throw CaptureError.invalidReceipt }
         case .local(let relativePath, _):
             guard relativePath.hasPrefix("payload/"),
                   Self.isSafeRelativePath(relativePath) else {
+                throw CaptureError.invalidReceipt
+            }
+            if let payloadDigest {
+                guard payloadDigest.utf8.count == 64,
+                      payloadDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+                    throw CaptureError.invalidReceipt
+                }
+            } else if requirePayloadDigest && version >= 2 {
                 throw CaptureError.invalidReceipt
             }
         }
@@ -96,9 +110,27 @@ struct CaptureReceipt: Codable, Equatable, Sendable, Identifiable {
     }
 
     func describesSameContent(as other: CaptureReceipt) -> Bool {
-        version == other.version && id == other.id && source == other.source
+        guard (1...Self.schemaVersion).contains(version),
+              (1...Self.schemaVersion).contains(other.version),
+              id == other.id && source == other.source
             && displayName == other.displayName && targetSpaceID == other.targetSpaceID
-            && byteCount == other.byteCount
+            && byteCount == other.byteCount else { return false }
+        switch source {
+        case .remote:
+            return payloadDigest == nil && other.payloadDigest == nil
+        case .local:
+            // Unknown legacy bytes can never prove replay identity.
+            guard let payloadDigest, let otherDigest = other.payloadDigest else { return false }
+            return payloadDigest == otherDigest
+        }
+    }
+
+    func bindingPayload(to digest: String) -> CaptureReceipt {
+        CaptureReceipt(
+            id: id, source: source, displayName: displayName,
+            targetSpaceID: targetSpaceID, createdAt: createdAt,
+            byteCount: byteCount, payloadDigest: digest
+        )
     }
 
     static func isSafeRelativePath(_ path: String) -> Bool {
@@ -154,7 +186,7 @@ struct CaptureSpaceDestination: Codable, Equatable, Identifiable, Sendable {
 enum CaptureError: LocalizedError, Equatable {
     case sharedContainerUnavailable, invalidReceipt, conflictingReceipt, invalidURL
     case unsupportedFile, unsafeFile, attachmentTooLarge(Int64), tooManyFiles
-    case insufficientCapacity, noLongerActive, missingPayload, importedSourceRemoved
+    case insufficientCapacity, noLongerActive, missingPayload, importedSourceRemoved, unverifiedReceipt
     case largeImportRequiresConfirmation(Int64)
 
     var errorDescription: String? {
@@ -172,6 +204,7 @@ enum CaptureError: LocalizedError, Equatable {
         case .insufficientCapacity: "设备可用空间不足；释放空间后重试，OneReader 至少保留 2 GiB。"
         case .noLongerActive: "任务已取消或由另一处理流程接管。"
         case .missingPayload: "已接收文件的副本不可用，请从原 App 重新分享。"
+        case .unverifiedReceipt: "旧接收记录缺少内容校验，不能自动复用；原副本已保留，请从原 App 重新分享。"
         case .importedSourceRemoved: "此任务的来源已被移除；不会自动重新创建。请重新收集材料。"
         case .largeImportRequiresConfirmation(let bytes):
             "材料约 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))，请确认大型导入后重试。"

@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
 
@@ -154,12 +155,15 @@ struct CaptureStagingStore: Sendable {
         let receipt = try JSONDecoder().decode(CaptureReceipt.self, from: Data(contentsOf: manifest))
         try receipt.validate()
         guard receipt.id == id else { throw CaptureError.invalidReceipt }
+        try verifyPayload(for: receipt, in: directory)
         return receipt
     }
 
     func payloadURL(for receipt: CaptureReceipt) throws -> URL? {
         try receipt.validate()
         guard case .local(let path, _) = receipt.source else { return nil }
+        let stored = try self.receipt(id: receipt.id)
+        guard stored.describesSameContent(as: receipt) else { throw CaptureError.conflictingReceipt }
         let directory = try readyDirectory(receipt.id)
         let url = directory.appendingPathComponent(path)
         try rejectSymlinks(at: url)
@@ -208,10 +212,10 @@ struct CaptureStagingStore: Sendable {
     private func publish(
         _ receipt: CaptureReceipt, writePayload: (URL) throws -> Void
     ) throws -> CaptureReceipt {
-        try receipt.validate()
+        try receipt.validate(requirePayloadDigest: false)
         try prepare()
         let final = try readyDirectory(receipt.id)
-        if FileManager.default.fileExists(atPath: final.path) {
+        if case .remote = receipt.source, FileManager.default.fileExists(atPath: final.path) {
             let prior = try self.receipt(id: receipt.id)
             guard prior.describesSameContent(as: receipt) else { throw CaptureError.conflictingReceipt }
             return prior
@@ -221,7 +225,30 @@ struct CaptureStagingStore: Sendable {
         defer { try? FileManager.default.removeItem(at: writing) }
         try writePayload(writing)
         guard !isCancelled() else { throw CancellationError() }
-        let data = try JSONEncoder().encode(receipt)
+        let verified: CaptureReceipt
+        switch receipt.source {
+        case .remote:
+            verified = receipt
+        case .local:
+            guard receipt.version >= 2 || receipt.payloadDigest != nil else {
+                throw CaptureError.unverifiedReceipt
+            }
+            let actual = try digestPayload(at: writing.appendingPathComponent("payload"))
+            guard actual.byteCount == receipt.byteCount else { throw CaptureError.conflictingReceipt }
+            if let expected = receipt.payloadDigest, expected != actual.digest {
+                throw CaptureError.conflictingReceipt
+            }
+            verified = receipt.bindingPayload(to: actual.digest)
+        }
+        try verified.validate()
+        // Local replay is compared only after its candidate bytes have been
+        // staged and hashed; name/length equality is not content identity.
+        if FileManager.default.fileExists(atPath: final.path) {
+            let prior = try self.receipt(id: verified.id)
+            guard prior.describesSameContent(as: verified) else { throw CaptureError.conflictingReceipt }
+            return prior
+        }
+        let data = try JSONEncoder().encode(verified)
         let manifest = writing.appendingPathComponent("receipt.json")
         try data.write(to: manifest, options: .withoutOverwriting)
         let handle = try FileHandle(forWritingTo: manifest)
@@ -231,14 +258,101 @@ struct CaptureStagingStore: Sendable {
         do {
             try FileManager.default.moveItem(at: writing, to: final)
         } catch {
-            if FileManager.default.fileExists(atPath: final.path),
-               try self.receipt(id: receipt.id).describesSameContent(as: receipt) {
-                return try self.receipt(id: receipt.id)
+            if FileManager.default.fileExists(atPath: final.path) {
+                let prior = try self.receipt(id: verified.id)
+                guard prior.describesSameContent(as: verified) else { throw CaptureError.conflictingReceipt }
+                return prior
             }
             throw error
         }
         try syncDirectory(final.deletingLastPathComponent())
-        return receipt
+        return verified
+    }
+
+    private func verifyPayload(for receipt: CaptureReceipt, in directory: URL) throws {
+        let payload = directory.appendingPathComponent("payload", isDirectory: true)
+        switch receipt.source {
+        case .remote:
+            guard !FileManager.default.fileExists(atPath: payload.path) else {
+                throw CaptureError.conflictingReceipt
+            }
+        case .local:
+            guard let expected = receipt.payloadDigest else { throw CaptureError.unverifiedReceipt }
+            let actual = try digestPayload(at: payload)
+            guard actual.digest == expected, actual.byteCount == receipt.byteCount else {
+                throw CaptureError.conflictingReceipt
+            }
+        }
+    }
+
+    /// Stable, length-framed tree digest includes file names, entry kinds,
+    /// empty directories and bytes. It is independent of mtimes/enumeration order.
+    private func digestPayload(at root: URL) throws -> (digest: String, byteCount: Int64) {
+        try rejectSymlinks(at: root)
+        guard try root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+            throw CaptureError.missingPayload
+        }
+        var enumerationFailure: (any Error)?
+        guard let enumerator = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            errorHandler: { _, error in enumerationFailure = error; return false }
+        ) else { throw CaptureError.missingPayload }
+        var entries: [(path: String, url: URL)] = []
+        for case let entry as URL in enumerator {
+            try rejectSymlinks(at: entry)
+            entries.append((try relativePath(entry, under: root), entry))
+            guard entries.count <= Self.maximumFileCount else { throw CaptureError.tooManyFiles }
+        }
+        if let enumerationFailure { throw enumerationFailure }
+        entries.sort { $0.path.utf8.lexicographicallyPrecedes($1.path.utf8) }
+        var hasher = SHA256()
+        appendDigestField("OneReader.capture-payload.sha256.v1", to: &hasher)
+        var totalBytes: Int64 = 0
+        for entry in entries {
+            try Task.checkCancellation()
+            guard !isCancelled() else { throw CancellationError() }
+            let values = try entry.url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values.isDirectory == true {
+                appendDigestField("directory", to: &hasher)
+                appendDigestField(entry.path, to: &hasher)
+            } else if values.isRegularFile == true {
+                appendDigestField("file", to: &hasher)
+                appendDigestField(entry.path, to: &hasher)
+                let descriptor = open(entry.url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+                guard descriptor >= 0 else { throw CaptureError.unsafeFile }
+                let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+                defer { try? handle.close() }
+                var metadata = stat()
+                guard fstat(descriptor, &metadata) == 0,
+                      metadata.st_mode & S_IFMT == S_IFREG,
+                      metadata.st_size >= 0 else { throw CaptureError.unsafeFile }
+                let expectedSize = Int64(metadata.st_size)
+                appendDigestField(String(expectedSize), to: &hasher)
+                var fileBytes: Int64 = 0
+                while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+                    try Task.checkCancellation()
+                    guard !isCancelled() else { throw CancellationError() }
+                    guard Int64(data.count) <= maximumBytes - totalBytes,
+                          Int64(data.count) <= expectedSize - fileBytes else {
+                        throw CaptureError.conflictingReceipt
+                    }
+                    hasher.update(data: data)
+                    fileBytes += Int64(data.count)
+                    totalBytes += Int64(data.count)
+                }
+                guard fileBytes == expectedSize else { throw CaptureError.conflictingReceipt }
+            } else {
+                throw CaptureError.unsafeFile
+            }
+        }
+        return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), totalBytes)
+    }
+
+    private func appendDigestField(_ field: String, to hasher: inout SHA256) {
+        let bytes = Data(field.utf8)
+        var length = UInt64(bytes.count).bigEndian
+        withUnsafeBytes(of: &length) { hasher.update(bufferPointer: $0) }
+        hasher.update(data: bytes)
     }
 
     private func readyDirectory(_ id: String) throws -> URL {
