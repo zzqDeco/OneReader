@@ -17,6 +17,7 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
+| [Bilingual reading](bilingual-reading.plan.md) | Source-bound paragraph translation, single-Agent validation and offline cache | Active |
 | [v0.3.3 reader maintenance release](release-v0.3.3.plan.md) | Candidate physical-iPhone regression, protected promotion, preview publication and downloaded-artifact verification | Active |
 | [PDF native order and viewport recovery](pdf-native-order-viewport.plan.md) | First-page/spine ordering and complete zoomed mixed-width PDF viewport recovery; accepted into dev | Delivered |
 | [iPhone file import and PDF zoom](ios-import-pdf-zoom.plan.md) | Retained picker requests, native pinch, mixed-width canvas alignment and real-device regressions | Active |

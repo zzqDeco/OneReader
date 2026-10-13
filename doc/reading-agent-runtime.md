@@ -8,7 +8,7 @@ The Agent may explore managed evidence and propose structure, but Source bytes,
 network ingestion, database writes, and presentation authority remain with the
 host.
 
-One session actor exists per Reading Space. It can run five task shapes:
+One session actor exists per Reading Space. It can run six task shapes:
 
 | Task | Accepted result |
 | --- | --- |
@@ -17,6 +17,11 @@ One session actor exists per Reading Space. It can run five task shapes:
 | `materializeGraph` | evidence-grounded `GraphPatch` |
 | `projectRoute` | frozen `ReadingPlanDraft` for one graph version |
 | `answerWithEvidence` | answer with current, observed quotations |
+| `translateFragments` | ordered, source-digest-validated paragraph translations; host-only cache commit |
+
+Translation requests have no tools or prior model transcript, and include only
+the host-selected fragments. See [bilingual reading](bilingual-reading.md) for
+DB v13 / runtime schema 6, privacy, budgets and cache lifecycle.
 
 ## Turn lifecycle and recovery
 

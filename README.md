@@ -48,6 +48,13 @@ whole-reader UI refreshes. Other formats retain their existing refresh behavior;
 exact progress still persists and restores across material types.
 Intermittent PDF smoothness is checked separately from import/zoom correctness.
 
+The reading-assistance 「双语」 tab supports explicit paragraph/selection translation
+with the configured Reading Agent Provider. Original sources remain unchanged;
+successful translations are cached for offline reading and can be deleted or
+retried independently. Remote use requires the existing data-disclosure approval.
+Machine translation is not original evidence; review terminology, numbers and
+negation. Scanned material needs valid OCR text first. See [bilingual reading](doc/bilingual-reading.md).
+
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one
 unused SwiftAgent transitive product whose upstream manifest requires a newer

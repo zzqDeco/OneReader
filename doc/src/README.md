@@ -6,6 +6,9 @@ architecture document.
 | Source area | Note |
 | --- | --- |
 | Source, Snapshot, adapter, and evidence contracts | [Domain models](Sources/OneReader/Domain/Models.swift.md) |
+| Source-bound translation contracts and segmentation | [Translation models](Sources/OneReader/Domain/TranslationModels.swift.md) |
+| Serial cache-first bilingual UI and source progress | [Bilingual reader](Sources/OneReader/App/BilingualReadingModel.swift.md) |
+| Versioned derived translation cache and transactional commit | [Translation persistence](Sources/OneReader/Persistence/TranslationPersistence.swift.md) |
 | Reader annotations, progress, presentation, and preferences | [Reader workspace models](Sources/OneReader/Domain/ReaderWorkspaceModels.swift.md) |
 | Application state | [App model](Sources/OneReader/App/AppModel.swift.md) |
 | Shared executable entry | [OneReader app main](Apps/OneReaderApp/OneReaderAppMain.swift.md) |

@@ -1643,6 +1643,8 @@ extension LibraryDatabase {
         manifest: [String: String]
     ) throws {
         switch mutation {
+        case .translation(let values):
+            try Self.commitTranslations(values, db: db, manifest: manifest)
         case .adapterPlan(let plan):
             guard manifest[plan.sourceID] == plan.snapshotID else {
                 throw ReadingAgentError.validationRejected("snapshot-not-current")

@@ -49,6 +49,7 @@ struct ReaderInspectorView: View {
         case .evidence: evidenceView
         case .activity: activityView
         case .ask: askView
+        case .translation: BilingualReadingView(controller: model.bilingualReading)
         }
     }
 

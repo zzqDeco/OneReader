@@ -1,0 +1,3 @@
+# Bilingual reader controller
+
+`BilingualReadingModel.swift` owns explicit local scope preparation, cache-first/offline display, serial single-Agent requests, partial completion, retry, cancellation and Provider disclosure. Source/space/language/provider changes invalidate UI generations; failed or cancelled results never populate the current language. `BilingualReadingView.swift` provides native selectable rows and controls, with all navigation and annotation returning to original Locators. User scroll progress is distinguished from programmatic follow/restore scrolls. Last genuine translation reading prevents a hidden original surface from overwriting the source anchor at lifecycle capture.

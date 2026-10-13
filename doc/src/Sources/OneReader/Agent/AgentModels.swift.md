@@ -2,6 +2,9 @@
 
 Defines Provider profiles, run requests, structured output envelopes, runtime
 limits, transcript/context snapshot records, and model-call audit records.
+The optional `AgentRunRequest.translation` carries a host-bound typed fragment
+request; omitted fields preserve old Run decoding. Translation output contains
+only IDs, digests and generated text, never model-selected Locators or settings.
 Runtime defaults are hard host limits: 12 model rounds, 64 tool calls, four
 concurrent reads, 20 search hits, 16 KiB reads, 70 percent prompt utilization,
 16,384 response tokens, 64 KiB logical model output, and a 1 MiB per-response
