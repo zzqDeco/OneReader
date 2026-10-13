@@ -7,3 +7,14 @@
 HTML selections resolve their actual inline DOM node to the nearest included ancestor block. Missing or ambiguous paths and non-unique text within that owner fail closed; repeated text in another paragraph is not a fallback.
 
 `BilingualAnchorResolver` handles both restoration and follow-source scrolling within at most 12 loaded segments. Exact stable identity and original UTF-16 offsets precede rectangle, DOM-owner and line-range matches. Ranges are half-open, and ambiguous same-page/same-line candidates do not choose the first row. The resolver never constructs translated offsets or changes persisted locators.
+
+Native viewports are authoritative geometry, not paragraph offsets. The resolver ignores
+legacy leftover offsets on them and uses a unique nearest visible original OCR region;
+equal/coincident regions fail closed. Image points are canonical lower-left original-image
+coordinates supplied by the native bridge, never guessed from old platform-dependent Y.
+Explicit derived anchors must also match their OCR revision.
+
+Before publishing OCR translation fragments, the source builder resolves and verifies each
+bounded range's original rectangle. Fragment/cache identity includes that grounded Locator.
+Mapped native reading progress retains the verified rectangle while discarding derived
+identity, offsets, quotes and stale viewport fields; source evidence itself stays unchanged.

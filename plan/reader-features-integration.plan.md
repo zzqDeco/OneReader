@@ -100,6 +100,16 @@ source/annotation/progress identity; they do not run a Provider.
 
 ### Reviewer repair integration and final candidate
 
+- Final Sol max review found two remaining cross-feature position gaps. Before delivery,
+  OCR translation fragments must retain verified original-space geometry through progress
+  save/reopen, and ordinary native PDF/image scrolling must discard all derived text offsets.
+  Regression coverage must exercise translation fragment → native scrolling → persisted
+  position → restart/follow-original, not only adapter rendering.
+- Those gaps are now repaired: prepared OCR fragments carry validated original geometry,
+  native viewport capture discards derived offsets, and follow-original uses unambiguous
+  measured geometry (including canonical image reading points). Full macOS regression
+  passes 371 tests, zero skips/failures, including both PDF/image production bridges and
+  real AppModel save/reopen flows. Final re-review and fresh CI/native build remain gates.
 - Code candidate `37f53db36d99d1405ebdaa8ad36187b83189d8ad` integrates bilingual
   `c91b5b7`, capture `13470ee`, notes `fd61ee7` and OCR `b4f837a` review repairs.
   Source code remains DB14/runtime6 with ordered v11/v12/v13/v14 migrations.

@@ -41,6 +41,7 @@ final class OCRFeatureIntegrationTests: XCTestCase {
             nextLocator: nil, selection: nil, plan: plan, coordinator: adapters, database: database)
         XCTAssertGreaterThan(segments.count, 1, "Long OCR pages must retain exact sub-fragment coordinates")
         for segment in segments {
+            XCTAssertNotNil(segment.locator.payload["rect"], "A prepared fragment must already carry verified native geometry")
             let observed = try await adapters.read(plan: plan, locator: segment.locator)
             XCTAssertEqual(observed.content, segment.originalText)
             let rendered = try await adapters.render(plan: plan, locator: segment.locator)

@@ -8,7 +8,7 @@ enum TranslationSourceBuilder {
                         nextLocator: Locator?, selection: ReaderSelection?,
                         plan: AdapterPlan, coordinator: AdapterCoordinator,
                         database: LibraryDatabase) async throws -> [TranslationSegment] {
-        let values: [TranslationSegment]
+        var values: [TranslationSegment]
         switch document.surface {
         case .nativeMarkdown, .nativeText:
             guard let text = document.content else { throw TranslationError.noText }
@@ -53,6 +53,24 @@ enum TranslationSourceBuilder {
             throw TranslationError.noText
         }
         guard values.contains(where: { !$0.isVerbatim }) else { throw TranslationError.noText }
+        // A range is readable evidence, but native reading progress cannot retain derived
+        // OCR offsets. Resolve each bounded fragment's real original-space region before
+        // it becomes a cache key or a position, not only when "return to original" renders it.
+        for index in values.indices where values[index].locator.adapterID == OCRAdapter.id {
+            try Task.checkCancellation()
+            let segment = values[index]
+            let resolution = try await coordinator.resolve(segment.locator, against: segment.locator.snapshotID)
+            guard resolution.state == .current, let locator = resolution.resolved,
+                  PDFPageRectAnchor.parse(locator.payload["rect"]) != nil else {
+                throw TranslationError.selectionNotGrounded
+            }
+            let id = "fragment:" + AdapterUtilities.sha256(locator.stableID + "|" + segment.originalDigest)
+            values[index] = TranslationSegment(id: id, order: segment.order,
+                fragment: SourceFragment(id: id, sourceID: locator.sourceID, locator: locator,
+                    role: segment.fragment.role, label: segment.fragment.label),
+                originalText: segment.originalText, originalDigest: segment.originalDigest,
+                modelText: segment.modelText, protectedSpans: segment.protectedSpans, isVerbatim: segment.isVerbatim)
+        }
         for value in values {
             try Task.checkCancellation()
             try database.saveObservation(Observation(
@@ -335,7 +353,8 @@ enum TranslationSourceBuilder {
     private static func cleanPayload(_ payload: [String: String]) -> [String: String] {
         var removed: Set<String> = ["renderedStartUTF16", "textViewportOffsetY", "textViewportX",
             "positionKind", "viewportX", "viewportY", "viewportScreenX", "viewportScreenY",
-            "scrollFraction", "outlineDOMPath", "pageTextStartUTF16", "pageTextEndUTF16"]
+            "scrollFraction", "outlineDOMPath", "pageTextStartUTF16", "pageTextEndUTF16",
+            "imageScale", "imageX", "imageY", "imageAnchorX", "imageAnchorY"]
         // A native viewport rectangle is not a paragraph's bounds. OCR span rectangles are.
         if payload["derivedText"] != "ocr" { removed.insert("rect") }
         return payload.filter { !removed.contains($0.key) }

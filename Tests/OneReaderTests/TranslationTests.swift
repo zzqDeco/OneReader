@@ -191,6 +191,41 @@ final class TranslationTests: XCTestCase {
         XCTAssertEqual(BilingualAnchorResolver.segmentID(for: native, among: [firstOCR, targetOCR]), "target-ocr")
     }
 
+    func testNativeViewportGeometryOutranksLegacyOCRTextOffsets() {
+        let first = mappedSegment("first", adapter: OCRAdapter.id,
+            payload: ["pageIndex": "0", "rect": "60,900,480,100", "startUTF16": "0", "endUTF16": "40"])
+        let target = mappedSegment("target", adapter: OCRAdapter.id,
+            payload: ["pageIndex": "0", "rect": "60,240,480,120", "startUTF16": "40", "endUTF16": "80"])
+        let current = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "0", "positionKind": "viewport", "viewportX": "0", "viewportY": "400",
+                "rect": "0,0,600,400", "startUTF16": "0", "endUTF16": "40"])
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: current, among: [first, target]), "target")
+        let malformed = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "0", "positionKind": "viewport", "viewportY": "nan", "startUTF16": "0"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: malformed, among: [first, target]))
+    }
+
+    func testImageFollowOriginalUsesCanonicalPointAndRejectsCoincidentRegions() {
+        let first = mappedSegment("first", adapter: OCRAdapter.id, payload: ["rect": "0.1,0.8,0.8,0.1"])
+        let target = mappedSegment("target", adapter: OCRAdapter.id, payload: ["rect": "0.1,0.2,0.8,0.1"])
+        let current = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: ImageAdapter.id,
+            payload: ["imageX": "0", "imageY": "0", "imageAnchorX": "0", "imageAnchorY": "0.4"])
+        XCTAssertEqual(BilingualAnchorResolver.segmentID(for: current, among: [first, target]), "target")
+        let coincident = mappedSegment("ambiguous", adapter: OCRAdapter.id, payload: target.locator.payload)
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: current, among: [target, coincident]))
+        let legacy = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: ImageAdapter.id,
+            payload: ["imageX": "0", "imageY": "0", "startUTF16": "0"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: legacy, among: [first, target]), "Never guess an old platform-dependent Y convention")
+    }
+
+    func testDerivedAnchorDoesNotFollowDifferentOCRRevisionOnSameSnapshot() {
+        let segment = mappedSegment("other-revision", adapter: OCRAdapter.id,
+            payload: ["ocrRevisionID": "new", "startUTF16": "0", "endUTF16": "40"])
+        let historical = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: OCRAdapter.id,
+            payload: ["ocrRevisionID": "old", "startUTF16": "0", "endUTF16": "40"])
+        XCTAssertNil(BilingualAnchorResolver.segmentID(for: historical, among: [segment]))
+    }
+
     private func mappedSegment(_ id: String, adapter: String = MarkdownAdapter.id,
                                payload: [String: String]) -> TranslationSegment {
         let text = "Repeated source text"

@@ -7,6 +7,98 @@ import XCTest
 
 @MainActor
 final class OCRImageNavigationTests: XCTestCase {
+    func testNativeViewportDropsTextOffsetsAndDoesNotReuseOldReadingPoint() throws {
+        for adapterID in [ImageAdapter.id, OCRAdapter.id] {
+            let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: adapterID,
+                payload: ["ocrRevisionID": "revision", "ocrSpanID": "span", "ocrSchema": "1", "derivedText": "ocr",
+                    "startUTF16": "0", "endUTF16": "27", "pageTextStartUTF16": "0", "pageTextEndUTF16": "27",
+                    "indexTextRange": "utf16", "rect": "0.75,0.15,0.1,0.08", "imageAnchorX": "0.75", "imageAnchorY": "0.23"],
+                textQuote: TextQuote(prefix: nil, exact: "Old paragraph", suffix: nil), fingerprint: "old-digest")
+            let native = ImageViewportAnchor.locator(base: base, scale: 1.5, x: 0.2, y: 0.25)
+            for key in ["startUTF16", "endUTF16", "pageTextStartUTF16", "pageTextEndUTF16", "indexTextRange",
+                        "ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "rect", "imageAnchorX", "imageAnchorY"] {
+                XCTAssertNil(native.payload[key], "\(adapterID): \(key)")
+            }
+            XCTAssertEqual(native.sourceID, base.sourceID)
+            XCTAssertEqual(native.snapshotID, base.snapshotID)
+            XCTAssertEqual(native.adapterID, ImageAdapter.id)
+            XCTAssertNil(native.textQuote)
+            XCTAssertNil(native.fingerprint)
+            XCTAssertEqual(native.payload["imageScale"], "1.5")
+            XCTAssertEqual(native.payload["imageX"], "0.2")
+            XCTAssertEqual(native.payload["imageY"], "0.25")
+            let clamped = ImageViewportAnchor.locator(base: base, scale: 1.5, x: 0.2, y: 0.25,
+                readingPoint: CGPoint(x: -0.1, y: 1.2))
+            XCTAssertEqual(clamped.payload["imageAnchorX"], "0.0")
+            XCTAssertEqual(clamped.payload["imageAnchorY"], "1.0")
+            XCTAssertEqual(clamped.payload["imageX"], native.payload["imageX"])
+            XCTAssertEqual(clamped.payload["imageY"], native.payload["imageY"])
+            for point in [CGPoint(x: CGFloat.nan, y: 0.3), CGPoint(x: 0.2, y: CGFloat.infinity)] {
+                let invalid = ImageViewportAnchor.locator(base: base, scale: 1.5, x: 0.2, y: 0.25, readingPoint: point)
+                XCTAssertNil(invalid.payload["imageAnchorX"])
+                XCTAssertNil(invalid.payload["imageAnchorY"])
+            }
+        }
+    }
+
+    func testTranslatedFragmentThenNativeScrollCapturesCurrentOriginalImageGeometry() async throws {
+        for adapterID in [ImageAdapter.id, OCRAdapter.id] {
+            let log = PositionLog()
+            let fixture = try await makeImage(log: log)
+            defer { fixture.close() }
+            let (scroll, canvas) = try nativeImage(in: fixture.host)
+            scroll.magnification = 1.5
+            canvas.scroll(CGPoint(x: 0, y: 600))
+            let revision = makeRevision(rect: CGRect(x: 0.75, y: 0.15, width: 0.1, height: 0.08))
+            let original = revision.locator(page: revision.pages[0], span: revision.pages[0].spans[0])
+            var payload = original.payload
+            payload.merge(["startUTF16": "0", "endUTF16": "27", "pageTextStartUTF16": "0",
+                "pageTextEndUTF16": "27", "indexTextRange": "utf16", "imageAnchorX": "0.75", "imageAnchorY": "0.23"]) { _, new in new }
+            if adapterID == ImageAdapter.id {
+                ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText"].forEach { payload[$0] = nil }
+            }
+            let fragment = Locator(sourceID: original.sourceID, snapshotID: original.snapshotID,
+                adapterID: adapterID, payload: payload, structuralPath: original.structuralPath,
+                textQuote: original.textQuote, fingerprint: original.fingerprint)
+            let previousCaptureCount = log.values.count
+            update(fixture, locator: fragment, revision: revision, selectable: false, log: log)
+            let target = CGRect(x: 900, y: 135, width: 120, height: 72)
+            try await waitUntil {
+                canvas.visibleRect.insetBy(dx: -1, dy: -1).contains(target) && log.values.count > previousCaptureCount
+            }
+            let fragmentVisible = canvas.visibleRect
+            // Move through the real native image scroll view after the source jump.
+            canvas.scroll(CGPoint(x: 100, y: 400))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            let visible = canvas.visibleRect
+            XCTAssertGreaterThan(abs(visible.minY - fragmentVisible.minY), 100)
+            var captured: ReadingPositionUpdate?
+            let request = ReadingPositionCaptureRequest(targetID: fixture.targetID,
+                sourceID: fragment.sourceID, snapshotID: fragment.snapshotID) { captured = $0 }
+            NotificationCenter.default.post(name: ReadingPositionCaptureSignal.requested, object: request)
+            XCTAssertTrue(request.isClaimed)
+            let position = try XCTUnwrap(captured)
+            for key in ["startUTF16", "endUTF16", "pageTextStartUTF16", "pageTextEndUTF16",
+                        "indexTextRange", "ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "rect"] {
+                XCTAssertNil(position.locator.payload[key], "\(adapterID): \(key)")
+            }
+            XCTAssertEqual(position.locator.sourceID, fragment.sourceID)
+            XCTAssertEqual(position.locator.snapshotID, fragment.snapshotID)
+            XCTAssertEqual(position.locator.adapterID, ImageAdapter.id)
+            XCTAssertNil(position.locator.textQuote)
+            XCTAssertNil(position.locator.fingerprint)
+            XCTAssertEqual(try XCTUnwrap(Double(position.locator.payload["imageScale"] ?? "")), 1.5, accuracy: 0.001)
+            XCTAssertEqual(try XCTUnwrap(Double(position.locator.payload["imageX"] ?? "")),
+                Double(visible.minX / canvas.bounds.width), accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(Double(position.locator.payload["imageY"] ?? "")),
+                Double(visible.minY / canvas.bounds.height), accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(Double(position.locator.payload["imageAnchorX"] ?? "")),
+                Double(visible.minX / canvas.bounds.width), accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(Double(position.locator.payload["imageAnchorY"] ?? "")),
+                Double(visible.maxY / canvas.bounds.height), accuracy: 0.000001)
+        }
+    }
+
     func testSameImageOCRTargetScrollsIntoViewWithoutReloadingOrResettingMagnification() async throws {
         let log = PositionLog()
         let fixture = try await makeImage(log: log)

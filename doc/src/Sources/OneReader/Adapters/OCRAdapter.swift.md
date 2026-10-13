@@ -22,6 +22,9 @@
   selection mode hit-tests. Coordinates are converted by PDFKit, never persisted from screen.
 - `UI/OCRImagePresentation.swift`: native image magnification and original-image position
   persistence; decode is cached by managed URL, not repeated on position changes.
+  Capture discards derived offsets and adds a canonical original-image reading
+  point from the measured viewport. AppKit/UIKit coordinate conversion remains
+  in their bridges; existing native scroll/zoom restoration fields are unchanged.
 
 See [OCR behavior](../../../../local-ocr.md) and
 [implementation/acceptance](../../../../../plan/local-ocr.plan.md).

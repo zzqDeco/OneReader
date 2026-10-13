@@ -31,12 +31,22 @@ struct OCRImagePresentation: View {
 }
 
 enum ImageViewportAnchor {
-    static func locator(base: Locator, scale: Double, x: Double, y: Double) -> Locator {
+    static func locator(base: Locator, scale: Double, x: Double, y: Double,
+                        readingPoint: CGPoint? = nil) -> Locator {
         var payload = base.payload
-        ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "rect"].forEach { payload[$0] = nil }
+        // Native progress is geometry, even when its base was a translated native fragment.
+        ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "rect", "startUTF16", "endUTF16",
+         "pageTextStartUTF16", "pageTextEndUTF16", "indexTextRange", "imageAnchorX", "imageAnchorY"]
+            .forEach { payload[$0] = nil }
         payload["imageScale"] = String(min(6, max(0.1, scale.isFinite ? scale : 1)))
         payload["imageX"] = String(min(1, max(0, x.isFinite ? x : 0)))
         payload["imageY"] = String(min(1, max(0, y.isFinite ? y : 0)))
+        // Only a new native capture supplies this original lower-left reading edge.
+        // Restoration's existing imageX/Y conventions remain unchanged across platforms.
+        if let readingPoint, readingPoint.x.isFinite, readingPoint.y.isFinite {
+            payload["imageAnchorX"] = String(Double(min(1, max(0, readingPoint.x))))
+            payload["imageAnchorY"] = String(Double(min(1, max(0, readingPoint.y))))
+        }
         return Locator(sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: ImageAdapter.id,
             payload: payload, structuralPath: "image/0")
     }
@@ -174,7 +184,9 @@ private struct NativeZoomImage: NSViewRepresentable {
             guard !restoring, let scroll, let canvas = scroll.documentView, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return nil }
             let visible = canvas.visibleRect
             return ReadingPositionUpdate(locator: ImageViewportAnchor.locator(base: parent.locator, scale: scroll.magnification,
-                x: visible.minX / canvas.bounds.width, y: visible.minY / canvas.bounds.height), granularity: .document, displayLabel: "原始图像")
+                x: visible.minX / canvas.bounds.width, y: visible.minY / canvas.bounds.height,
+                readingPoint: CGPoint(x: visible.minX / canvas.bounds.width, y: visible.maxY / canvas.bounds.height)),
+                granularity: .document, displayLabel: "原始图像")
         }
         func capture() { if let update = update() { parent.onPosition(update) } }
         @objc private func changed() {
@@ -349,7 +361,9 @@ private struct NativeZoomImage: UIViewRepresentable {
         private func update() -> ReadingPositionUpdate? {
             guard !restoring, let scroll, canvas.frame.width > 0, canvas.frame.height > 0 else { return nil }
             return ReadingPositionUpdate(locator: ImageViewportAnchor.locator(base: parent.locator, scale: scroll.zoomScale,
-                x: scroll.contentOffset.x / canvas.frame.width, y: scroll.contentOffset.y / canvas.frame.height),
+                x: scroll.contentOffset.x / canvas.frame.width, y: scroll.contentOffset.y / canvas.frame.height,
+                readingPoint: CGPoint(x: scroll.contentOffset.x / canvas.frame.width,
+                    y: 1 - scroll.contentOffset.y / canvas.frame.height)),
                 granularity: .document, displayLabel: "原始图像")
         }
         func capture() { if let update = update() { parent.onPosition(update) } }

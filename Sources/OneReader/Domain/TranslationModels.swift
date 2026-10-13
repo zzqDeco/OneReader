@@ -181,7 +181,9 @@ enum BilingualProgressMapping {
     static func sourceLocator(_ locator: Locator, surface: PresentationSurface?) -> Locator {
         guard locator.payload["derivedText"] == "ocr" else { return locator }
         let removed: Set<String> = ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText",
-            "pageTextStartUTF16", "pageTextEndUTF16", "startUTF16", "endUTF16", "indexTextRange"]
+            "pageTextStartUTF16", "pageTextEndUTF16", "startUTF16", "endUTF16", "indexTextRange",
+            "positionKind", "viewportX", "viewportY", "viewportScreenX", "viewportScreenY",
+            "imageX", "imageY", "imageScale", "imageAnchorX", "imageAnchorY"]
         return Locator(sourceID: locator.sourceID, snapshotID: locator.snapshotID,
             adapterID: surface == .pdfKit ? "onereader.pdf" : "onereader.image",
             payload: locator.payload.filter { !removed.contains($0.key) },
@@ -199,11 +201,21 @@ enum BilingualAnchorResolver {
             guard anchor.sourceID == current.sourceID, anchor.snapshotID == current.snapshotID else { return false }
             if let path = current.relativePath, anchor.relativePath != path { return false }
             if let page = current.pdfPageIndex, anchor.pdfPageIndex != page { return false }
+            if let revision = current.payload["ocrRevisionID"], anchor.adapterID == "onereader.ocr",
+               anchor.payload["ocrRevisionID"] != revision { return false }
             let nativeOCRPair = (current.adapterID == "onereader.ocr" && ["onereader.pdf", "onereader.image"].contains(anchor.adapterID))
                 || (anchor.adapterID == "onereader.ocr" && ["onereader.pdf", "onereader.image"].contains(current.adapterID))
             return anchor.adapterID == current.adapterID || nativeOCRPair
         }
         if let exact = uniqueID(candidates.filter { $0.locator.stableID == current.stableID }) { return exact }
+
+        let nativeViewport = (current.adapterID == "onereader.pdf" && current.payload["positionKind"] == "viewport")
+            || (current.adapterID == "onereader.image" && (current.payload["imageX"] != nil || current.payload["imageY"] != nil))
+        if nativeViewport {
+            // Old persisted viewports may still contain pre-fix derived offsets. The
+            // measured native geometry is authoritative; never jump using those offsets.
+            return viewportSegment(for: current, among: candidates)
+        }
 
         for (startKey, endKey) in [("pageTextStartUTF16", "pageTextEndUTF16"), ("startUTF16", "endUTF16")] {
             guard let raw = current.payload[startKey] else { continue }
@@ -252,5 +264,25 @@ enum BilingualAnchorResolver {
 
     private static func uniqueID(_ segments: [TranslationSegment]) -> String? {
         segments.count == 1 ? segments.first?.id : nil
+    }
+
+    private static func viewportSegment(for current: Locator, among candidates: [TranslationSegment]) -> String? {
+        let keys = current.adapterID == "onereader.pdf" ? ("viewportX", "viewportY") : ("imageAnchorX", "imageAnchorY")
+        guard let x = current.payload[keys.0].flatMap(Double.init),
+              let y = current.payload[keys.1].flatMap(Double.init), x.isFinite, y.isFinite else { return nil }
+        if current.adapterID == "onereader.image", !(0...1).contains(x) || !(0...1).contains(y) { return nil }
+        let visible = current.adapterID == "onereader.pdf" ? PDFPageRectAnchor.parse(current.payload["rect"])?.rect : nil
+        let measured = candidates.compactMap { segment -> (TranslationSegment, Double)? in
+            guard segment.locator.adapterID == "onereader.ocr",
+                  let rect = PDFPageRectAnchor.parse(segment.locator.payload["rect"])?.rect else { return nil }
+            if let visible, !rect.intersects(visible) { return nil }
+            let dx = max(max(Double(rect.minX) - x, 0), x - Double(rect.maxX))
+            let dy = max(max(Double(rect.minY) - y, 0), y - Double(rect.maxY))
+            return (segment, dx * dx + dy * dy)
+        }
+        guard let nearest = measured.map(\.1).min() else { return nil }
+        let tolerance = max(1e-10, nearest * 1e-8)
+        // Equal/coincident regions (including chunks of the same OCR line) are ambiguous.
+        return uniqueID(measured.filter { abs($0.1 - nearest) <= tolerance }.map(\.0))
     }
 }

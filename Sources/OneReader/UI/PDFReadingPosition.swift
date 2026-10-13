@@ -85,10 +85,10 @@ enum PDFViewportAnchor {
         let visible = view.convert(view.bounds, to: page).intersection(bounds)
         guard !visible.isNull, !visible.isEmpty else { return nil }
         var payload = base.payload
-        if base.adapterID == OCRAdapter.id {
-            // Progress remains an original-document position, not a derived OCR span.
-            ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText"].forEach { payload[$0] = nil }
-        }
+        // A returned translation fragment may already have the native adapter ID.
+        // Its old selection offsets must never outrank the freshly measured viewport.
+        ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "startUTF16", "endUTF16",
+         "pageTextStartUTF16", "pageTextEndUTF16", "indexTextRange"].forEach { payload[$0] = nil }
         payload["pageIndex"] = String(index)
         payload["positionKind"] = "viewport"
         payload["viewportX"] = String(Double(point.x))
