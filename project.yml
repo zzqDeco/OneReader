@@ -42,6 +42,10 @@ targets:
       properties:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleDisplayName: OneReader
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.zzqDeco.OneReader.notes
+            CFBundleURLSchemes:
+              - onereader
         CFBundleDocumentTypes:
           - CFBundleTypeName: Readable material
             CFBundleTypeRole: Viewer
@@ -93,6 +97,10 @@ targets:
       properties:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleDisplayName: $(ONEREADER_IOS_DISPLAY_NAME)
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.zzqDeco.OneReader.notes
+            CFBundleURLSchemes:
+              - onereader
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Readable material

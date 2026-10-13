@@ -11,14 +11,11 @@ final class LibraryDatabaseTests: XCTestCase {
         let database = try LibraryDatabase(rootURL: root)
 
         XCTAssertEqual(try database.journalMode().lowercased(), "wal")
-        XCTAssertEqual(
-            try database.schemaMetadata(),
-            [
-                "adapter_schema": "1",
-                "agent_runtime_schema": "5",
-                "database_schema": "10",
-            ]
-        )
+        let metadata = try database.schemaMetadata()
+        XCTAssertEqual(metadata["adapter_schema"], "1")
+        XCTAssertEqual(metadata["agent_runtime_schema"], "5")
+        XCTAssertEqual(metadata["database_schema"], String(LibraryDatabase.schemaVersion))
+        XCTAssertNotNil(metadata["notes_library_id"].flatMap(UUID.init(uuidString:)))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.sourcesURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.snapshotsURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.layout.derivedURL.path))

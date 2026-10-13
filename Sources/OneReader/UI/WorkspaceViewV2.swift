@@ -56,6 +56,13 @@ struct WorkspaceView: View {
             ImportSourceSheet()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $model.isNotesCenterPresented) {
+            if let notes = model.notesCenter {
+                NotesCenterView(model: notes).environmentObject(model)
+            } else {
+                ContentUnavailableView("笔记中心暂不可用", systemImage: "exclamationmark.triangle")
+            }
+        }
         .alert(item: $model.notice) { notice in
             Alert(
                 title: Text(notice.title),

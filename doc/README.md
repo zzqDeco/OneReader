@@ -13,6 +13,7 @@ implementation sequencing belongs in `plan/`.
 | [Source adapters](source-adapters.md) | Deterministic format routing, snapshots, presentation, search, and safety |
 | [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and recovery |
 | [Reader workspace](reader-workspace.md) | Library-first native workspace, reading surfaces, search, annotations, and adaptive layout |
+| [全局笔记中心](notes-center.md) | Private annotation search, tags, original-snapshot review, and safe static Markdown export |
 | [Acceptance](acceptance.md) | Automated/native acceptance and scoped frame-profile evidence |
 | [v0.3.3 release notes](release-v0.3.3.md) | Full-text search, file import/native zoom, PDF order/viewport repairs and distribution limits |
 | [v0.3.2 release notes](release-v0.3.2.md) | Reading recovery maintenance release, validation provenance, and distribution limits |

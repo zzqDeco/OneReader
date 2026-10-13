@@ -30,12 +30,20 @@ assert_true() {
 
 assert_true "com.apple.security.app-sandbox"
 assert_true "com.apple.security.network.client"
-assert_true "com.apple.security.files.user-selected.read-only"
-if /usr/libexec/PlistBuddy \
-  -c 'Print :com.apple.security.files.user-selected.read-write' \
-  "$plist" >/dev/null 2>&1; then
-  echo "Packaged app unexpectedly has user-selected write access." >&2
-  exit 1
-fi
+assert_true "com.apple.security.files.user-selected.read-write"
+# Notes export needs write access to a user-selected directory, never a blanket
+# filesystem exception or automatic access to a user's media/download folders.
+for key in \
+  com.apple.security.temporary-exception.files.absolute-path.read-write \
+  com.apple.security.temporary-exception.files.home-relative-path.read-write \
+  com.apple.security.files.downloads.read-write \
+  com.apple.security.assets.movies.read-write \
+  com.apple.security.assets.music.read-write \
+  com.apple.security.assets.pictures.read-write; do
+  if /usr/libexec/PlistBuddy -c "Print :$key" "$plist" >/dev/null 2>&1; then
+    echo "Packaged app unexpectedly has broad write access: $key" >&2
+    exit 1
+  fi
+done
 
 echo "Sandbox entitlement validation passed."

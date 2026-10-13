@@ -49,6 +49,9 @@ public struct OneReaderScene: Scene {
                 }
             }
             CommandMenu("阅读") {
+                Button("笔记中心") { model.openNotesCenter() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Divider()
                 Button("上一项") {
                     model.selectPreviousNode()
                 }

@@ -31,6 +31,11 @@ and deduplicate by source/snapshot/adapter/path/range before the 20-hit limit.
 GRDB row cursors are consumed inside their read access; reusable Row objects do
 not escape or accumulate as an array.
 
+The independently registered v12 notes migration adds tag relationships, a
+private Annotation search projection and a local Library route identity. It
+does not copy Annotation facts or change source search. See
+[notes persistence](NotesPersistence.swift.md).
+
 It records Provider Keychain references but never API keys. A legacy progress
 file is moved only after database migration succeeds and is explicitly marked
 as not bound to new objects.

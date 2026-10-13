@@ -9,6 +9,10 @@ struct LibrarySidebarView: View {
             Divider()
             List {
                 Section("资料库") {
+                    Button(action: model.openNotesCenter) {
+                        Label("笔记", systemImage: "note.text")
+                    }
+                    .accessibilityIdentifier("library-notes")
                     ForEach(LibraryCollection.allCases) { collection in
                         Button {
                             model.selectCollection(collection)

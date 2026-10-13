@@ -1,5 +1,11 @@
 # `Sources/OneReader/App/AppModel.swift`
 
+The notes-center hooks initialize the shared NotesCenterModel, refresh Inspector
+annotations after edits, and resolve strict local routes. Original-snapshot
+preview retains the requested snapshot, suppresses progress/history writes and
+does not start indexing or Agent work. Normal source opening exits preview.
+See [notes-center boundaries](../Persistence/NotesPersistence.swift.md).
+
 DEBUG physical recovery tests validate a UUID launch namespace and bootstrap an
 isolated Library/UserDefaults suite beside, not inside, the production Library.
 Generated PDF/EPUB/HTML/Markdown material uses the normal managed import and

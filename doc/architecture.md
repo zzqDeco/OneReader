@@ -6,6 +6,12 @@ OneReader exposes heterogeneous material as an explorable, locatable content
 space. The reader operates on virtual reading units without forcing PDFs,
 webpages, EPUBs, directories, or repositories into one physical format.
 
+The [notes center](notes-center.md) is a Library projection over the existing
+Annotation identity, with separate tag relationships and a private search
+projection. It never becomes another note fact store or an implicit input to
+the Reading Agent. Local source routes resolve exact snapshots without imports
+or network side effects; static export is a user-authorized host write.
+
 ## Runtime layers
 
 ```text

@@ -13,7 +13,7 @@ enum LibraryDatabaseError: LocalizedError, Equatable {
 }
 
 final class LibraryDatabase: @unchecked Sendable {
-    static let schemaVersion = 10
+    static let schemaVersion = 12
     static let adapterSchemaVersion = 1
     static let agentRuntimeSchemaVersion = 5
 
@@ -1392,6 +1392,7 @@ final class LibraryDatabase: @unchecked Sendable {
                 """)
         }
 
+        registerNotesMigration(&migrator)
         return migrator
     }
 
