@@ -209,7 +209,8 @@ Final source checkpoint `946e6e6` on 2026-10-14:
   in-flight cancellation/native multi-window acceptance remains unclaimed.
 - All 401 tests, release build, unsigned generic-device iOS App/Share build,
   28-pin lock validation, 97-file documentation index, generated project, Apple
-  metadata, release gates and entitlement gates passed. Builds were serialized
+  metadata, release-gate regression scripts and entitlement regression scripts
+  passed; these checks do not grant release authorization. Builds were serialized
   and reused the existing Swift scratch directory and single iOS DerivedData;
   no local Simulator was created or booted. Available disk remained about 42 GiB.
 - Both the assembled app and isolated preview passed strict ad-hoc signature
