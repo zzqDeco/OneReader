@@ -12,6 +12,7 @@ struct LibrarySidebarView: View {
                     Button(action: model.openNotesCenter) {
                         Label("笔记", systemImage: "note.text")
                     }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("library-notes")
                     ForEach(LibraryCollection.allCases) { collection in
                         Button {
@@ -35,7 +36,7 @@ struct LibrarySidebarView: View {
                                 : Color.clear
                         )
                         .accessibilityAddTraits(
-                            model.selectedCollection == collection ? .isSelected : []
+                            model.selectedCollection == collection && !model.isReadingWorkspaceOpen ? .isSelected : []
                         )
                     }
                 }
@@ -53,6 +54,7 @@ struct LibrarySidebarView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(model.selectedSpaceID == space.id && model.isReadingWorkspaceOpen ? .isSelected : [])
                             .listRowBackground(
                                 model.selectedSpaceID == space.id && model.isReadingWorkspaceOpen
                                     ? ReaderTheme.teal.opacity(0.12)
@@ -75,12 +77,11 @@ struct LibrarySidebarView: View {
             Button {
                 model.isImportSheetPresented = true
             } label: {
-                Label("添加材料", systemImage: "plus.circle.fill")
+                ReaderActionLabel(title: "添加材料", systemImage: "plus")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
+            .padding(12)
             .keyboardShortcut("o", modifiers: [.command])
             .accessibilityHint("打开统一来源导入器")
         }
@@ -91,24 +92,24 @@ struct LibrarySidebarView: View {
     private var brandHeader: some View {
         HStack(spacing: 11) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(ReaderTheme.accent)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(ReaderTheme.accentMuted)
                 Image(systemName: "books.vertical.fill")
-                    .foregroundStyle(.white)
-                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(ReaderTheme.accent)
+                    .font(.body.weight(.semibold))
             }
-            .frame(width: 40, height: 40)
+            .frame(width: 32, height: 32)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("OneReader")
                     .font(.headline)
-                Text("你的统一阅读资料库")
-                    .font(.caption2)
+                Text("本机阅读资料库")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
+        .padding(16)
         .accessibilityElement(children: .combine)
     }
 
@@ -149,7 +150,7 @@ private struct SpaceSidebarRow: View {
                         Text("\(Int(progress * 100))%")
                     }
                 }
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
             }
             Spacer(minLength: 2)

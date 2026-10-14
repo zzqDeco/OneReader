@@ -225,7 +225,7 @@ struct WorkspaceView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             if model.isReadingWorkspaceOpen {
                 ReaderNavigationSidebar()
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+                    .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
             } else {
                 LibrarySidebarView()
                     .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 310)
@@ -267,7 +267,7 @@ struct WorkspaceView: View {
                                 .accessibilityHidden(true)
                             ReaderInspectorView()
                                 .frame(width: min(338, geometry.size.width * 0.62))
-                                .shadow(color: .black.opacity(0.18), radius: 18, x: -5)
+                                .shadow(color: .black.opacity(0.12), radius: 12, x: -3)
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }

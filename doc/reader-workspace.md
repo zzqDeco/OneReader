@@ -185,8 +185,11 @@ Space and schedules a deterministic projection rebuild.
 Bookmarks bind the current presentation Locator. Highlights require a real
 selection and a presentation that supports structured anchors. Notes can bind
 the selection or current position. Quick Look never advertises structured
-highlight or AI evidence. Annotation rows expose current, relocated, or
-orphaned anchor state.
+highlight or AI evidence. Annotation rows show localized current, relocated, or
+orphaned anchor state and distinguish historical snapshots from the latest
+revision. The annotation editor keeps raw state and exact Snapshot/Adapter/
+Locator metadata in an explicit details disclosure. This is presentation only;
+existing persisted states and Markdown export status fields do not change.
 
 Progress stores source position, per-unit completion, current frozen-plan step,
 and reading history independently. Each Source position carries its immutable
@@ -276,7 +279,18 @@ sent without storing body text, paths, or notes.
 ## Native editorial hierarchy
 
 The Library uses a quiet grouped background, one bounded continuation card,
-and a scannable shelf of stable solid-color covers. It does not use decorative
+and a scannable shelf of light semantic covers with a stable-color book spine.
+The continuation percentage uses an explicitly linear, minimum-width progress
+track, including at zero after returning from the reader; it does not change
+which reading position or progress fraction is persisted.
+The continuation card measures useful copy width; at narrow/accessibility
+widths its full wrapping title, resume and progress move below a small cover/
+action header. Shelf covers keep a minimum ratio but can grow with enlarged
+titles instead of imposing a clipping fixed height.
+Generated covers are placeholders, not extracted book artwork. The title lives
+once on the cover, with source count/progress and organization below it. Larger
+Dynamic Type switches to wider cards rather than squeezing two tall text blocks
+into a compact shelf. It does not use decorative
 gradients or dashboard-style metric cards. System sans-serif type belongs to
 application chrome; Markdown/text prose uses the platform serif design; code
 remains monospaced. Prose measure is capped at 720 points across native and
@@ -287,6 +301,42 @@ than nesting another column. Reading Assistance is collapsed by default and is
 opened deliberately. User-facing chrome says 阅读空间、阅读辅助、引用 and 版本;
 adapter names, digests, and identifiers live only in explicit run or citation
 detail disclosures.
+
+Library actions live beside its heading instead of preceding it as a floating
+button. Reading navigation uses a 240-point ideal width and named tabs; the
+Inspector uses the same named tab hierarchy. At accessibility Dynamic Type
+sizes, these pickers use a native menu rather than clipped segments. Neither
+view changes which tabs the host permits.
+
+The notes center keeps Space/type filters immediately visible. Source, tags,
+time and order live under More Filters, whose label reports active extra
+filters even while collapsed. Results are quiet separate cards, with independent
+selection, Return to Original, Edit and More controls. The persistent macOS
+`notes-export` AppKit button stays in the content footer, with its existing
+keyboard equivalent; it is not moved back into a toolbar. Pending debounce and
+first loads show loading, not a false empty list. Settled read failures offer
+retry; export/deletion are disabled while the current results are unsettled or
+loading. Ordinary status is localized while exact anchor metadata remains in
+the editor's details and existing export values remain unchanged.
+Export scope, privacy options and captured preview remain separate native Form
+sections. No export/persistence semantics change.
+
+OCR keeps on-device processing and accuracy limitations in its main section.
+Advanced native-text replacement, unfinished-page reasons and per-page
+provenance are named disclosures; the underlying evidence and revisions are
+unchanged. The OCR panel uses a fixed preferred size only on macOS, so iPhone
+content follows the native sheet and safe area. Import's iPhone keyboard opens
+only when the user chooses URL entry; macOS retains immediate keyboard focus.
+
+Shared action labels carry their minimum hit area inside the actual button
+label (44 points on iPhone, 28 on Mac). Multi-action groups use an adaptive
+horizontal/vertical layout and separate accessibility children. They never
+merge open, edit or destructive controls into one combined accessibility action.
+This refinement leaves source rendering, reader gestures, PDF scale, source
+Locators, cache, model disclosure and progress capture untouched.
+Reader header/footer reflow retains one action tree. Flexible titles and saved
+position text do not dictate the entire action group's width; Mac footer groups
+gain rows at constrained widths instead of clipping controls.
 
 Directory outlines filter actual image and font media rather than directory
 names. A readable `assets/README.md` therefore stays visible, while cover bytes
@@ -306,12 +356,15 @@ dismissible drawer below a 760-point detail width, preserving the reader at the
 900 x 650 minimum. Regular-width iPad uses the same adaptive split workspace.
 Compact-width iPhone keeps the reader full width and presents
 Outline/Sources/Route/Search and Reading Assistance in separate medium/large
-sheets. It has one system inline navigation title and one stable bottom bar
+sheets. It has one system inline navigation title and one stable safe-area footer
 with four minimum-44-point actions: directory, previous item, next item, and
-notes. There is no second custom title bar or horizontally scrolling toolbar.
-PDF adds a dedicated zoom row immediately above that four-action bar; text and
-other presentations do not show PDF-only controls. Interactive PDF controls
-have at least 44-point targets and explicit accessibility labels.
+notes, plus OCR when available. The action grid gains rows at constrained widths
+or enlarged Dynamic Type. There is no second custom title bar or horizontally
+scrolling toolbar. PDF adds dedicated zoom controls immediately above that bar;
+adjustment/percentage and fit width can stack. Other presentations do not show
+PDF-only controls. Interactive PDF controls have at least 44-point targets and
+explicit accessibility labels. Shared Mac-mounted layout tests do not prove
+physical-iPhone Dynamic Type scaling or touch/gesture acceptance.
 
 macOS commands expose import, Space import, search, previous/next content,
 bookmark, highlight, and the 900 x 650 / 1440 x 900 window presets. iPhone and

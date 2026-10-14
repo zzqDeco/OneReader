@@ -20,6 +20,11 @@ struct NotesExportView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    ReaderPanelHeading(title: "带走你的阅读笔记",
+                        subtitle: "生成独立的 Markdown 副本，按来源整理；不会覆盖已有文件。",
+                        systemImage: "square.and.arrow.up")
+                }
                 Section("导出范围") {
                     Picker("范围", selection: $scope) {
                         Text("当前筛选结果").tag(NotesExportScope.filtered)
@@ -32,13 +37,24 @@ struct NotesExportView: View {
                             ForEach(spaces) { Text($0.title).tag(Optional($0.id)) }
                         }
                     }
-                    Toggle("包含用户笔记", isOn: $options.includeNotes)
-                    Toggle("包含原始网页地址（去除查询参数与片段）", isOn: $options.includeWebURLs)
-                    Text("始终包含：摘录、标签、时间、来源/空间/快照、人可读位置、定位状态及仅适用于本机原资料库的回链。不复制原始书籍、附件、Provider 配置或对话。")
+                }
+                Section("内容与隐私") {
+                    Toggle("用户笔记", isOn: $options.includeNotes)
+                    Toggle("原始网页地址", isOn: $options.includeWebURLs)
+                    Text("网页地址会移除查询参数与片段。不导出原始书籍、附件、Provider 配置或对话。")
                         .font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup("固定包含的字段") {
+                        Text("摘录、标签、时间、来源/空间/快照、人可读位置、定位状态及仅适用于本机原资料库的回链。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Section("预览") {
-                    Button("生成导出预览") { prepare() }.disabled(isPreparing || invalidScope)
+                    Button { prepare() } label: {
+                        ReaderActionLabel(title: "生成导出预览", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isPreparing || invalidScope)
+                    .accessibilityIdentifier("notes-export-preview")
                     if let snapshot {
                         Text("\(snapshot.entries.count) 条标注 · \(Set(snapshot.entries.map { $0.annotation.sourceID }).count) 个来源")
                             .font(.headline)
@@ -50,8 +66,12 @@ struct NotesExportView: View {
                         }
                         Text("输出为 index.md + 按来源分组的 Markdown 文件。导出是静态副本，不会同步覆盖编辑器中的改动；目标同名时自动创建新副本。")
                             .font(.caption).foregroundStyle(.secondary)
-                        Button("选择本地文件夹并导出…", systemImage: "folder") { showsDirectoryPicker = true }
+                        Button { showsDirectoryPicker = true } label: {
+                            ReaderActionLabel(title: "选择文件夹并导出…", systemImage: "folder")
+                        }
+                            .buttonStyle(.bordered)
                             .disabled(isPreparing || snapshot.entries.isEmpty)
+                            .accessibilityIdentifier("notes-export-directory")
                     }
                     if isPreparing {
                         if let progress {
@@ -61,6 +81,7 @@ struct NotesExportView: View {
                     }
                     if let completion {
                         Label("导出完成：\(completion.lastPathComponent)", systemImage: "checkmark.circle")
+                            .foregroundStyle(ReaderTheme.accent)
                             .textSelection(.enabled)
                     }
                     if let errorMessage { Text(errorMessage).foregroundStyle(.red).textSelection(.enabled) }
