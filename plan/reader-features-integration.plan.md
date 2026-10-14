@@ -50,6 +50,41 @@ device visibility separately from unit/build results. Preserve production apps, 
 
 Pending. A feature remains open while its required implementation or acceptance is incomplete.
 
+### Current candidate evidence — 2026-10-14
+
+- Runtime/code candidate `73995a4cac98f245a42c9d46fcc65818923a8712` passes
+  375 macOS tests with zero skips/failures. Release build, Sandbox packaging,
+  strict signature/entitlement validation, and unsigned iOS app/share-extension
+  builds pass. The native cache is reused, not duplicated per attempt.
+- Exact-head [CI / Native validation](https://github.com/zzqDeco/OneReader/actions/runs/38377029545)
+  passes for that candidate. Final independent Sol max review reports no blocking
+  findings; this is a source/test conclusion, not signed-device acceptance.
+- The separate macOS preview was quit normally and replaced without changing its
+  Library container. On reopening it retains the generated source, completed
+  capture task, OCR evidence and test note. Its rebuilt notes center visibly
+  exposes the persistent `notes-export` action. Searching an unmatched term
+  returns zero notes and disables export; searching the test-note marker returns
+  one note and re-enables it.
+- Visible export captures one annotation/one source, then completes through the
+  system folder selector into the isolated acceptance output. Readback verifies
+  `index.md` and one source Markdown file containing the test note, stable
+  annotation/source/space/snapshot identities, current locator status, readable
+  position and a local-library back-link. No original image, model configuration
+  or conversation is copied. The preview does not register the production
+  `onereader` URL scheme; an external back-link launch is not tested against the
+  production app.
+- The preceding `00ceb4c` visible run verifies OCR search and an original-image
+  yellow evidence-region jump, plus creation/readback of the generated note.
+  Manual OCR selection/highlight, notes return-to-original, live Provider
+  translation and the final integrated physical-iPhone/share flow remain open.
+  Native coordinate input failures are not counted as product passes or defects.
+- Integrated iPhone signing still needs explicit provisioning/authorization for
+  the isolated preview App Group. Keep #25–#28 and #29–#33 open/draft. Do not
+  promote to main, release, alter production data or boot a Simulator.
+
+These replace the pending build/review/export gates in older snapshots below;
+remaining native and Provider acceptance is not waived.
+
 ### Capture / notes / bilingual merge slice
 
 Resolve the delegated capture merge without replacing existing notes or bilingual
@@ -154,8 +189,8 @@ iPad device acceptance, hosted Xcode migration, cloud sync, distribution/signing
 
 ## Delivery Checklist
 
-- [ ] Four feature slices implemented and individually tested.
-- [ ] Integrated data migrations and native build tested.
+- [x] Four feature slices implemented and individually tested.
+- [x] Integrated data migrations and native build tested.
 - [ ] Cross-feature and physical/visible acceptance recorded.
-- [ ] Sol max conclusions resolved and current-head CI green.
+- [x] Sol max conclusions resolved and code-candidate CI green.
 - [ ] Documentation, issue evidence and focused PR handoff complete.
