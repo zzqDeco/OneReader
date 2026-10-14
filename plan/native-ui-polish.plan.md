@@ -194,13 +194,53 @@ The `59ca1ea` follow-up review caught a cancellation boundary: a cached query-ke
 success could re-match after Q1 → Q2 → Q1 or the reload-owning sheet disappeared.
 The next correction publishes pending/interrupted generation receipts and derives
 the UI projection directly from the latest receipt. Regression cases cover the
-query-wrap projection and a real cancelled GRDB owner followed by explicit retry;
-they do not claim multi-window native acceptance.
+query-wrap projection and a pre-cancelled real GRDB reload owner followed by
+explicit retry; they do not claim cancellation during an already suspended read
+or multi-window native acceptance.
 The corrected full suite passed all 401 tests with no failures/skips (21 new
 continuation regressions), including both cancellation boundaries. Dependency
 versions, database schema and product source/presentation contracts are unchanged.
 
-Remaining gates: current-head hosted CI, physical iPhone compact/Dynamic Type
+Final source checkpoint `946e6e6` on 2026-10-14:
+
+- Sol max's immutable follow-up found no blocking findings. Its remaining test
+  boundary is explicit: the owner-cancellation regression cancels before the
+  read starts, not while a database read is already suspended. Controlled
+  in-flight cancellation/native multi-window acceptance remains unclaimed.
+- All 401 tests, release build, unsigned generic-device iOS App/Share build,
+  28-pin lock validation, 97-file documentation index, generated project, Apple
+  metadata, release gates and entitlement gates passed. Builds were serialized
+  and reused the existing Swift scratch directory and single iOS DerivedData;
+  no local Simulator was created or booted. Available disk remained about 42 GiB.
+- Both the assembled app and isolated preview passed strict ad-hoc signature
+  and Sandbox entitlement checks. The prior preview bundle was retained as
+  `OneReader Features Preview.pre-final-ui-state.app`; no Source or Library was
+  deleted. The preview keeps its distinct Bundle ID and has no production URL
+  scheme registration. Signing/account/provisioning configuration is unchanged.
+- The exact rebuilt preview opened its two test Sources and original four
+  annotations. A generated long-title Markdown material, not personal content,
+  exercised wide/compact Library covers, continuation title/progress and reader
+  header/footer. The actual next/previous controls navigated the outline, including
+  the disabled first-item boundary. Search selected the true Chinese quote and
+  its original snapshot. A new test-only bookmark was saved at line 32 and the
+  Inspector/Notes center showed its localized current-version status.
+- Native scrolling through the settable scroll bar moved the actual text view
+  to 0.55 and recorded line 19 / 33%; the mouse-scroll control endpoint returned
+  `noWindowsAvailable`. This does not prove gesture smoothness or frame rate.
+- The Notes center read five annotations, a no-match search showed zero and
+  disabled export, and clearing search restored five and enabled export. Both
+  the real native button and Command-Shift-E opened export configuration. Preview
+  captured five annotations from two Sources; no output directory was written.
+- Paper theme was selected in the isolated app. Closing its Settings window
+  led to repeated native-control timeouts, including after control-session reset;
+  the exact preview process remained alive. A one-second read-only sample showed
+  the main thread waiting in the AppKit event loop, not evidence of a product
+  deadlock. The new paper/dark screenshots, restoring Follow System, raw locator
+  disclosure and normal quit/reopen position comparison remain incomplete. The
+  app was not force-quit and no automation/security settings were changed.
+
+Remaining gates: current-head hosted CI, the final macOS visual checks above,
+physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
 Full VoiceOver, Reduce Motion and manual touch/gesture acceptance are not claimed.
 
@@ -218,7 +258,7 @@ redesigning native presentations, new product features, model/network changes.
 - [x] User behavior implemented (visual refinement; native acceptance pending)
 - [x] Existing contracts preserved (boundary hash and 401 shared tests)
 - [x] Focused continuation tests pass (21 mounted/state regressions)
-- [ ] Local continuation validation passes (unsigned iOS build; no Simulator)
+- [x] Local continuation validation passes (unsigned iOS build; no local Simulator)
 - [ ] Current-head hosted CI passes
 - [ ] macOS continuation visible acceptance recorded
 - [ ] iPhone compact/Dynamic Type native acceptance recorded
