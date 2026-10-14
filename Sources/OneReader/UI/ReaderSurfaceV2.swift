@@ -21,6 +21,16 @@ struct ReaderSurfaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.isAnnotationPreview {
+                HStack {
+                    Label("原快照回看 · 不改变阅读进度", systemImage: "clock.arrow.circlepath")
+                        .font(.caption)
+                    Spacer()
+                    Button("返回笔记", action: model.openNotesCenter).font(.caption)
+                }
+                .padding(10)
+                .background(ReaderTheme.teal.opacity(0.1))
+            }
             if !usesCompactLayout {
                 readerHeader
                 Divider()
@@ -38,6 +48,9 @@ struct ReaderSurfaceView: View {
         }
         .background(ReaderTheme.paper)
         .navigationTitle(model.presentationDocument?.title ?? model.selectedSpace?.title ?? "OneReader")
+        .sheet(isPresented: $model.isOCRPanelPresented) {
+            OCRReaderPanel(controller: model.ocrController).environmentObject(model)
+        }
 #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if usesCompactLayout {
@@ -82,6 +95,13 @@ struct ReaderSurfaceView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 10)
+            if model.canUseLocalOCR {
+                Button { model.showLocalOCR() } label: {
+                    Label("识别文字", systemImage: "text.viewfinder").labelStyle(.iconOnly)
+                }
+                .help("在本机识别文字")
+                .accessibilityIdentifier("reader-ocr")
+            }
 #if os(iOS)
             if model.presentationDocument?.surface == .pdfKit {
                 pdfZoomControls
@@ -98,6 +118,13 @@ struct ReaderSurfaceView: View {
                 .accessibilityLabel("打开原始来源")
             }
             Menu {
+                if model.isBilingualReadingAvailable {
+                    Button("双语对照") {
+                        model.inspectorTab = .translation
+                        model.isInspectorPresented = true
+                    }
+                    Divider()
+                }
                 Picker("主题", selection: $model.preferences.theme) {
                     ForEach(ReaderThemePreference.allCases) { theme in
                         Text(theme.title).tag(theme)
@@ -174,7 +201,9 @@ struct ReaderSurfaceView: View {
                     guard model.currentPresentationToken == presentationToken,
                           zoom.isFinite else { return }
                     pdfZoomFactor = zoom
-                }
+                },
+                ocrRevision: model.ocrDisplayRevision,
+                ocrTextSelectionEnabled: model.ocrTextSelectionEnabled
             )
             .id(presentationToken)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -330,6 +359,9 @@ struct ReaderSurfaceView: View {
             CompactReaderAction(title: "笔记", systemImage: "note.text") {
                 onShowAssistance?()
             }
+            if model.canUseLocalOCR {
+                CompactReaderAction(title: "识别", systemImage: "text.viewfinder") { model.showLocalOCR() }
+            }
         }
         .padding(.horizontal, 8)
         .padding(.top, 5)
@@ -389,6 +421,7 @@ private extension PresentationSurface {
     var displayName: String {
         switch self {
         case .pdfKit: "PDF"
+        case .nativeImage: "图像"
         case .nativeMarkdown: "富文本"
         case .nativeText: "纯文本"
         case .nativeCode: "代码"

@@ -7,12 +7,26 @@ plans and commits Source removal with Space detachment, annotation/history
 cleanup, graph/plan invalidation, progress reset, active-Run cancellation, and
 durable Agent-generation advancement in one transaction.
 
+Migration v11 and capture claims live in CapturePersistence. commitImport
+fences capture attempts and records job result IDs in the source transaction;
+it does not allow a replay to insert a second Source.
+
+The integrated migration order is capture v11, notes v12, then translation v13.
+DB v13 delegates to `TranslationPersistence.registerTranslationMigration` for
+versioned derived translation cache and Agent runtime schema 6. No old Run,
+source content, annotation or progress is rewritten by that additive migration.
+
 Adapter plans and Observations are encoded with stable JSON settings. Schema v7
 introduced atomic index staging. Schema v9 separates raw evidence Observations
 from `search_documents`, records one active AdapterPlan per Snapshot, keys index
 runs by Snapshot plus plan ID, and publishes only after an active-plan
 compare-and-swap. Startup drops interrupted staging so a partial or superseded
 plan can never be mistaken for current searchable data.
+OCR adds a second compare-and-swap boundary: plan activation and every index transition
+must match the active OCR revision in the same transaction. Completed historical indexes
+cannot be reactivated after partial or full recognition publishes a new layer. Startup
+invalidates pre-fix stale active pointers without deleting old plans, revisions or evidence.
+Agent plan finalization uses the same guard.
 After a v8-to-v9 migration, active searchable plans without a completed
 projection are queryable as deterministic rebuild work. App bootstrap schedules
 all of them, so global search recovers without opening each Space.
@@ -30,6 +44,11 @@ add each chunk's absolute UTF-16/line base, quote complete composed characters,
 and deduplicate by source/snapshot/adapter/path/range before the 20-hit limit.
 GRDB row cursors are consumed inside their read access; reusable Row objects do
 not escape or accumulate as an array.
+
+The independently registered v12 notes migration adds tag relationships, a
+private Annotation search projection and a local Library route identity. It
+does not copy Annotation facts or change source search. See
+[notes persistence](NotesPersistence.swift.md).
 
 It records Provider Keychain references but never API keys. A legacy progress
 file is moved only after database migration succeeds and is explicitly marked

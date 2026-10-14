@@ -5,6 +5,10 @@ iPad. It turns heterogeneous material into a managed, searchable, locatable
 reading space and starts with an empty Library: no example book, downloaded
 document, account, or model is required.
 
+Library 的“笔记中心”可跨空间查找书签、高亮和笔记，管理标签，并预览后导出
+按来源分组的静态 Markdown。它完全离线工作；本机原文回链只适用于同一份
+资料库，导出不会自动同步或覆盖外部编辑。详见[笔记中心](doc/notes-center.md)。
+
 The Library core, source adapters, optional Reading Agent, and reading facts are
 shared by all three platforms. SwiftUI adapts the shell to an iPhone drill-down
 reader, an iPad split workspace, and a macOS window without introducing
@@ -34,6 +38,22 @@ scripts/build-ios-simulator.sh
 The shared target remains iPad-capable, but v0.3.3 release acceptance is scoped
 to macOS and a connected physical iPhone; physical iPad acceptance is deferred.
 
+### Quick capture and inbox
+
+Add Materials can collect files or HTTPS links into **待整理**, or import and
+open them directly. The native Library exposes **待整理 / 在读 / 已读 / 归档**,
+search, multi-selection, retry and cancellation. Archive preserves content,
+notes and actual reading progress; marking read does not jump to the last page.
+Links can be received offline and wait for a foreground app/network connection.
+
+The universal OneReader-Share target adds iPhone/iPad system sharing for URLs,
+PDF/EPUB, images, HTML, Markdown, text and code. “已接收” means its receipt and
+attachment are saved, not that download/indexing has completed. Both app and
+extension require a matching App Group provisioning capability; configure
+ONEREADER_CAPTURE_APP_GROUP for the signing team. No account/provider is
+required. Physical Share Sheet acceptance and release distribution remain
+separate gates; see [capture and inbox](doc/capture-inbox.md).
+
 On iPhone, Add Materials opens the system Files picker. Selected files are
 copied into the managed Library and remain readable after relaunch. PDF reading
 starts at fit width and supports native two-finger zoom plus zoom-out, zoom-in,
@@ -47,6 +67,16 @@ PDF reading-position captures and position-only saves are isolated from
 whole-reader UI refreshes. Other formats retain their existing refresh behavior;
 exact progress still persists and restores across material types.
 Intermittent PDF smoothness is checked separately from import/zoom correctness.
+
+Bilingual reading is deferred for this increment: its inspector/menu entrypoints
+are disabled. The implementation and versioned cache/migration are retained for
+later acceptance; current releases do not claim live translation or offline
+translation UI. See [retained bilingual contracts](doc/bilingual-reading.md).
+
+The local OCR feature adds explicit on-device recognition for scanned PDF pages and
+single JPEG/PNG/HEIC images. Recognition results retain page regions and immutable versions;
+native text remains preferred, and old notes are not rewritten. See [OCR behavior and limits](doc/local-ocr.md)
+and [pending acceptance](plan/local-ocr.plan.md) before treating the feature as device-validated.
 
 Run the bootstrap once before opening the project. It configures an ignored
 local mirror for one

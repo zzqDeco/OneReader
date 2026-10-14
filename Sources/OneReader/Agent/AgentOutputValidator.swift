@@ -4,6 +4,7 @@ enum AgentDomainMutation: Sendable {
     case adapterPlan(AdapterPlan)
     case readingGraph(ReadingGraph, expectedSnapshots: [String: String])
     case readingPlan(ReadingPlanDraft, expectedSnapshots: [String: String])
+    case translation([CachedTranslation])
 }
 
 enum AgentCommitDisposition: Sendable {
@@ -30,6 +31,11 @@ actor AgentOutputValidator {
         guard try database.containsSpace(request.spaceID) else {
             throw ReadingAgentError.validationRejected("space-not-found")
         }
+        if request.task == .translateFragments {
+            guard case .translation = output else {
+                throw ReadingAgentError.validationRejected("translation-output-required")
+            }
+        }
         switch output {
         case .adapterPlan(let plan):
             return try await validateAdapterPlan(plan, request: request)
@@ -45,6 +51,12 @@ actor AgentOutputValidator {
                 throw ReadingAgentError.validationRejected("invalid-scout-summary")
             }
             return .acceptedWithoutCommit(kind: "scoutingSummary")
+        case .translation(let draft):
+            guard request.task == .translateFragments, let translation = request.translation else {
+                throw ReadingAgentError.validationRejected("translation-task-required")
+            }
+            let values = try draft.validated(for: translation, database: database, manifest: boundManifest(for: request))
+            return .committed(kind: "translation", identifier: values.first?.key ?? "", mutation: .translation(values))
         }
     }
 

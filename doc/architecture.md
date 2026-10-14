@@ -6,6 +6,12 @@ OneReader exposes heterogeneous material as an explorable, locatable content
 space. The reader operates on virtual reading units without forcing PDFs,
 webpages, EPUBs, directories, or repositories into one physical format.
 
+The [notes center](notes-center.md) is a Library projection over the existing
+Annotation identity, with separate tag relationships and a private search
+projection. It never becomes another note fact store or an implicit input to
+the Reading Agent. Local source routes resolve exact snapshots without imports
+or network side effects; static export is a user-authorized host write.
+
 ## Runtime layers
 
 ```text
@@ -78,6 +84,15 @@ The app's sandboxed Application Support `OneReader/` directory contains:
 - `.Staging/` for incomplete internal imports;
 - `.RemovalRecovery/` for durable, host-owned iOS/iPadOS removal rollback
   manifests and staged managed containers.
+- Capture/ for durable host-only inbox handoff payloads; acknowledged readable
+  payloads are cleaned up without removing the database receipt.
+
+The [capture coordinator](capture-inbox.md) is ahead of the existing import
+pipeline. Its independent App Group staging holds receipts/payloads and a small
+Space catalog, not SQLite, provider data or managed Library files. Schema v11
+adds capture jobs and one organization state per Space. Import result IDs and
+the Source/Snapshot/Space transaction commit atomically, fencing late cancelled
+attempts and resuming interrupted jobs without duplicate identity.
 
 Local import copies into staging, calculates and rechecks a SHA-256 or stable
 directory-tree digest, then moves the complete staging directory to a

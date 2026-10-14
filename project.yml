@@ -22,6 +22,7 @@ settings:
     ONEREADER_IOS_BUNDLE_IDENTIFIER: io.github.zzqDeco.OneReader
     ONEREADER_IOS_DISPLAY_NAME: OneReader
     ONEREADER_IOS_PUBLIC_PDF_TEST: "NO"
+    ONEREADER_CAPTURE_APP_GROUP: group.io.github.zzqDeco.OneReader.capture
 
 targets:
   OneReader-macOS:
@@ -42,6 +43,10 @@ targets:
       properties:
         CFBundleDevelopmentRegion: zh_CN
         CFBundleDisplayName: OneReader
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.zzqDeco.OneReader.notes
+            CFBundleURLSchemes:
+              - onereader
         CFBundleDocumentTypes:
           - CFBundleTypeName: Readable material
             CFBundleTypeRole: Viewer
@@ -88,11 +93,18 @@ targets:
     dependencies:
       - package: OneReaderPackage
         product: OneReader
+      - target: OneReader-Share
+        embed: true
     info:
       path: Resources/Info-iOS.plist
       properties:
         CFBundleDevelopmentRegion: zh_CN
+        OneReaderCaptureAppGroup: $(ONEREADER_CAPTURE_APP_GROUP)
         CFBundleDisplayName: $(ONEREADER_IOS_DISPLAY_NAME)
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.zzqDeco.OneReader.notes
+            CFBundleURLSchemes:
+              - onereader
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Readable material
@@ -137,6 +149,41 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(ONEREADER_IOS_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: OneReaderMobileApp
         PRODUCT_NAME: OneReader
+        SUPPORTS_MACCATALYST: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  OneReader-Share:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.1"
+    sources:
+      - path: Apps/OneReaderShareExtension
+      - path: Sources/OneReader/Domain/CaptureModels.swift
+      - path: Sources/OneReader/Persistence/CaptureStagingStore.swift
+    info:
+      path: Resources/Info-Share.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        OneReaderCaptureAppGroup: $(ONEREADER_CAPTURE_APP_GROUP)
+        CFBundleDisplayName: OneReader
+        CFBundleShortVersionString: "0.3.3"
+        CFBundleVersion: "6"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 20
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsText: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(ONEREADER_IOS_BUNDLE_IDENTIFIER).Share
+        PRODUCT_MODULE_NAME: OneReaderShare
+        CODE_SIGN_ENTITLEMENTS: Resources/OneReader-Share.entitlements
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
         SUPPORTS_MACCATALYST: false
         TARGETED_DEVICE_FAMILY: "1,2"
 

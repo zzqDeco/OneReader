@@ -90,6 +90,10 @@ final class ReadingPositionDisplayState: ObservableObject {
 
 @MainActor
 final class AppModel: ObservableObject {
+    let ocrController = OCRReaderController()
+    @Published var isOCRPanelPresented = false
+    @Published var ocrTextSelectionEnabled = false
+    @Published private(set) var ocrDisplayRevision: OCRRevision?
     @Published private(set) var spaces: [ReadingSpace] = []
     @Published private(set) var sources: [Source] = []
     @Published private(set) var snapshots: [SourceSnapshot] = []
@@ -109,6 +113,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var readerNavigationRequestID = UUID()
     @Published var inspectorTab: ReaderInspectorTab = .annotations
     @Published var isInspectorPresented = false
+    @Published var isNotesCenterPresented = false
+    @Published private(set) var notesCenter: NotesCenterModel?
+    @Published private(set) var annotationPreviewSnapshotID: String?
+    private var notesOpenGeneration = UUID()
+    private var pendingNotesOpenURL: URL?
 
     @Published private(set) var adapterPlan: AdapterPlan?
     @Published private(set) var contentNodes: [ContentNode] = []
@@ -121,6 +130,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var evidenceAnswer: EvidenceAnswer?
     @Published var currentSelection: ReaderSelection?
     let readingPositionDisplayState = ReadingPositionDisplayState()
+    let bilingualReading = BilingualReadingModel()
     private(set) var currentPositionLocator: Locator? {
         willSet {
             // Navigation controls and menu shortcuts must change immediately
@@ -147,6 +157,16 @@ final class AppModel: ObservableObject {
     @Published private(set) var isSearching = false
 
     @Published private(set) var pendingImports: [PendingImport] = []
+    @Published var captureJobs: [CaptureJob] = []
+    @Published var librarySearchText = ""
+    @Published var isReceivingCaptures = 0
+    @Published var activeCaptureJobID: String?
+    var captureCoordinator: CaptureCoordinator?
+    var captureQueueTask: Task<Void, Never>?
+    var captureItemTask: Task<CapturePreparedResult?, Never>?
+    var captureQueueNeedsRun = false
+    var pendingExternalCaptureURLs: [URL] = []
+    var pendingCaptureScopedURLs: [URL] = []
     @Published private(set) var refreshingSourceIDs: Set<String> = []
     @Published var largeImportConfirmation: LargeImportConfirmation?
     @Published var pendingSourceRemoval: Source?
@@ -220,18 +240,26 @@ final class AppModel: ObservableObject {
         refreshTasks.values.forEach { $0.cancel() }
         agentTask?.cancel()
         indexTasks.values.forEach { $0.cancel() }
+        captureQueueTask?.cancel()
+        captureItemTask?.cancel()
+        pendingCaptureScopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
     }
 
     var visibleSpaces: [ReadingSpace] {
+        let candidates = spaces.filter { space in
+            (selectedCollection == .archived || space.organizationState != .archived)
+                && (librarySearchText.isEmpty || space.title.localizedStandardContains(librarySearchText)
+                    || sourceIDs(in: space.id).contains { source(id: $0)?.displayName.localizedStandardContains(librarySearchText) == true })
+        }
         switch selectedCollection {
         case .allSpaces:
-            spaces
+            return candidates
         case .recent:
-            spaces
+            return candidates
                 .filter { $0.lastOpenedAt != nil }
                 .sorted { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
         case .processing:
-            spaces.filter { space in
+            return candidates.filter { space in
                 sourceIDs(in: space.id).contains { sourceID in
                     source(id: sourceID)?.managedState == .processing
                 } || agentRuns.contains {
@@ -239,11 +267,15 @@ final class AppModel: ObservableObject {
                 }
             }
         case .favorites:
-            spaces.filter { space in
+            return candidates.filter { space in
                 space.isFavorite || sourceIDs(in: space.id).contains {
                     source(id: $0)?.isFavorite == true
                 }
             }
+        case .inbox: return candidates.filter { $0.organizationState == .inbox }
+        case .reading: return candidates.filter { $0.organizationState == .reading }
+        case .read: return candidates.filter { $0.organizationState == .read }
+        case .archived: return candidates.filter { $0.organizationState == .archived }
         }
     }
 
@@ -259,9 +291,11 @@ final class AppModel: ObservableObject {
 
     var selectedSnapshot: SourceSnapshot? {
         guard let source = selectedSource,
-              let snapshotID = source.latestSnapshotID else { return nil }
+              let snapshotID = annotationPreviewSnapshotID ?? source.latestSnapshotID else { return nil }
         return snapshots.first { $0.id == snapshotID }
     }
+
+    var isAnnotationPreview: Bool { annotationPreviewSnapshotID != nil }
 
     var presentationDocument: PresentationDocument? {
         guard case .ready(let document) = presentationState else { return nil }
@@ -269,7 +303,13 @@ final class AppModel: ObservableObject {
     }
 
     var presentationDescriptor: PresentationSurfaceDescriptor? {
-        presentationDocument.flatMap { presentationRegistry.descriptor(for: $0.surface) }
+        if presentationDocument?.surface == .nativeImage {
+            let hasText = ocrDisplayRevision?.pages.contains(where: { !$0.usesNativeText && !$0.spans.isEmpty }) == true
+            return PresentationSurfaceDescriptor(id: .nativeImage, supportsTextSelection: hasText,
+                supportsStructuredHighlight: hasText, supportsFind: hasText,
+                limitation: hasText ? "识别文字可能有误，请对照原图核实" : "原始图像没有文字层，可在本机识别后搜索和标注")
+        }
+        return presentationDocument.flatMap { presentationRegistry.descriptor(for: $0.surface) }
     }
 
     var currentGraph: ReadingGraph? {
@@ -294,6 +334,9 @@ final class AppModel: ObservableObject {
     }
 
     var currentPositionDescription: String? {
+        if isAnnotationPreview, let locator = currentPositionLocator {
+            return "原快照回看 · \(Self.positionDescription(for: locator))"
+        }
         guard let sourceID = selectedSourceID else { return nil }
         if let pendingPositionUpdate,
            pendingPositionUpdate.spaceID == selectedSpaceID,
@@ -337,10 +380,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // User deferred bilingual delivery; retaining its code/cache is not an
+    // available product feature. This host decision has no Source/Provider override.
+    var isBilingualReadingAvailable: Bool { false }
+
     var availableInspectorTabs: [ReaderInspectorTab] {
         ReaderInspectorTab.allCases.filter { tab in
             switch tab {
             case .annotations, .activity: true
+            case .translation: isBilingualReadingAvailable
             case .evidence, .ask: spaceSupportsAgentEvidence
             }
         }
@@ -410,7 +458,7 @@ final class AppModel: ObservableObject {
         do {
             let database = try LibraryDatabase(rootURL: libraryRootURL)
             let managedLibrary = try ManagedLibrary(database: database)
-            let registry = try AdapterRegistry.standard()
+            let registry = try AdapterRegistry.standard(database: database)
             let coordinator = AdapterCoordinator(database: database, registry: registry)
             let remoteImporter = RemoteSourceImporter(library: managedLibrary)
             let toolHost = ReadingToolHost(
@@ -427,17 +475,52 @@ final class AppModel: ObservableObject {
                 driverFactory: agentDriverFactory
             )
             self.database = database
+            ocrController.configure(database: database)
             self.managedLibrary = managedLibrary
             self.registry = registry
             self.coordinator = coordinator
             self.remoteImporter = remoteImporter
             self.agentRuntime = runtime
+            bilingualReading.configure(database: database, coordinator: coordinator, runtime: runtime, defaults: defaults)
+            self.notesCenter = NotesCenterModel(database: database, onMutation: { [weak self] in
+                self?.loadAnnotations()
+            }, onOpen: { [weak self] entry in
+                try await self?.openNotesEntry(entry)
+            })
+            let sharedCapture: CaptureStagingStore?
+            // Isolated test/acceptance Libraries never access production handoffs.
+            if libraryRootURL == nil {
+#if os(iOS)
+                sharedCapture = try? CaptureStagingStore.shared()
+#else
+                sharedCapture = nil
+#endif
+            } else { sharedCapture = nil }
+            let captures = CaptureCoordinator(
+                database: database, library: managedLibrary, remoteImporter: remoteImporter,
+                adapters: coordinator, sharedStaging: sharedCapture
+            )
+            self.captureCoordinator = captures
+            if try await captures.recover() > 0 {
+                notice = AppNotice(title: "部分收集记录需要检查", message: "不完整的接收副本已保留，其他材料仍可继续处理。请从原 App 重新分享受影响的项目。")
+            }
+            reloadCaptureJobs()
             try reloadLibraryState()
             try schedulePendingSearchIndexRebuilds()
         } catch {
             notice = AppNotice(title: "资料库无法打开", message: error.localizedDescription)
         }
         isBootstrapComplete = true
+        if captureCoordinator != nil && !pendingExternalCaptureURLs.isEmpty {
+            let urls = pendingExternalCaptureURLs
+            pendingExternalCaptureURLs.removeAll()
+            captureURLs(urls)
+        }
+        resumeCaptures()
+        if let url = pendingNotesOpenURL {
+            pendingNotesOpenURL = nil
+            handleOpenURL(url)
+        }
     }
 
     func selectCollection(_ collection: LibraryCollection) {
@@ -489,7 +572,7 @@ final class AppModel: ObservableObject {
         presentationState = .empty
     }
 
-    func presentLocalSourceImporter(destination: ImportDestination = .newSpace) {
+    func presentLocalSourceImporter(destination: ImportDestination = .inbox) {
 #if os(macOS)
         let panel = NSOpenPanel()
         panel.title = "添加到 OneReader"
@@ -571,6 +654,10 @@ final class AppModel: ObservableObject {
         destination: ImportDestination = .newSpace,
         allowLargeImport: Bool = false
     ) {
+        if destination == .inbox {
+            captureURLs(urls, allowLargeImport: allowLargeImport)
+            return
+        }
         guard !urls.isEmpty else { return }
         let taskID = UUID()
         importTasks[taskID] = Task { [weak self] in
@@ -592,6 +679,10 @@ final class AppModel: ObservableObject {
         destination: ImportDestination = .newSpace,
         allowLargeImport: Bool = false
     ) {
+        if destination == .inbox {
+            captureURLs([url], allowLargeImport: allowLargeImport)
+            return
+        }
         let taskID = UUID()
         importTasks[taskID] = Task { [weak self] in
             guard let self else { return }
@@ -624,10 +715,33 @@ final class AppModel: ObservableObject {
     }
 
     func handleOpenURL(_ url: URL) {
-        if url.isFileURL {
-            importLocalURLs([url])
+        if url.scheme?.lowercased() == NotesLocalRoute.scheme {
+            let route: NotesLocalRoute
+            do { route = try NotesLocalRoute(url: url) }
+            catch {
+                notice = AppNotice(title: "无法打开笔记回链", message: error.localizedDescription)
+                return
+            }
+            // Capture recovery suspends bootstrap. A cold notes link waits for
+            // that owner instead of starting a second Library/bootstrap flow.
+            guard isBootstrapComplete else {
+                pendingNotesOpenURL = url
+                return
+            }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    guard let database else { throw NotesError.differentLibrary }
+                    let entry = try await database.notesEntry(route: route)
+                    try await openNotesEntry(entry)
+                } catch {
+                    notice = AppNotice(title: "无法打开笔记回链", message: error.localizedDescription)
+                }
+            }
+        } else if url.isFileURL {
+            captureURLs([url])
         } else if url.scheme?.lowercased() == "https" {
-            importRemoteURL(url)
+            captureURLs([url])
         } else {
             notice = AppNotice(title: "无法打开", message: "OneReader 只接受本地材料或 HTTPS URL。")
         }
@@ -644,20 +758,32 @@ final class AppModel: ObservableObject {
     private func openSource(
         _ sourceID: String,
         locator: Locator?,
-        captureOutgoingPosition: Bool
+        captureOutgoingPosition: Bool,
+        annotationSnapshotID: String? = nil
     ) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(sourceID),
               let source = source(id: sourceID),
-              let snapshotID = source.latestSnapshotID,
+              let snapshotID = annotationSnapshotID ?? source.latestSnapshotID,
               let database,
               let coordinator else { return }
 
         if captureOutgoingPosition {
             flushReadingPosition()
         }
+        annotationPreviewSnapshotID = annotationSnapshotID
         let requestedLocator = locator ?? currentProgress.sourcePositions[sourceID]?.locator
+        bilingualReading.sourceWillChange(spaceID: spaceID, sourceID: sourceID, snapshotID: snapshotID)
+        if selectedSourceID != sourceID || selectedSnapshot?.id != snapshotID {
+            ocrController.reset()
+            ocrTextSelectionEnabled = false
+        }
         selectedSourceID = sourceID
+        if let revisionID = requestedLocator?.payload["ocrRevisionID"] {
+            ocrDisplayRevision = try? database.ocrRevision(id: revisionID, sourceID: sourceID, snapshotID: snapshotID)
+        } else {
+            ocrDisplayRevision = try? database.activeOCRRevision(snapshotID: snapshotID)
+        }
         currentPositionLocator = nil
         presentationState = .loading
         currentObservation = nil
@@ -732,7 +858,9 @@ final class AppModel: ObservableObject {
                     message: "基础阅读界面已准备好。",
                     state: .completed
                 )
-                startIndexing(plan: plan, spaceID: spaceID)
+                if annotationSnapshotID == nil {
+                    startIndexing(plan: plan, spaceID: spaceID)
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -752,10 +880,73 @@ final class AppModel: ObservableObject {
         openLocator(node.locator)
     }
 
+    func prepareBilingualReading(useSelection: Bool) {
+        guard let spaceID = selectedSpaceID, let document = presentationDocument,
+              let plan = adapterPlan else { return }
+        let current = currentPositionLocator ?? document.locator
+        let chapterNodes = contentNodes.filter { $0.locator.relativePath == current.relativePath }
+        let prior = chapterNodes.last { ($0.locator.lineRange?.lowerBound ?? Int.max) <= (current.lineRange?.lowerBound ?? 1) }
+        let anchor = useSelection ? (currentSelection?.locator ?? current) : (prior?.locator ?? current)
+        let next = chapterNodes.first { ($0.locator.lineRange?.lowerBound ?? 0) > (anchor.lineRange?.lowerBound ?? Int.max) }
+        bilingualReading.prepare(spaceID: spaceID, document: document, locator: anchor,
+            nextLocator: next?.locator, selection: useSelection ? currentSelection : nil,
+            plan: plan, profile: activeProvider)
+        inspectorTab = .translation
+        isInspectorPresented = true
+    }
+
+    func returnToBilingualOriginal(_ segment: TranslationSegment, prepareAnnotation: Bool = false) {
+        bilingualReading.originalReaderBecameActive()
+        openLocator(segment.locator)
+        if prepareAnnotation {
+            currentSelection = ReaderSelection(text: segment.originalText, locator: segment.locator)
+            inspectorTab = .annotations
+        }
+    }
+
     func openLocator(_ locator: Locator) {
         guard let spaceID = selectedSpaceID,
               sourceIDs(in: spaceID).contains(locator.sourceID) else { return }
-        openSource(locator.sourceID, locator: locator)
+        openSource(locator.sourceID, locator: locator, captureOutgoingPosition: true,
+                   annotationSnapshotID: isAnnotationPreview ? locator.snapshotID : nil)
+    }
+
+    func openNotesCenter() { isNotesCenterPresented = true }
+
+    func notesEntry(for annotation: Annotation) async throws -> NotesEntry? {
+        try await database?.notesEntry(id: annotation.id)
+    }
+
+    private func openNotesEntry(_ staleEntry: NotesEntry) async throws {
+        notesOpenGeneration = UUID()
+        let generation = notesOpenGeneration
+        let workspace = workspaceGeneration
+        guard let database, let coordinator,
+              let entry = try await database.notesEntry(id: staleEntry.id),
+              entry.annotation.sourceID == staleEntry.annotation.sourceID,
+              entry.annotation.snapshotID == staleEntry.annotation.snapshotID,
+              entry.sourceAvailable,
+              try database.sourceIDs(in: entry.annotation.spaceID).contains(entry.annotation.sourceID) else {
+            throw NotesError.unavailableSource
+        }
+        let annotation = entry.annotation
+        // Never silently resolve against latest. Historical content and evidence
+        // keep their snapshot, even if a new source version exists.
+        let resolution = try await coordinator.resolve(annotation.locator, against: annotation.snapshotID)
+        try Task.checkCancellation()
+        guard notesOpenGeneration == generation, workspaceGeneration == workspace else { throw CancellationError() }
+        guard resolution.state != .orphaned, let locator = resolution.resolved else {
+            throw AdapterError.invalidLocator("原快照定位失败：\(resolution.reason)。保留的摘录与笔记仍可查看。")
+        }
+        transitionWorkspace(to: annotation.spaceID)
+        selectedSpaceID = annotation.spaceID
+        isReadingWorkspaceOpen = true
+        navigationTab = .outline
+        try reloadLibraryState(preservingSelection: true)
+        try loadSpaceState(spaceID: annotation.spaceID)
+        isNotesCenterPresented = false
+        openSource(annotation.sourceID, locator: locator, captureOutgoingPosition: false,
+                   annotationSnapshotID: annotation.snapshotID)
     }
 
     func revealReaderNavigation(_ tab: WorkspaceNavigationTab) {
@@ -784,6 +975,13 @@ final class AppModel: ObservableObject {
         updateReadingPosition(update, presentationToken: currentPresentationToken)
     }
 
+    func updateBilingualReadingPosition(_ locator: Locator) {
+        let source = BilingualProgressMapping.sourceLocator(locator, surface: presentationDocument?.surface)
+        bilingualReading.recordUserReading(source)
+        updateReadingPosition(Self.inferredPositionUpdate(for: source),
+            presentationToken: currentPresentationToken, fromBilingual: true)
+    }
+
     func activateReadingPositionCaptureTarget(_ targetID: UUID) {
         guard activeReadingPositionCaptureTargetID != targetID else { return }
         activeReadingPositionCaptureTargetID = targetID
@@ -795,14 +993,23 @@ final class AppModel: ObservableObject {
 
     func updateReadingPosition(
         _ update: ReadingPositionUpdate,
-        presentationToken: UUID
+        presentationToken: UUID,
+        fromBilingual: Bool = false
     ) {
         let locator = update.locator
+        if isAnnotationPreview {
+            guard presentationToken == contentGeneration,
+                  selectedSourceID == locator.sourceID,
+                  annotationPreviewSnapshotID == locator.snapshotID else { return }
+            currentPositionLocator = locator
+            return
+        }
         guard presentationToken == contentGeneration,
               let spaceID = selectedSpaceID,
               let source = selectedSource,
               source.id == locator.sourceID,
               source.latestSnapshotID == locator.snapshotID else { return }
+        if !fromBilingual { bilingualReading.originalReaderBecameActive() }
         let saveID = UUID()
         pendingPositionUpdate = PendingReadingPosition(
             id: saveID,
@@ -832,10 +1039,15 @@ final class AppModel: ObservableObject {
     }
 
     func flushReadingPosition() {
+        guard !isAnnotationPreview else { return }
         // Commit the latest coalesced update before asking the presentation for
         // an exact boundary capture. A synchronous WebKit fallback must not be
         // overwritten by an older pending sample after the notification returns.
         flushPendingReadingPosition()
+        // A hidden original surface must not overwrite genuine translated reading with its stale viewport.
+        if let anchor = bilingualReading.lastReadLocator,
+           anchor.sourceID == selectedSourceID,
+           anchor.snapshotID == selectedSource?.latestSnapshotID { return }
         let captureContext: ReadingPositionCaptureContext? = selectedSpaceID.flatMap { spaceID in
             guard let source = selectedSource,
                   let snapshotID = source.latestSnapshotID else { return nil }
@@ -1034,12 +1246,15 @@ final class AppModel: ObservableObject {
     }
 
     func deleteAnnotation(_ annotation: Annotation) {
-        guard let database, let spaceID = selectedSpaceID else { return }
-        do {
-            try database.deleteAnnotation(id: annotation.id, spaceID: spaceID)
-            loadAnnotations()
-        } catch {
-            notice = AppNotice(title: "无法删除标注", message: error.localizedDescription)
+        guard let database else { return }
+        Task {
+            do {
+                try await database.deleteNotes([annotation.id: annotation.updatedAt])
+                loadAnnotations()
+                notesCenter?.invalidate()
+            } catch {
+                notice = AppNotice(title: "无法删除标注", message: error.localizedDescription)
+            }
         }
     }
 
@@ -1907,6 +2122,7 @@ final class AppModel: ObservableObject {
         do {
             try database.saveAnnotation(annotation)
             loadAnnotations()
+            notesCenter?.invalidate()
             inspectorTab = .annotations
             isInspectorPresented = true
         } catch {
@@ -1929,6 +2145,7 @@ final class AppModel: ObservableObject {
     private func recordPositionAndHistory(locator: Locator) {
         guard let database, let spaceID = selectedSpaceID else { return }
         currentPositionLocator = locator
+        guard !isAnnotationPreview else { return }
         let existing = currentProgress.sourcePositions[locator.sourceID]
         if var existing, existing.locator == locator {
             // The exact position is already durable. In particular, a relocated
@@ -1997,6 +2214,8 @@ final class AppModel: ObservableObject {
 
     private func transitionWorkspace(to _: String?) {
         flushReadingPosition()
+        notesOpenGeneration = UUID()
+        annotationPreviewSnapshotID = nil
         workspaceGeneration = UUID()
         contentGeneration = UUID()
         contentTask?.cancel()
@@ -2168,7 +2387,7 @@ final class AppModel: ObservableObject {
             await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
         case .materializeGraph:
             await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
-        case .projectRoute, .answerWithEvidence:
+        case .projectRoute, .answerWithEvidence, .translateFragments:
             return
         }
     }
@@ -2472,6 +2691,7 @@ final class AppModel: ObservableObject {
         guard let selectedSpaceID,
               spaceID == nil || spaceID == selectedSpaceID else { return }
         loadAgentActivity(spaceID: selectedSpaceID)
+        bilingualReading.providerDidChange(activeProvider)
     }
 
     private func refreshReadingStructureState(spaceID: String) throws {
@@ -2551,6 +2771,7 @@ final class AppModel: ObservableObject {
             (space.id, try database.sourceIDs(in: space.id))
         })
         providerProfiles = try database.fetchProviderProfiles()
+        notesCenter?.invalidate()
         for space in spaces {
             setReadingProgress(try? database.fetchReadingProgress(spaceID: space.id), for: space.id)
             try? refreshReadingStructureState(spaceID: space.id)
@@ -2563,6 +2784,16 @@ final class AppModel: ObservableObject {
         if let selectedSpaceID, !spaces.contains(where: { $0.id == selectedSpaceID }) {
             closeReadingWorkspace()
         }
+    }
+
+    func reloadCaptureLibrary() {
+        do { try reloadLibraryState(preservingSelection: true); reloadCaptureJobs() }
+        catch { notice = AppNotice(title: "无法更新资料库", message: CaptureCoordinator.safeMessage(for: error)) }
+    }
+
+    func applyCaptureResult(_ result: CapturePreparedResult) {
+        reloadCaptureLibrary()
+        startIndexing(plan: result.plan, spaceID: result.imported.space.id)
     }
 
     private func replacePending(_ pending: PendingImport) {
@@ -2834,4 +3065,58 @@ final class AppModel: ObservableObject {
         isBootstrapComplete = true
     }
 #endif
+}
+
+extension AppModel {
+    var canUseLocalOCR: Bool {
+        guard let source = selectedSource, source.originKind == .localFile || source.originKind == .remoteURL else { return false }
+        return presentationDocument?.surface == .pdfKit || presentationDocument?.surface == .nativeImage
+    }
+
+    func showLocalOCR() {
+        guard let database, let source = selectedSource, let snapshot = selectedSnapshot,
+              let relative = snapshot.managedRelativePath,
+              let url = try? database.layout.url(forRelativePath: relative) else { return }
+        ocrController.load(context: AdapterContext(source: source, snapshot: snapshot, managedURL: url,
+            derivedRootURL: database.layout.derivedURL))
+        isOCRPanelPresented = true
+    }
+
+    func startLocalOCR(pages: [Int], settings: OCRSettings, resume: OCRJob? = nil) {
+        guard let sourceID = selectedSourceID, let snapshotID = selectedSnapshot?.id else { return }
+        ocrController.start(pages: pages, settings: settings, resume: resume) { [weak self] revision in
+            guard let self, let coordinator else { return }
+            do {
+                _ = try await coordinator.prepare(sourceID: sourceID, snapshotID: snapshotID)
+                if selectedSourceID == sourceID, selectedSnapshot?.id == snapshotID {
+                    let active = try database?.activeOCRRevision(snapshotID: snapshotID)
+                    ocrDisplayRevision = revision ?? active
+                    openSource(sourceID)
+                }
+            } catch { notice = AppNotice(title: "识别结果未启用", message: error.localizedDescription) }
+        }
+    }
+
+    func selectLocalOCRRevision(_ revision: OCRRevision) {
+        guard let database else { return }
+        do {
+            try database.selectOCRRevision(revision.id, snapshotID: revision.snapshotID)
+            Task { [weak self] in
+                guard let self, let coordinator else { return }
+                do {
+                    _ = try await coordinator.prepare(sourceID: revision.sourceID, snapshotID: revision.snapshotID)
+                    if selectedSourceID == revision.sourceID {
+                        ocrDisplayRevision = revision
+                        openSource(revision.sourceID)
+                    }
+                } catch { notice = AppNotice(title: "无法切换识别版本", message: error.localizedDescription) }
+            }
+        } catch { notice = AppNotice(title: "无法切换识别版本", message: error.localizedDescription) }
+    }
+
+    func selectOCRSpan(revision: OCRRevision, page: OCRPage, span: OCRSpan) {
+        let locator = revision.locator(page: page, span: span)
+        openLocator(locator)
+        currentSelection = ReaderSelection(text: span.text, locator: locator)
+    }
 }

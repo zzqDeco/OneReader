@@ -2,6 +2,7 @@ import Foundation
 
 enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
     case allSpaces
+    case inbox, reading, read, archived
     case recent
     case processing
     case favorites
@@ -14,6 +15,10 @@ enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
         case .recent: "最近阅读"
         case .processing: "处理中"
         case .favorites: "收藏"
+        case .inbox: "待整理"
+        case .reading: "在读"
+        case .read: "已读"
+        case .archived: "归档"
         }
     }
 
@@ -23,6 +28,10 @@ enum LibraryCollection: String, CaseIterable, Identifiable, Sendable {
         case .recent: "clock"
         case .processing: "waveform.path.ecg"
         case .favorites: "star"
+        case .inbox: "tray"
+        case .reading: "book"
+        case .read: "checkmark.circle"
+        case .archived: "archivebox"
         }
     }
 }
@@ -59,6 +68,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
     case evidence
     case activity
     case ask
+    case translation
 
     var id: String { rawValue }
 
@@ -68,6 +78,7 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .evidence: "引用"
         case .activity: "运行"
         case .ask: "助手"
+        case .translation: "双语"
         }
     }
 
@@ -77,11 +88,13 @@ enum ReaderInspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .evidence: "link"
         case .activity: "waveform.path"
         case .ask: "sparkles"
+        case .translation: "character.bubble"
         }
     }
 }
 
 enum ImportDestination: String, CaseIterable, Identifiable, Sendable {
+    case inbox
     case newSpace
     case currentSpace
 
@@ -157,6 +170,7 @@ enum ReaderContentNavigation {
     ]
 
     static func isVisible(_ node: ContentNode) -> Bool {
+        if node.locator.adapterID == ImageAdapter.id || node.locator.adapterID == OCRAdapter.id { return true }
         let path = (node.locator.relativePath ?? node.locator.structuralPath ?? "")
             .lowercased()
         let pathExtension = (path as NSString).pathExtension

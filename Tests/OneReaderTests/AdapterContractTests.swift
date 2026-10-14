@@ -278,6 +278,7 @@ final class AdapterContractTests: XCTestCase {
             Set(ids),
             Set([
                 PDFAdapter.id,
+                ImageAdapter.id,
                 EPUBAdapter.id,
                 MarkdownAdapter.id,
                 HTMLAdapter.id,

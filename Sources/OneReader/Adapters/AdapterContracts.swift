@@ -118,6 +118,7 @@ struct ContentSearchHit: Identifiable, Codable, Hashable, Sendable {
 
 enum PresentationSurface: String, Codable, Hashable, Sendable {
     case pdfKit
+    case nativeImage
     case nativeMarkdown
     case nativeText
     case nativeCode

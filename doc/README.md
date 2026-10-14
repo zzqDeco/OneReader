@@ -11,8 +11,12 @@ implementation sequencing belongs in `plan/`.
 | [Apple platforms](apple-platforms.md) | Shared target model, native shells, import/storage permissions, and multiplatform validation |
 | [Interfaces](interfaces.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
 | [Source adapters](source-adapters.md) | Deterministic format routing, snapshots, presentation, search, and safety |
+| [Local OCR](local-ocr.md) | Original-aligned local recognition, immutable OCR evidence and explicit job recovery |
 | [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and recovery |
+| [Bilingual reading](bilingual-reading.md) | Original-fragment mapping, bounded translation, privacy and offline cache |
 | [Reader workspace](reader-workspace.md) | Library-first native workspace, reading surfaces, search, annotations, and adaptive layout |
+| [全局笔记中心](notes-center.md) | Private annotation search, tags, original-snapshot review, and safe static Markdown export |
+| [Quick capture and reading inbox](capture-inbox.md) | Durable receipts, Space organization, Share Extension and recovery boundaries |
 | [Acceptance](acceptance.md) | Automated/native acceptance and scoped frame-profile evidence |
 | [v0.3.3 release notes](release-v0.3.3.md) | Full-text search, file import/native zoom, PDF order/viewport repairs and distribution limits |
 | [v0.3.2 release notes](release-v0.3.2.md) | Reading recovery maintenance release, validation provenance, and distribution limits |

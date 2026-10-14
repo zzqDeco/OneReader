@@ -32,7 +32,7 @@ public struct OneReaderScene: Scene {
             SidebarCommands()
             CommandGroup(after: .newItem) {
                 Button("打开材料…") {
-                    model.presentLocalSourceImporter()
+                    model.presentLocalSourceImporter(destination: .newSpace)
                 }
                 .keyboardShortcut("o", modifiers: [.command])
 
@@ -40,6 +40,11 @@ public struct OneReaderScene: Scene {
                     model.isImportSheetPresented = true
                 }
                 .keyboardShortcut("l", modifiers: [.command])
+
+                Button("收集到待整理…") {
+                    model.presentLocalSourceImporter(destination: .inbox)
+                }
+                .keyboardShortcut("o", modifiers: [.command, .option])
 
                 if model.isReadingWorkspaceOpen {
                     Button("加入当前阅读空间…") {
@@ -49,6 +54,9 @@ public struct OneReaderScene: Scene {
                 }
             }
             CommandMenu("阅读") {
+                Button("笔记中心") { model.openNotesCenter() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Divider()
                 Button("上一项") {
                     model.selectPreviousNode()
                 }

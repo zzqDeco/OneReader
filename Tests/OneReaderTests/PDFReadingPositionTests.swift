@@ -5,6 +5,78 @@ import XCTest
 
 @MainActor
 final class PDFReadingPositionTests: XCTestCase {
+    func testOCRSelectionDoesNotTurnDocumentProgressIntoDerivedEvidence() throws {
+        let view = makeView()
+        let base = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: OCRAdapter.id,
+            payload: ["ocrRevisionID": "revision", "ocrSchema": "1", "ocrSpanID": "span", "derivedText": "ocr", "pageIndex": "0"],
+            textQuote: TextQuote(prefix: nil, exact: "Recognized line", suffix: nil), fingerprint: "fingerprint")
+        let captured = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: base))
+        XCTAssertEqual(captured.locator.adapterID, PDFAdapter.id)
+        XCTAssertNil(captured.locator.payload["ocrRevisionID"])
+        XCTAssertNil(captured.locator.payload["ocrSpanID"])
+        XCTAssertNil(captured.locator.textQuote)
+        XCTAssertNotNil(captured.locator.payload["viewportY"])
+    }
+
+    func testTranslatedFragmentThenNativeScrollCapturesViewportWithoutStaleTextOffsets() async throws {
+        for adapterID in [PDFAdapter.id, OCRAdapter.id] {
+            let view = makeView()
+            let page = try XCTUnwrap(view.document?.page(at: 0))
+            var payload = ["pageIndex": "0", "startUTF16": "0", "endUTF16": "27",
+                "pageTextStartUTF16": "0", "pageTextEndUTF16": "27", "indexTextRange": "utf16",
+                "rect": "25,1350,100,50"]
+            if adapterID == OCRAdapter.id {
+                payload.merge(["ocrRevisionID": "revision", "ocrSpanID": "old-paragraph",
+                    "ocrSchema": "1", "derivedText": "ocr"]) { _, new in new }
+            }
+            let fragment = Locator(sourceID: "source", snapshotID: "snapshot", adapterID: adapterID,
+                payload: payload, structuralPath: "page/0",
+                textQuote: TextQuote(prefix: nil, exact: "Previously translated paragraph", suffix: nil),
+                fingerprint: "old-paragraph-digest")
+            view.go(to: PDFDestination(page: page, at: CGPoint(x: 25, y: 1400)))
+            try await Task.sleep(for: .milliseconds(80))
+            let initial = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: fragment))
+            let scroll = try XCTUnwrap(view.documentView?.enclosingScrollView)
+            let clip = scroll.contentView
+            let ahead = clip.constrainBoundsRect(clip.bounds.offsetBy(dx: 0, dy: 400))
+            let behind = clip.constrainBoundsRect(clip.bounds.offsetBy(dx: 0, dy: -400))
+            let moved = abs(ahead.minY - clip.bounds.minY) >= abs(behind.minY - clip.bounds.minY) ? ahead : behind
+            XCTAssertGreaterThan(abs(moved.minY - clip.bounds.minY), 100)
+
+            let targetID = UUID()
+            var captured: ReadingPositionUpdate?
+            let observer = PDFReadingPositionObserver(base: { fragment }, targetID: { targetID },
+                isApplyingAnchor: { false }, publish: { _ in })
+            observer.observe(view)
+            defer { observer.stop() }
+            // Drive PDFKit's actual native scroll bridge, not a synthetic clean locator.
+            clip.scroll(to: moved.origin)
+            scroll.reflectScrolledClipView(clip)
+            try await Task.sleep(for: .milliseconds(80))
+            let request = ReadingPositionCaptureRequest(targetID: targetID,
+                sourceID: fragment.sourceID, snapshotID: fragment.snapshotID) { captured = $0 }
+            NotificationCenter.default.post(name: ReadingPositionCaptureSignal.requested, object: request)
+            XCTAssertTrue(request.isClaimed)
+            let position = try XCTUnwrap(captured)
+            for key in ["startUTF16", "endUTF16", "pageTextStartUTF16", "pageTextEndUTF16",
+                        "indexTextRange", "ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText"] {
+                XCTAssertNil(position.locator.payload[key], "\(adapterID): \(key)")
+            }
+            XCTAssertEqual(position.locator.sourceID, fragment.sourceID)
+            XCTAssertEqual(position.locator.snapshotID, fragment.snapshotID)
+            XCTAssertEqual(position.locator.adapterID, PDFAdapter.id)
+            XCTAssertNil(position.locator.textQuote)
+            XCTAssertNil(position.locator.fingerprint)
+            XCTAssertNotEqual(position.locator.payload["rect"], fragment.payload["rect"])
+            XCTAssertNotEqual(position.locator.payload["viewportY"], initial.locator.payload["viewportY"])
+            XCTAssertNotEqual(position.progressFraction, initial.progressFraction)
+            let current = try XCTUnwrap(PDFViewportAnchor.capture(from: view, base: fragment))
+            XCTAssertEqual(position.locator.payload["viewportX"], current.locator.payload["viewportX"])
+            XCTAssertEqual(position.locator.payload["viewportY"], current.locator.payload["viewportY"])
+            XCTAssertEqual(position.locator.payload["rect"], current.locator.payload["rect"])
+        }
+    }
+
     func testViewportPointRejectsMalformedOutOfPageAndSelectionLocators() {
         let bounds = CGRect(x: 0, y: 0, width: 420, height: 1_600)
         XCTAssertEqual(PDFViewportAnchor.point(in: locator(x: "20", y: "920"), pageBounds: bounds), CGPoint(x: 20, y: 920))

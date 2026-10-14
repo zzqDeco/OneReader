@@ -972,6 +972,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     let onPositionChange: (ReadingPositionUpdate) -> Void
     var zoomRequest: PDFZoomRequest? = nil
     var onZoomChange: ((Double) -> Void)? = nil
+    var ocrRevision: OCRRevision? = nil
+    var ocrTextSelectionEnabled = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -990,6 +992,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
 
     func updateUIView(_ view: ReadingPDFView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.ocrOverlay.install(in: view, revision: ocrRevision,
+            selectable: ocrTextSelectionEnabled, locator: documentLocator, onSelection: onSelectionChange)
         if context.coordinator.loadedURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
@@ -1064,6 +1068,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var parent: ManagedPDFPresentation
+        let ocrOverlay = OCRPDFOverlayProvider()
         var loadedURL: URL?
         var appliedAnchorSignature: String?
         var isApplyingAnchor = false
@@ -1139,22 +1144,8 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             }
             let index = document.index(for: page)
             let rect = selection.bounds(for: page)
-            var payload = parent.documentLocator.payload
-            PDFViewportAnchor.payloadKeys.forEach { payload[$0] = nil }
-            payload["pageIndex"] = String(index)
-            payload["rect"] = [rect.minX, rect.minY, rect.width, rect.height]
-                .map { String(format: "%.3f", $0) }
-                .joined(separator: ",")
-            let locator = Locator(
-                sourceID: parent.documentLocator.sourceID,
-                snapshotID: parent.documentLocator.snapshotID,
-                adapterID: parent.documentLocator.adapterID,
-                payload: payload,
-                structuralPath: "page/\(index)",
-                textQuote: TextQuote(prefix: nil, exact: selected, suffix: nil),
-                fingerprint: AdapterUtilities.sha256(selected)
-            )
-            parent.onSelectionChange(ReaderSelection(text: selected, locator: locator))
+            parent.onSelectionChange(NativePDFSelectionAnchor.selection(base: parent.documentLocator,
+                pageIndex: index, rectangle: rect, text: selected))
         }
     }
 }

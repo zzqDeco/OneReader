@@ -1,5 +1,10 @@
 # Reader Workspace
 
+The bilingual inspector/menu is currently disabled because the user deferred
+this feature on 2026-10-14. Its implementation, cache and migration remain
+intact for later acceptance; no live translation is claimed. See
+[bilingual reading](bilingual-reading.md) for retained contracts and boundaries.
+
 ## Product shape
 
 OneReader opens as a Library, not a format picker or chat screen. A Reading
@@ -10,7 +15,7 @@ the optional Reading Agent may later propose additional structure.
 
 The primary workspace contains:
 
-- All Spaces, Recent, Processing, Favorites, and Space navigation while the
+- All Spaces, Inbox, Reading, Read, Archived, Recent, Processing, Favorites, and Space navigation while the
   Library is active;
 - Outline, Sources, Route, and Search navigation in the same leading column
   after a Space opens;
@@ -21,11 +26,20 @@ The primary workspace contains:
 The Agent never replaces the reading surface and basic reading never waits for
 a Provider.
 
+The Library also provides a native [notes center](notes-center.md) for global
+Annotation search, tags, safe edits/deletions and static Markdown exports. It
+shares the Inspector's original Annotation IDs and resolves the original
+snapshot before opening a read-only-progress preview. Historical evidence is
+never relabeled as the current snapshot merely to navigate successfully.
+
 ## Import and Processing
 
-Drag/drop, Command-O, Finder Open With, SwiftUI `fileImporter`, iOS/iPadOS Open
-In, and URL paste share `AppModel` import coordination. The import first appears
-as Processing, then commits a managed
+Drag/drop, Finder Open With, the system file picker, iOS/iPadOS Open In, system
+sharing and URL paste can enter the durable capture coordinator. Add Materials
+defaults to Inbox; Command-O and the explicit direct-reading option retain
+immediate reading. A received task is durable before the host downloads or
+imports it. See [capture and inbox](capture-inbox.md) for receipt recovery and
+reversible Space organization. The import then commits a managed
 Snapshot and installs a deterministic AdapterPlan. Index work is keyed by
 Source ID, Snapshot ID, AdapterPlan ID, and a generation token. A second request
 for the same plan attaches to the existing job; a new Snapshot or plan cancels

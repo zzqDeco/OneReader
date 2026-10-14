@@ -4,6 +4,8 @@ struct ReaderInspectorView: View {
     @EnvironmentObject private var model: AppModel
     @State private var noteDraft = ""
     @State private var question = ""
+    @State private var notesEditing: NotesEntry?
+    @State private var pendingNoteDeletion: Annotation?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,6 +14,23 @@ struct ReaderInspectorView: View {
             inspectorContent
         }
         .background(ReaderTheme.window)
+        .sheet(item: $notesEditing) { entry in
+            if let notes = model.notesCenter { NotesAnnotationEditor(entry: entry, model: notes) }
+        }
+        .alert(item: $pendingNoteDeletion) { annotation in
+            Alert(title: Text("删除这条\(annotation.kind.notesTitle)？"),
+                  message: Text("将删除原始标注及其标签关系。来源文件不会删除。"),
+                  primaryButton: .destructive(Text("确认删除")) {
+                    Task {
+                        do {
+                            if var entry = try await model.notesEntry(for: annotation) {
+                                entry.annotation = annotation
+                                try await model.notesCenter?.delete([entry])
+                            }
+                        } catch { model.notice = AppNotice(title: "无法删除标注", message: error.localizedDescription) }
+                    }
+                  }, secondaryButton: .cancel(Text("取消")))
+        }
     }
 
     private var inspectorHeader: some View {
@@ -49,6 +68,12 @@ struct ReaderInspectorView: View {
         case .evidence: evidenceView
         case .activity: activityView
         case .ask: askView
+        case .translation:
+            if model.isBilingualReadingAvailable {
+                BilingualReadingView(controller: model.bilingualReading)
+            } else {
+                ContentUnavailableView("双语阅读暂未开放", systemImage: "character.bubble")
+            }
         }
     }
 
@@ -88,6 +113,9 @@ struct ReaderInspectorView: View {
             .padding(12)
             Divider()
 
+            Button("打开全局笔记中心", action: model.openNotesCenter)
+                .font(.caption).padding(.vertical, 8)
+
             if model.annotations.isEmpty {
                 ContentUnavailableView(
                     "还没有标注",
@@ -97,14 +125,26 @@ struct ReaderInspectorView: View {
             } else {
                 List(model.annotations) { annotation in
                     Button {
-                        model.openLocator(annotation.locator)
+                        Task {
+                            do {
+                                if let entry = try await model.notesEntry(for: annotation) {
+                                    await model.notesCenter?.open(entry)
+                                }
+                            } catch { model.notice = AppNotice(title: "无法打开标注", message: error.localizedDescription) }
+                        }
                     } label: {
                         AnnotationRow(annotation: annotation)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        Button("编辑笔记与标签", systemImage: "pencil") {
+                            Task {
+                                do { notesEditing = try await model.notesEntry(for: annotation) }
+                                catch { model.notice = AppNotice(title: "无法读取标注", message: error.localizedDescription) }
+                            }
+                        }
                         Button("删除", role: .destructive) {
-                            model.deleteAnnotation(annotation)
+                            pendingNoteDeletion = annotation
                         }
                     }
                 }

@@ -85,6 +85,10 @@ enum PDFViewportAnchor {
         let visible = view.convert(view.bounds, to: page).intersection(bounds)
         guard !visible.isNull, !visible.isEmpty else { return nil }
         var payload = base.payload
+        // A returned translation fragment may already have the native adapter ID.
+        // Its old selection offsets must never outrank the freshly measured viewport.
+        ["ocrRevisionID", "ocrSpanID", "ocrSchema", "derivedText", "startUTF16", "endUTF16",
+         "pageTextStartUTF16", "pageTextEndUTF16", "indexTextRange"].forEach { payload[$0] = nil }
         payload["pageIndex"] = String(index)
         payload["positionKind"] = "viewport"
         payload["viewportX"] = String(Double(point.x))
@@ -104,7 +108,8 @@ enum PDFViewportAnchor {
         payload["rect"] = [visible.minX, visible.minY, visible.width, visible.height]
             .map { String(Double($0)) }.joined(separator: ",")
         let locator = Locator(
-            sourceID: base.sourceID, snapshotID: base.snapshotID, adapterID: base.adapterID,
+            sourceID: base.sourceID, snapshotID: base.snapshotID,
+            adapterID: base.adapterID == OCRAdapter.id ? PDFAdapter.id : base.adapterID,
             payload: payload, structuralPath: "page/\(index)", textQuote: nil, fingerprint: nil
         )
         // Measure progress on the displayed vertical axis, not page-space y:

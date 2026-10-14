@@ -40,5 +40,8 @@ for usable bounds and ordinary position updates cannot reset native pinch zoom.
 
 A saved viewport is not a text selection. A quote-bearing Locator still uses
 selection geometry, and new PDF selections remove viewport-only metadata.
+Native capture always removes OCR identity and both generic/page-relative text
+offsets, including a returned fragment that already uses the native PDF adapter.
+Only the freshly measured page/viewport geometry describes ordinary scrolling.
 Old page/rect Locators remain readable without migration. The observer is
 cancelled and disconnected when its native view is dismantled.

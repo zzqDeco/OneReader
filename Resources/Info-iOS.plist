@@ -43,6 +43,15 @@
 	<string>0.3.3</string>
 	<key>CFBundleVersion</key>
 	<string>6</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>io.github.zzqDeco.OneReader.notes</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>onereader</string></array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
@@ -54,6 +63,8 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>OneReader 仅在你配置 Ollama 等本地模型服务时访问局域网端点。</string>
+	<key>OneReaderCaptureAppGroup</key>
+	<string>$(ONEREADER_CAPTURE_APP_GROUP)</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>

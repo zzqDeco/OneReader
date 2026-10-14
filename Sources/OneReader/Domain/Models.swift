@@ -58,6 +58,7 @@ struct ReadingSpace: Identifiable, Codable, Hashable, Sendable {
     let createdAt: Date
     var updatedAt: Date
     var lastOpenedAt: Date?
+    var organizationState: SpaceOrganizationState
 
     init(
         id: String = UUID().uuidString.lowercased(),
@@ -65,7 +66,8 @@ struct ReadingSpace: Identifiable, Codable, Hashable, Sendable {
         isFavorite: Bool = false,
         createdAt: Date = .now,
         updatedAt: Date = .now,
-        lastOpenedAt: Date? = nil
+        lastOpenedAt: Date? = nil,
+        organizationState: SpaceOrganizationState = .reading
     ) {
         self.id = id
         self.title = title
@@ -73,6 +75,22 @@ struct ReadingSpace: Identifiable, Codable, Hashable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastOpenedAt = lastOpenedAt
+        self.organizationState = organizationState
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, isFavorite, createdAt, updatedAt, lastOpenedAt, organizationState
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        isFavorite = try values.decode(Bool.self, forKey: .isFavorite)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        lastOpenedAt = try values.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
+        organizationState = try values.decodeIfPresent(SpaceOrganizationState.self, forKey: .organizationState) ?? .reading
     }
 }
 
@@ -587,6 +605,7 @@ enum AgentTaskKind: String, Codable, CaseIterable, Sendable {
     case materializeGraph
     case projectRoute
     case answerWithEvidence
+    case translateFragments
 }
 
 struct AgentRun: Identifiable, Codable, Hashable, Sendable {
