@@ -7,7 +7,7 @@ import XCTest
 final class LibraryChromeLayoutTests: XCTestCase {
     private let chineseTitle = "在漫长的阅读旅程中重新理解知识、时间与个人成长：一份包含详细来源和研究记录的阅读材料"
     private let mixedTitle = "阅读研究笔记 · SwiftUI Layout and Accessibility — 从原始资料到可追溯的长期知识整理记录"
-    private let resume = "上次读到：第二部分／重新思考阅读与知识的关系，继续查看原始材料中的详细讨论。"
+    private let resumeCopy = "上次读到：第二部分／重新思考阅读与知识的关系，继续查看原始材料中的详细讨论。"
 
     func testMounted320PointContinuationKeepsLongTitlesAndLinearProgressAfterReplacement() async throws {
         for compact in [true, false] {
@@ -116,8 +116,8 @@ final class LibraryChromeLayoutTests: XCTestCase {
                                 .font(.system(size: 44, weight: .semibold))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        LibraryChromeFrameProbe(identity: "enlarged-resume", contentIdentity: resume) {
-                            Text(resume)
+                        LibraryChromeFrameProbe(identity: "enlarged-resume", contentIdentity: resumeCopy) {
+                            Text(resumeCopy)
                                 .font(.system(size: 32))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -135,15 +135,15 @@ final class LibraryChromeLayoutTests: XCTestCase {
             in: host, store: store, fraction: 0.75, progressMaximumX: 120)
         let title = try XCTUnwrap(store.receipts["enlarged-title"])
         let cover = try XCTUnwrap(store.receipts["enlarged-cover"])
-        let resume = try XCTUnwrap(store.receipts["enlarged-resume"])
+        let resumeReceipt = try XCTUnwrap(store.receipts["enlarged-resume"])
         XCTAssertEqual(title.contentIdentity, mixedTitle)
         XCTAssertGreaterThan(title.frame.height, 200, "Enlarged multi-line copy must grow instead of truncating")
         XCTAssertGreaterThanOrEqual(title.frame.width, 200)
         XCTAssertLessThanOrEqual(title.frame.minX, 40)
         XCTAssertGreaterThanOrEqual(title.frame.minY, cover.frame.maxY + 15)
-        XCTAssertGreaterThanOrEqual(resume.frame.minY, title.frame.maxY + 7)
+        XCTAssertGreaterThanOrEqual(resumeReceipt.frame.minY, title.frame.maxY + 7)
         assertInsideHost(title.frame, host: host)
-        assertInsideHost(resume.frame, host: host)
+        assertInsideHost(resumeReceipt.frame, host: host)
         assertLinearProgress(in: host, fraction: 0.75)
     }
 
@@ -152,7 +152,7 @@ final class LibraryChromeLayoutTests: XCTestCase {
         store: LibraryChromeFrameStore) -> AnyView {
         observe(VStack(alignment: .leading, spacing: 8) {
             LibraryChromeFrameProbe(identity: "card-" + identity, contentIdentity: title) {
-                LibraryContinuationLabel(title: title, resume: resume, symbol: "book.closed.fill",
+                LibraryContinuationLabel(title: title, resume: resumeCopy, symbol: "book.closed.fill",
                     color: ReaderTheme.coverColor(for: "library-layout-regression"),
                     fraction: fraction, compact: compact)
             }

@@ -240,6 +240,20 @@ Final source checkpoint `946e6e6` on 2026-10-14:
   disclosure and normal quit/reopen position comparison remain incomplete. The
   app was not force-quit and no automation/security settings were changed.
 
+### CI test-compiler correction
+
+Hosted run `38535594012` failed at `c6c4419` during test compilation under the
+configured Xcode 26.6 toolchain, before tests or app packaging ran. In the mounted
+enlarged-copy regression, a local geometry receipt named `resume` shadowed the
+string fixture referenced by the earlier ViewBuilder. Its role-specific names
+are now `resumeCopy` and `resumeReceipt`; geometry, assertions and all product
+sources are unchanged. Re-run the full shared suite and exact-head hosted native
+validation; prior local Xcode 27 results are not evidence for this CI toolchain.
+After the rename, the full local suite passed all 401 tests with zero failures
+or skips using the existing 2.4 GiB Swift scratch cache. Documentation index and
+diff checks passed. The exact updated PR-head hosted result is recorded on PR #34;
+this test-only fix does not complete the outstanding visual/device gates.
+
 Remaining gates: current-head hosted CI, the final macOS visual checks above,
 physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
