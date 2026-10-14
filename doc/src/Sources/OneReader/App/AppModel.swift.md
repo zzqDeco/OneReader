@@ -1,5 +1,12 @@
 # `Sources/OneReader/App/AppModel.swift`
 
+`isBilingualReadingAvailable` is a host-owned shipping decision, currently false
+after the user's 2026-10-14 deferral. It removes the translation Inspector tab
+and reading-menu entry without deleting enums, migration/cache records or
+backend regression coverage. Source text and Provider configuration cannot
+enable it. A stale programmatic translation selection renders an unavailable
+surface instead of a generation control.
+
 The notes-center hooks initialize the shared NotesCenterModel, refresh Inspector
 annotations after edits, and resolve strict local routes. Original-snapshot
 preview retains the requested snapshot, suppresses progress/history writes and

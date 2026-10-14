@@ -68,7 +68,12 @@ struct ReaderInspectorView: View {
         case .evidence: evidenceView
         case .activity: activityView
         case .ask: askView
-        case .translation: BilingualReadingView(controller: model.bilingualReading)
+        case .translation:
+            if model.isBilingualReadingAvailable {
+                BilingualReadingView(controller: model.bilingualReading)
+            } else {
+                ContentUnavailableView("双语阅读暂未开放", systemImage: "character.bubble")
+            }
         }
     }
 

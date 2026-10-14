@@ -2,7 +2,9 @@
 
 ## Status
 
-Active. Integrates issues #25, #26, #27 and #28 only.
+Active. Current delivery covers issues #26, #27 and #28. Issue #25 is deferred
+by the user on 2026-10-14; its implementation/data are retained but its product
+entrypoints are disabled.
 
 ## Branch
 
@@ -25,7 +27,20 @@ migrations, menus and reader hooks. Root owns final integration and evidence-bou
 ## User Behavior
 
 Collect into an inbox, organize and open sources, recover reading positions, annotate and export
-notes, optionally translate real text, and locally recognize scanned pages without changing originals.
+notes, and locally recognize scanned pages without changing originals.
+
+### Scope update — 2026-10-14
+
+- User asked to defer the heavy bilingual generation/cache feature. Do not
+  configure a real model, expose the bilingual inspector/menu, claim live
+  translation acceptance, or close #25 as delivered.
+- Keep translation source, cache migration v13, enum identities and existing
+  data intact for a later separately accepted increment. DB14/runtime6 and
+  v11/v12/v13/v14 migration order do not roll back.
+- #33 may deliver the three remaining features after their functional
+  acceptance, fresh CI and Sol max review. iPhone share signing is deferred as
+  requested, not treated as a completed physical share-sheet test.
+- UI polish is a parallel, separate branch/PR and does not broaden #33.
 
 ## Contracts / Migration
 
@@ -49,6 +64,25 @@ device visibility separately from unit/build results. Preserve production apps, 
 ## Acceptance Evidence
 
 Pending. A feature remains open while its required implementation or acceptance is incomplete.
+
+### Three-feature delivery scope and native selection — 2026-10-14
+
+- After the user's bilingual deferral, 376 full macOS tests pass with zero
+  skips/failures. Coverage verifies that shipping tabs exclude translation even
+  after a Provider metadata save; retained backend tests and schema remain intact.
+- In the isolated `73995a4` preview, enabling original-image OCR selection exposes
+  four real native line actions. Activating the Chinese line selects seven
+  characters; the normal highlight action saves it, and the Inspector reads it
+  back with page/current status. The saved record binds the exact source,
+  snapshot, OCR revision/span, quote, fingerprint and original-image rect.
+- A note saved from that selected line appears with the original excerpt and
+  the generated `OCR_SELECTED_NOTE_20261014` body. Opening its Inspector row uses
+  the same host navigation as notes-center return-to-original. The view visibly
+  enters original-snapshot preview without changing normal progress; disabling
+  selection overlays leaves only the matching Chinese evidence region yellow.
+- Normal quit succeeds. Reopening and repeating navigation on the final rebuilt
+  candidate, fresh CI and Sol max scope re-review remain gates before merging
+  #33. Parallel UI polish is not part of that merge.
 
 ### Current candidate evidence — 2026-10-14
 

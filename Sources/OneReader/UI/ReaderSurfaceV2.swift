@@ -118,11 +118,13 @@ struct ReaderSurfaceView: View {
                 .accessibilityLabel("打开原始来源")
             }
             Menu {
-                Button("双语对照") {
-                    model.inspectorTab = .translation
-                    model.isInspectorPresented = true
+                if model.isBilingualReadingAvailable {
+                    Button("双语对照") {
+                        model.inspectorTab = .translation
+                        model.isInspectorPresented = true
+                    }
+                    Divider()
                 }
-                Divider()
                 Picker("主题", selection: $model.preferences.theme) {
                     ForEach(ReaderThemePreference.allCases) { theme in
                         Text(theme.title).tag(theme)
