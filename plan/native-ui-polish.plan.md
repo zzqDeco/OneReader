@@ -251,8 +251,9 @@ sources are unchanged. Re-run the full shared suite and exact-head hosted native
 validation; prior local Xcode 27 results are not evidence for this CI toolchain.
 After the rename, the full local suite passed all 401 tests with zero failures
 or skips using the existing 2.4 GiB Swift scratch cache. Documentation index and
-diff checks passed. The exact updated PR-head hosted result is recorded on PR #34;
-this test-only fix does not complete the outstanding visual/device gates.
+diff checks passed. Hosted validation must be checked against the live PR #34
+head; local results do not establish CI success. This test-only fix does not
+complete the outstanding visual/device gates.
 
 Remaining gates: current-head hosted CI, the final macOS visual checks above,
 physical iPhone compact/Dynamic Type
