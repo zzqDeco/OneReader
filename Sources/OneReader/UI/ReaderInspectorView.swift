@@ -158,7 +158,7 @@ struct ReaderInspectorView: View {
                             } catch { model.notice = AppNotice(title: "无法打开标注", message: error.localizedDescription) }
                         }
                     } label: {
-                        AnnotationRow(annotation: annotation)
+                        AnnotationRow(annotation: annotation, status: annotationStatus(annotation))
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -177,6 +177,13 @@ struct ReaderInspectorView: View {
                 .scrollContentBackground(.hidden)
             }
         }
+    }
+
+    private func annotationStatus(_ annotation: Annotation) -> ReaderAnnotationStatus {
+        let source = model.source(id: annotation.sourceID)
+        return ReaderAnnotationStatus(anchorState: annotation.anchorState,
+            sourceAvailable: source != nil,
+            isLatestSnapshot: source?.latestSnapshotID == annotation.snapshotID)
     }
 
     private var evidenceView: some View {
@@ -406,6 +413,7 @@ struct ReaderInspectorView: View {
 
 private struct AnnotationRow: View {
     let annotation: Annotation
+    let status: ReaderAnnotationStatus
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
@@ -416,7 +424,7 @@ private struct AnnotationRow: View {
                 Text(title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(3)
-                if let note = annotation.note {
+                if annotation.selectedText != nil, let note = annotation.note {
                     Text(note)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -425,10 +433,10 @@ private struct AnnotationRow: View {
                 HStack {
                     Text(annotation.locator.conciseDescription)
                     Spacer()
-                    Text(annotation.anchorState.rawValue)
+                    ReaderAnnotationStatusLabel(status: status)
                 }
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
             }
         }
         .contentShape(Rectangle())

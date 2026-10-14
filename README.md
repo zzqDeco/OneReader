@@ -10,8 +10,9 @@ Library 的“笔记中心”可跨空间查找书签、高亮和笔记，管理
 资料库，导出不会自动同步或覆盖外部编辑。详见[笔记中心](doc/notes-center.md)。
 
 界面采用统一的原生阅读层级：资料库的继续阅读与书架、带文字的阅读导航、
-可折叠的筛选与识别设置，以及窄屏下自动堆叠的操作。阅读画布和原生滚动、
-缩放行为不变。iPhone 大字号的真机视觉验收仍待完成，详见
+可折叠的筛选与识别设置，以及窄屏下自动堆叠的操作。继续阅读、阅读工具栏
+和笔记状态按可用宽度适配；笔记尚未载入时不冒充空结果。阅读画布和原生
+滚动、缩放行为不变。iPhone 大字号的真机视觉验收仍待完成，详见
 [UI 优化与验收边界](plan/native-ui-polish.plan.md)。
 
 The Library core, source adapters, optional Reading Agent, and reading facts are

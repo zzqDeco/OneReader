@@ -47,6 +47,33 @@ the persistent native `notes-export` control. No new dependencies or demo data.
 - Root owns final integration and native visible acceptance; the UI implementer
   owns only UI/design/docs/tests, not product runtime or production data.
 
+### Continuation: compact reading controls and state clarity
+
+The user requested direct continued UI implementation on 2026-10-14. Continue
+on PR #34; this is not permission to merge the UI PR or publish a Release.
+
+- Refine the reader's chrome: a stable, quieter title/action hierarchy, footer
+  actions that remain usable at Mac compact width, and compact iPhone controls
+  that do not clip at enlarged Dynamic Type. Keep source presentation identity,
+  PDF scale requests, position observers, navigation and all action IDs intact.
+- Mount the Library continuation/shelf at compact widths with long titles and
+  enlarged Dynamic Type; stack its cover/copy when necessary rather than merely
+  testing a width token. Preserve the repaired linear progress track and all
+  Library actions, without changing progress values or persistence.
+- Keep notes loading, debounce, genuine empty result and failure distinct. A
+  pending first/filter reload must not briefly claim that there are no notes.
+  UI-owned refresh state must reject a cancelled or mismatched completion; do
+  not change the search model, database, query or export snapshot contract.
+- Show localized annotation status in ordinary notes/Inspector chrome; retain
+  exact revision and anchor state in explicit evidence details. Historical,
+  relocated and orphaned states remain visibly distinct, never relabeled current.
+- Add focused layout and view-state regressions. Reuse current caches; only root
+  compiles/packages or controls Apps. Separate implementation ownership avoids
+  conflicting edits, and Sol max reviews immutable checkpoints/conclusions only.
+- Validate the Mac preview and attempt connected-iPhone layout acceptance only
+  using already available signing/provisioning. Do not configure capabilities,
+  certificates, account access, or create/boot a Simulator to unblock it.
+
 ## Test Plan
 
 Focused mounted-control and layout regressions, full shared tests, release build,
@@ -121,6 +148,28 @@ Progress-display follow-up after `71b15ad`:
   neither created a new Source or a network request. The reading theme was
   restored to Follow System, without changing the global macOS appearance.
 
+Checkpoint `e3233e2`: hosted CI run `38514095304` passed on this exact head,
+including 380 tests and authoritative native validation. This is the baseline
+for the continuation above; it is not evidence for later unvalidated UI edits.
+
+Continuation validation on 2026-10-14:
+
+- All 394 shared tests passed with no failures/skips, including 14 new mounted
+  layout, native-action and Notes-state regressions. Real label/cover geometry
+  and normalized progress are measured without requiring the user to front a
+  window or grant accessibility access. Test-only probes stay in test targets.
+- The long-position footer case exposed premature navigation stacking; giving
+  navigation priority over flexible metadata repaired it. Narrow/accessibility
+  reflow still retains the same native controls and their latest action closures.
+- Source presentation, token, selection/position/PDF callbacks hash identically
+  to `e3233e2`; domain, AppModel, bridges, persistence, Providers, pins/resources
+  and schema are unchanged. Notes export golden/status fields remain unchanged.
+- Documentation index (96 Markdown files), dependency lock (28 pins), generated
+  project, Apple metadata and release/entitlement gate regressions passed.
+- Final release/iOS builds, visible acceptance and immutable Sol max review are
+  recorded separately before publishing this continuation checkpoint. Physical
+  iPhone remains unavailable; no signing configuration or Simulator is used.
+
 Remaining gates: current-head hosted CI, physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
 Full VoiceOver, Reduce Motion and manual touch/gesture acceptance are not claimed.
@@ -137,11 +186,11 @@ redesigning native presentations, new product features, model/network changes.
 ## Delivery checklist
 
 - [x] User behavior implemented (visual refinement; native acceptance pending)
-- [x] Existing contracts preserved (static boundary check and 380 shared tests)
-- [x] Focused tests pass
-- [x] Local validation passes (unsigned iOS build; no Simulator)
+- [x] Existing contracts preserved (boundary hash and 394 shared tests)
+- [x] Focused continuation tests pass (14 mounted/state regressions)
+- [ ] Local continuation validation passes (unsigned iOS build; no Simulator)
 - [ ] Current-head hosted CI passes
-- [x] macOS visible acceptance recorded
+- [ ] macOS continuation visible acceptance recorded
 - [ ] iPhone compact/Dynamic Type native acceptance recorded
 - [x] Current-state and source docs synchronized
 - [ ] Branch merged into `dev`

@@ -145,44 +145,11 @@ struct LibraryHomeView: View {
             Button {
                 model.openSpace(space.id)
             } label: {
-                HStack(spacing: compactLayout ? 16 : 20) {
-                    EditorialCover(
-                        title: space.title,
-                        symbol: leadingSymbol(for: space),
-                        color: ReaderTheme.coverColor(for: space.id),
-                        progress: model.progressFraction(for: space.id),
-                        showsTitle: false
-                    )
-                    .frame(width: compactLayout ? 64 : 72, height: compactLayout ? 84 : 96)
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(space.title)
-                            .font(compactLayout ? .headline : .title3.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        if let resume = model.resumeDescription(for: space.id) {
-                            Text(resume)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(compactLayout ? 2 : 1)
-                                .multilineTextAlignment(.leading)
-                        }
-                        ReaderProgressSummary(fraction: model.progressFraction(for: space.id))
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "arrow.right")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(ReaderTheme.accent)
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: ReaderTheme.panelRadius)
-                        .stroke(.separator.opacity(0.38), lineWidth: 0.5)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                LibraryContinuationLabel(title: space.title,
+                    resume: model.resumeDescription(for: space.id),
+                    symbol: leadingSymbol(for: space),
+                    color: ReaderTheme.coverColor(for: space.id),
+                    fraction: model.progressFraction(for: space.id), compact: compactLayout)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: compactLayout ? .infinity : 820, alignment: .leading)
@@ -348,7 +315,6 @@ private struct SpaceBookCard: View {
                     progress: model.progressFraction(for: space.id),
                     isFavorite: space.isFavorite
                 )
-                .aspectRatio(0.82, contentMode: .fit)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(cardDetail)
@@ -398,7 +364,141 @@ private struct SpaceBookCard: View {
     }
 }
 
-private struct EditorialCover: View {
+/// Presentation only; opening the Space and its action identity stay in LibraryHomeView.
+struct LibraryContinuationLabel: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let title: String
+    let resume: String?
+    let symbol: String
+    let color: Color
+    let fraction: Double
+    let compact: Bool
+
+    var body: some View {
+        LibraryContinuationLayout(spacing: compact ? 16 : 20,
+            stacksVertically: dynamicTypeSize.isAccessibilitySize) {
+            EditorialCover(title: title, symbol: symbol, color: color,
+                progress: fraction, showsTitle: false)
+                .frame(width: compact ? 64 : 72, height: compact ? 84 : 96)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(compact ? .headline : .title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let resume {
+                    Text(resume)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ReaderProgressSummary(fraction: fraction)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "arrow.right")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(ReaderTheme.accent)
+                .accessibilityHidden(true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: ReaderTheme.panelRadius)
+                .stroke(.separator.opacity(0.38), lineWidth: 0.5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+    }
+}
+
+/// A narrow card gives the copy the full width below a small cover/action header.
+/// Measuring with an unspecified height lets long titles grow instead of clipping.
+struct LibraryContinuationLayout: Layout {
+    var spacing: CGFloat
+    var stacksVertically: Bool
+
+    private struct Measurement {
+        let size: CGSize
+        let cover: CGSize
+        let copy: CGSize
+        let arrow: CGSize
+        let copyWidth: CGFloat
+        let stacked: Bool
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        measurement(width: proposal.width, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+        subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let measured = measurement(width: bounds.width, subviews: subviews)
+        let headerHeight = measured.stacked
+            ? max(measured.cover.height, measured.arrow.height) : measured.size.height
+        subviews[0].place(at: CGPoint(x: bounds.minX,
+            y: bounds.minY + (headerHeight - measured.cover.height) / 2),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: measured.cover.width, height: measured.cover.height))
+        subviews[1].place(at: CGPoint(
+            x: bounds.minX + (measured.stacked ? 0 : measured.cover.width + spacing),
+            y: bounds.minY + (measured.stacked
+                ? headerHeight + spacing : (headerHeight - measured.copy.height) / 2)),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: measured.copyWidth, height: measured.copy.height))
+        subviews[2].place(at: CGPoint(x: bounds.minX + measured.size.width - measured.arrow.width,
+            y: bounds.minY + (headerHeight - measured.arrow.height) / 2),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: measured.arrow.width, height: measured.arrow.height))
+    }
+
+    private func measurement(width proposedWidth: CGFloat?, subviews: Subviews) -> Measurement {
+        guard subviews.count == 3 else {
+            return Measurement(size: .zero, cover: .zero, copy: .zero,
+                arrow: .zero, copyWidth: 0, stacked: true)
+        }
+        let cover = subviews[0].sizeThatFits(.unspecified)
+        let arrow = subviews[2].sizeThatFits(.unspecified)
+        let minimumCopy = subviews[1].sizeThatFits(ProposedViewSize(width: 0, height: nil))
+        let horizontalMinimum = cover.width + arrow.width + spacing * 2
+            + ReaderChromeMetrics.continuationMinimumCopyWidth
+        // A finite ideal proposal also keeps a long filename from defining window width.
+        let idealWidth = max(horizontalMinimum, 440)
+        let offeredWidth = proposedWidth.flatMap { $0.isFinite ? $0 : nil } ?? idealWidth
+        let width = max(offeredWidth, max(cover.width + arrow.width + spacing, minimumCopy.width))
+        let stacked = stacksVertically || width < horizontalMinimum
+        let copyWidth = stacked ? width : width - cover.width - arrow.width - spacing * 2
+        let copy = subviews[1].sizeThatFits(ProposedViewSize(width: copyWidth, height: nil))
+        let headerHeight = max(cover.height, arrow.height)
+        let height = stacked ? headerHeight + spacing + copy.height : max(headerHeight, copy.height)
+        return Measurement(size: CGSize(width: width, height: height), cover: cover, copy: copy,
+            arrow: arrow, copyWidth: copyWidth, stacked: stacked)
+    }
+}
+
+/// The shelf keeps its familiar minimum cover ratio, but the title may make it taller.
+private struct LibraryShelfCoverLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 172
+        let width = max(1, proposedWidth)
+        let contentSize = content.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: max(width, contentSize.width), height: max(width / 0.82, contentSize.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+        subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
+struct EditorialCover: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let title: String
     let symbol: String
     let color: Color
@@ -407,6 +507,14 @@ private struct EditorialCover: View {
     var showsTitle = true
 
     var body: some View {
+        if showsTitle {
+            LibraryShelfCoverLayout { coverContent }
+        } else {
+            coverContent
+        }
+    }
+
+    private var coverContent: some View {
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: ReaderTheme.coverRadius)
                 .fill(ReaderTheme.raised)
@@ -421,15 +529,17 @@ private struct EditorialCover: View {
                     Spacer()
                     if isFavorite { Image(systemName: "star.fill") }
                 }
-                .font(showsTitle ? .body : .title2)
+                // The title-free thumbnail is decorative, not a text-size control.
+                .font(showsTitle ? .body : .system(size: 24))
                 .foregroundStyle(ReaderTheme.accent)
                 Spacer()
                 if showsTitle {
                     Text(title)
                         .font(.headline)
                         .foregroundStyle(.primary)
-                        .lineLimit(4)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 4)
                         .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(16)

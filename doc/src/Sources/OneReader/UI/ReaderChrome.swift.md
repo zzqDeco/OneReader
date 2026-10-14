@@ -7,7 +7,8 @@ state, Providers, persistence, gestures or progress capture.
 - `ReaderActionLabel` places the platform's minimum hit height inside the
   Button label. The rendered text uses semantic system fonts and colors.
 - `ReaderProgressSummary` renders the continuation percentage with an explicit
-  linear track bounded to 72...190 points. It neither captures nor saves progress.
+  linear track bounded to 72...190 points. Its percentage does not compress. It
+  neither captures nor saves progress.
 - `ReaderAdaptiveActions` tries a natural-width horizontal action group before
   stacking it; accessibility Dynamic Type sizes always stack. Controls remain
   separate accessibility children through `.contain`, never `.combine`.
@@ -15,6 +16,9 @@ state, Providers, persistence, gestures or progress capture.
   hierarchy/status with text and SF Symbols rather than decorative elevation.
 - `ReaderChromeMetrics` separates touch and pointer target metrics and the
   shelf's compact/enlarged card widths. These tokens are not reading-body sizes.
+  Its useful-copy threshold informs the measured continuation layout; actual
+  `LibraryContinuationLabel` and shelf covers are mounted in layout regressions,
+  not accepted solely from these tokens.
 
 NotesCenterFooter retains its real native `notes-export` AppKit button and
 keyboard equivalent. `ReaderChromeLayoutTests` adds a narrow, enlarged-type

@@ -4,6 +4,8 @@ import SwiftUI
 enum ReaderChromeMetrics {
     static func minimumActionHeight(touch: Bool) -> CGFloat { touch ? 44 : 28 }
 
+    static let continuationMinimumCopyWidth: CGFloat = 220
+
     static func shelfMinimumWidth(compact: Bool, accessibilitySize: Bool) -> CGFloat {
         if accessibilitySize { return compact ? 260 : 240 }
         return compact ? 148 : 172
@@ -39,6 +41,7 @@ struct ReaderProgressSummary: View {
         HStack(spacing: 8) {
             Text("\(Int(fraction * 100))%")
                 .font(.caption.monospacedDigit().weight(.semibold))
+                .fixedSize(horizontal: true, vertical: false)
             ProgressView(value: fraction, total: 1)
                 .progressViewStyle(.linear)
                 .tint(ReaderTheme.accent)

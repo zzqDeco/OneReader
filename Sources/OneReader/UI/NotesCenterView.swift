@@ -14,20 +14,20 @@ struct NotesCenterView: View {
     @State private var actionError: String?
     @State private var isRebuilding = false
     @State private var showsMoreFilters = false
+    @State private var refreshPresentation = NotesRefreshPresentation()
 
     var body: some View {
+        let requestedKey = refreshKey
         NavigationStack {
             VStack(spacing: 0) {
                 filters
                 Divider()
-                if let error = model.errorMessage ?? actionError {
+                if let error = currentLoadError ?? actionError {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.callout).foregroundStyle(.red).textSelection(.enabled)
                         .padding()
                 }
-                if model.entries.isEmpty, !model.isLoading {
-                    ContentUnavailableView("没有匹配的标注", systemImage: "note.text", description: Text("搜索仅包含摘录与用户笔记，不会搜索或外发来源正文。"))
-                } else {
+                if resultsPhase == .results {
                     List {
                         ForEach(model.entries) { entry in
                             NotesEntryRow(entry: entry, isSelected: selection(entry.id), onOpen: { Task { await model.open(entry) } }, onEdit: { editing = entry }, onDelete: { pendingDeletion = NotesDeletion(entries: [entry]) })
@@ -43,9 +43,14 @@ struct NotesCenterView: View {
                         }
                     }
                     .listStyle(.plain)
+                } else {
+                    NotesResultsPlaceholder(phase: resultsPhase, onRetry: model.invalidate)
                 }
-                if model.isLoading || isRebuilding { ProgressView(isRebuilding ? "正在重建笔记搜索…" : "正在载入笔记…").padding(8) }
+                if isRebuilding || (model.isLoading && resultsPhase == .results) {
+                    ProgressView(isRebuilding ? "正在重建笔记搜索…" : "正在载入更多笔记…").padding(8)
+                }
                 NotesCenterFooter(totalCount: model.totalCount, selectedCount: model.selectedIDs.count,
+                    isUpdating: isUpdatingResults,
                     onExport: { showsExport = true }, onDelete: {
                         pendingDeletion = NotesDeletion(entries: model.entries.filter { model.selectedIDs.contains($0.id) })
                     })
@@ -71,14 +76,16 @@ struct NotesCenterView: View {
 #if !os(macOS)
                 ToolbarItem(placement: .primaryAction) {
                     Button { showsExport = true } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                        .disabled(model.totalCount == 0)
+                        .disabled(model.totalCount == 0 || isUpdatingResults)
                         .accessibilityIdentifier("notes-export")
                 }
 #endif
             }
-            .task(id: NotesRefreshKey(query: model.query, revision: model.revision)) {
+            .task(id: requestedKey) {
                 do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
                 await model.reload()
+                refreshPresentation.complete(requestedKey, current: refreshKey,
+                    cancelled: Task.isCancelled)
             }
             .onDisappear { model.cancelOpening() }
             .sheet(item: $editing) { entry in NotesAnnotationEditor(entry: entry, model: model) }
@@ -97,6 +104,24 @@ struct NotesCenterView: View {
 #if os(macOS)
         .frame(minWidth: 660, idealWidth: 900, minHeight: 500, idealHeight: 720)
 #endif
+    }
+
+    private var refreshKey: NotesRefreshKey {
+        NotesRefreshKey(query: model.query, revision: model.revision)
+    }
+
+    private var currentLoadError: String? {
+        refreshPresentation.settledKey == refreshKey ? model.errorMessage : nil
+    }
+
+    private var resultsPhase: NotesResultsPhase {
+        refreshPresentation.phase(current: refreshKey, isLoading: model.isLoading,
+            entryCount: model.entries.count, loadError: currentLoadError)
+    }
+
+    private var isUpdatingResults: Bool {
+        isRebuilding || refreshPresentation.isUpdating(current: refreshKey,
+            isLoading: model.isLoading)
     }
 
     private var filters: some View {
@@ -205,6 +230,7 @@ struct NotesCenterFooter: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let totalCount: Int
     let selectedCount: Int
+    var isUpdating = false
     let onExport: () -> Void
     let onDelete: () -> Void
 
@@ -227,7 +253,7 @@ struct NotesCenterFooter: View {
     }
 
     private var countLabel: some View {
-        Text("共 \(totalCount) 条 · 已选 \(selectedCount) 条")
+        Text(isUpdating ? "正在更新结果…" : "共 \(totalCount) 条 · 已选 \(selectedCount) 条")
             .font(.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -238,15 +264,15 @@ struct NotesCenterFooter: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
         return layout {
 #if os(macOS)
-            NativeNotesExportButton(enabled: totalCount > 0, action: onExport)
-                .disabled(totalCount == 0)
+            NativeNotesExportButton(enabled: totalCount > 0 && !isUpdating, action: onExport)
+                .disabled(totalCount == 0 || isUpdating)
                 .fixedSize()
 #endif
             Button(role: .destructive, action: onDelete) {
                 ReaderActionLabel(title: "删除所选", systemImage: "trash")
             }
                 .buttonStyle(.borderless)
-                .disabled(selectedCount == 0)
+                .disabled(selectedCount == 0 || isUpdating)
                 .accessibilityIdentifier("notes-delete-selected")
         }
         .accessibilityElement(children: .contain)
@@ -292,7 +318,6 @@ private struct NativeNotesExportButton: NSViewRepresentable {
 }
 #endif
 
-private struct NotesRefreshKey: Equatable { let query: NotesQuery; let revision: UUID }
 private struct NotesDeletion: Identifiable {
     let id = UUID()
     let entries: [NotesEntry]
@@ -315,7 +340,7 @@ private struct NotesEntryRow: View {
                 ReaderAdaptiveActions {
                     Label(entry.annotation.kind.notesTitle, systemImage: entry.annotation.kind.notesSymbol)
                         .font(.caption.weight(.semibold)).foregroundStyle(ReaderTheme.teal)
-                    Text(entry.statusLabel).font(.caption).foregroundStyle(.secondary)
+                    ReaderAnnotationStatusLabel(status: entry.presentationStatus)
                 }
                 Text(entry.preview).font(.body).lineLimit(5).textSelection(.enabled)
                 if entry.annotation.selectedText != nil, let note = entry.annotation.note {
@@ -414,9 +439,18 @@ struct NotesAnnotationEditor: View {
                 Section("原文与位置") {
                     Text(entry.sourceTitle).textSelection(.enabled)
                     Text(entry.location).font(.caption).textSelection(.enabled)
-                    Text(entry.statusLabel).font(.caption).foregroundStyle(.secondary)
+                    ReaderAnnotationStatusLabel(status: entry.presentationStatus)
                     if let text = entry.annotation.selectedText { Text(text).textSelection(.enabled) }
                     Button("回到原快照") { Task { await model.open(entry) } }
+                    DisclosureGroup("定位详情") {
+                        LabeledContent("定位状态", value: entry.annotation.anchorState.rawValue)
+                        Text("快照：\(entry.annotation.snapshotID)")
+                            .font(.caption.monospaced()).textSelection(.enabled)
+                        Text("适配器：\(entry.annotation.locator.adapterID)")
+                            .font(.caption.monospaced()).textSelection(.enabled)
+                        Text(entry.annotation.locator.conciseDescription)
+                            .font(.caption).textSelection(.enabled)
+                    }
                 }
                 Section("用户笔记") {
                     TextEditor(text: $note).frame(minHeight: 130).accessibilityLabel("编辑用户笔记")

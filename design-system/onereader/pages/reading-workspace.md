@@ -30,8 +30,13 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 - Markdown uses the shared source-mapped native attributed-text renderer.
 - PDF uses `PDFView` in continuous vertical mode with stable page and selection
   Locators.
-- Compact iPhone retains its four-action native footer and dedicated PDF zoom
-  row; this refinement does not modify any reader bridge, pan or zoom behavior.
+- Compact iPhone retains its native safe-area footer (four actions, plus OCR
+  when available) and dedicated PDF zoom controls. The action grid gains rows at
+  constrained widths/enlarged text; adjustment/percentage and fit width can stack.
+  This refinement does not modify any reader bridge, pan or zoom behavior.
+- Mac header actions and footer navigation/annotation groups adapt by measured
+  width while keeping each native action in one content tree. Saved-position and
+  selection text wrap rather than pushing the useful reading controls away.
 - Navigation and Inspector use text tabs, with a menu picker at accessibility
   Dynamic Type sizes. Multi-action notes/OCR rows remain separate accessibility
   children and wrap to a vertical group at constrained widths.
@@ -45,6 +50,9 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 - Source selection, bookmarks and highlighter remain distinct native actions.
   Source evidence/provenance can collapse into a named disclosure, but may not
   be dropped or reclassified as current evidence.
+- Notes/Inspector use localized status with explicit historical/orphaned
+  distinctions. Exact raw anchor state, Snapshot/Adapter and Locator remain in
+  the existing annotation editor's details; export/persistence values do not change.
 - Bilingual UI refinement is deferred with the host's product-availability gate;
   this page does not authorize opening that feature or configuring a Provider.
 
@@ -53,6 +61,8 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 - Loading: progress indicator plus the resource being resolved.
 - Empty: concrete next action, such as selecting a unit or importing a source.
 - Error: recoverable explanation in a native alert.
+- Notes: pending initial/filter reload shows loading, settled failed read offers
+  retry, and only a successful settled query may show no matching annotations.
 - Stale: warning that the Locator revision is historical; never silently remap.
 - Reading/completed: visible in navigation and reader UI, persisted locally.
 

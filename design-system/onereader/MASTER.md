@@ -64,6 +64,10 @@ menus, split views, and materials provide their own elevation.
 - Shelf covers use a semantic raised surface, a narrow stable-color spine, system
   title and SF Symbol. They are generated placeholders, not claimed real artwork.
   Do not repeat the same title beneath the cover or add drop shadows.
+- Continue Reading measures useful copy width instead of fitting text into the
+  space left by a fixed cover. Narrow/accessibility layouts place full wrapping
+  title, resume and determinate progress below a small cover/action header. Shelf
+  covers have a minimum ratio, not a fixed height that clips enlarged titles.
 - Grouped background separates regions; raised surfaces contain an actionable
   card. Use a single hairline boundary rather than nested material cards.
 - Navigation and assistance tabs use readable text. At accessibility Dynamic
@@ -91,6 +95,11 @@ menus, split views, and materials provide their own elevation.
 - Every icon-only action has an accessibility label and help where supported.
 - Avoid animation unless it explains continuity; respect Reduce Motion.
 - Loading, empty, error, stale-revision, and completed states are explicit.
+- Notes debounce is loading, not an empty search. Only the current query/revision
+  may settle the display; loading/failure cannot masquerade as no saved notes.
+- Ordinary annotation status is localized and distinguishes historical revision
+  from anchor state. Raw IDs/Locator/status belong in explicit details, not the
+  primary reading hierarchy; stored states and export metadata stay unchanged.
 - Never use hover-only disclosure or touch gestures as the sole interaction.
 
 ## Adaptive layouts
@@ -105,6 +114,12 @@ menus, split views, and materials provide their own elevation.
 At constrained widths, preserve the reader before auxiliary inspection UI.
 Never encode device names as layout rules; use horizontal size class and
 measured content width.
+
+Adaptive reader controls retain one content tree across width changes. Titles
+and saved-position text wrap without dictating action-group width; narrow Mac
+footers gain rows. The compact iPhone action grid gains rows before text or hit
+targets clip. PDF adjustment/percentage and fit-width controls can separate into
+rows without changing zoom requests or native gestures.
 
 ## App icon
 
