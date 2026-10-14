@@ -276,7 +276,11 @@ sent without storing body text, paths, or notes.
 ## Native editorial hierarchy
 
 The Library uses a quiet grouped background, one bounded continuation card,
-and a scannable shelf of stable solid-color covers. It does not use decorative
+and a scannable shelf of light semantic covers with a stable-color book spine.
+Generated covers are placeholders, not extracted book artwork. The title lives
+once on the cover, with source count/progress and organization below it. Larger
+Dynamic Type switches to wider cards rather than squeezing two tall text blocks
+into a compact shelf. It does not use decorative
 gradients or dashboard-style metric cards. System sans-serif type belongs to
 application chrome; Markdown/text prose uses the platform serif design; code
 remains monospaced. Prose measure is capped at 720 points across native and
@@ -287,6 +291,35 @@ than nesting another column. Reading Assistance is collapsed by default and is
 opened deliberately. User-facing chrome says 阅读空间、阅读辅助、引用 and 版本;
 adapter names, digests, and identifiers live only in explicit run or citation
 detail disclosures.
+
+Library actions live beside its heading instead of preceding it as a floating
+button. Reading navigation uses a 240-point ideal width and named tabs; the
+Inspector uses the same named tab hierarchy. At accessibility Dynamic Type
+sizes, these pickers use a native menu rather than clipped segments. Neither
+view changes which tabs the host permits.
+
+The notes center keeps Space/type filters immediately visible. Source, tags,
+time and order live under More Filters, whose label reports active extra
+filters even while collapsed. Results are quiet separate cards, with independent
+selection, Return to Original, Edit and More controls. The persistent macOS
+`notes-export` AppKit button stays in the content footer, with its existing
+keyboard equivalent and enabled behavior; it is not moved back into a toolbar.
+Export scope, privacy options and captured preview remain separate native Form
+sections. No export/persistence semantics change.
+
+OCR keeps on-device processing and accuracy limitations in its main section.
+Advanced native-text replacement, unfinished-page reasons and per-page
+provenance are named disclosures; the underlying evidence and revisions are
+unchanged. The OCR panel uses a fixed preferred size only on macOS, so iPhone
+content follows the native sheet and safe area. Import's iPhone keyboard opens
+only when the user chooses URL entry; macOS retains immediate keyboard focus.
+
+Shared action labels carry their minimum hit area inside the actual button
+label (44 points on iPhone, 28 on Mac). Multi-action groups use an adaptive
+horizontal/vertical layout and separate accessibility children. They never
+merge open, edit or destructive controls into one combined accessibility action.
+This refinement leaves source rendering, reader gestures, PDF scale, source
+Locators, cache, model disclosure and progress capture untouched.
 
 Directory outlines filter actual image and font media rather than directory
 names. A readable `assets/README.md` therefore stays visible, while cover bytes

@@ -54,7 +54,18 @@ claimed when actually obtained; signing work and iPad hardware remain deferred.
 
 ## Acceptance Evidence
 
-Pending. No screenshot, fake model or compile substitutes for actual UI behavior.
+Implementation is present on the topic branch: quiet generated spine covers,
+Library hierarchy, named navigation/Inspector tabs, adaptive action groups,
+notes filters/results/export hierarchy, import and capture controls, OCR density.
+Three focused metrics/mounted-export regressions are added. The implementer did
+not run Swift/Xcode builds, create DerivedData, create/boot a Simulator or operate
+native controls; root owns serialized builds and visible acceptance. Static doc
+index and diff checks are recorded in the branch handoff. No screenshot, fake
+model or compile substitutes for actual UI behavior.
+
+Scope update: the user deferred the heavy bilingual feature. Its UI file,
+translation runtime/cache/schema and Provider setup are untouched in this
+refinement; the host availability gate is a separate integration dependency.
 
 ## Non-goals
 
@@ -63,11 +74,11 @@ redesigning native presentations, new product features, model/network changes.
 
 ## Delivery checklist
 
-- [ ] User behavior implemented
-- [ ] Existing contracts preserved
+- [x] User behavior implemented (visual refinement; native acceptance pending)
+- [x] Existing contracts preserved (static boundary check; runtime tests pending)
 - [ ] Focused tests pass
 - [ ] Unified validation passes
 - [ ] Native acceptance recorded
-- [ ] Current-state and source docs synchronized
+- [x] Current-state and source docs synchronized
 - [ ] Branch merged into `dev`
 - [ ] Status changed to Delivered

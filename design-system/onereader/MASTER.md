@@ -9,7 +9,7 @@
 
 **Framework:** SwiftUI with narrow AppKit/UIKit/PDFKit bridges
 
-**Updated:** 2026-09-01
+**Updated:** 2026-10-14
 
 ## Product character
 
@@ -55,6 +55,32 @@ controls and 10–12 pt for reading/evidence cards.
 
 Do not add decorative shadows to ordinary panels. Platform sheets, popovers,
 menus, split views, and materials provide their own elevation.
+
+## Application chrome
+
+- Library controls belong to its section header, not a separate row of floating
+  buttons. Continue Reading is the first book-related section; receiving/import
+  status is explicit but quiet.
+- Shelf covers use a semantic raised surface, a narrow stable-color spine, system
+  title and SF Symbol. They are generated placeholders, not claimed real artwork.
+  Do not repeat the same title beneath the cover or add drop shadows.
+- Grouped background separates regions; raised surfaces contain an actionable
+  card. Use a single hairline boundary rather than nested material cards.
+- Navigation and assistance tabs use readable text. At accessibility Dynamic
+  Type sizes they become native menu pickers instead of clipped segments.
+- Notes retain a persistent native macOS export control. Common Space/type
+  filters stay visible; optional Source/tags/time/order controls are disclosed,
+  with an explicit count when hidden filters remain active.
+- Destructive actions are independent controls and still require the existing
+  confirmation. Never combine a row's open/edit/more actions for accessibility.
+- iPhone action labels contain a minimum 44 pt hit area. Mac uses compact 28 pt
+  action labels. Adaptive action groups stack before clipping and always stack
+  at accessibility Dynamic Type sizes.
+- Import does not summon the iPhone keyboard before the user chooses URL entry.
+  Drag-and-drop advice is passive text, not a disabled pretend button.
+- OCR keeps local-processing/privacy and accuracy limitations visible; advanced
+  replacement policy, failure details and page provenance are explicit disclosures.
+  The full evidence and version records are retained.
 
 ## Native interaction rules
 

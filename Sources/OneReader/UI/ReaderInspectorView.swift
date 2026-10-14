@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ReaderInspectorView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var noteDraft = ""
     @State private var question = ""
     @State private var notesEditing: NotesEntry?
@@ -34,7 +35,7 @@ struct ReaderInspectorView: View {
     }
 
     private var inspectorHeader: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("阅读辅助")
                     .font(.headline)
@@ -43,22 +44,30 @@ struct ReaderInspectorView: View {
                     model.isInspectorPresented = false
                 } label: {
                     Image(systemName: "xmark")
+                        .frame(minWidth: ReaderChromeMetrics.actionHeight, minHeight: ReaderChromeMetrics.actionHeight)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("关闭阅读辅助")
             }
-            Picker("阅读辅助视图", selection: $model.inspectorTab) {
-                ForEach(model.availableInspectorTabs) { tab in
-                    Image(systemName: tab.systemImage)
-                        .tag(tab)
-                        .help(tab.title)
-                        .accessibilityLabel(tab.title)
-                }
+            if dynamicTypeSize.isAccessibilitySize {
+                inspectorPicker.pickerStyle(.menu)
+            } else {
+                inspectorPicker.pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
         }
-        .padding(14)
+        .padding(16)
+    }
+
+    private var inspectorPicker: some View {
+        Picker("阅读辅助视图", selection: $model.inspectorTab) {
+            ForEach(model.availableInspectorTabs) { tab in
+                Text(tab.title)
+                    .tag(tab)
+                    .help(tab.title)
+                    .accessibilityLabel(tab.title)
+            }
+        }
+        .labelsHidden()
     }
 
     @ViewBuilder
@@ -85,21 +94,32 @@ struct ReaderInspectorView: View {
                 }
                 TextEditor(text: $noteDraft)
                     .font(.body)
+                    .scrollContentBackground(.hidden)
                     .frame(minHeight: 72, maxHeight: 110)
+                    .padding(4)
+                    .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(.separator)
                     }
                     .accessibilityLabel("新笔记正文")
-                HStack {
-                    Button("添加书签") { model.addBookmark() }
+                ReaderAdaptiveActions {
+                    Button { model.addBookmark() } label: {
+                        ReaderActionLabel(title: "书签", systemImage: "bookmark")
+                    }
+                        .buttonStyle(.bordered)
                         .disabled(model.presentationDocument == nil)
-                    Button("高亮") { model.addHighlight() }
+                        .accessibilityLabel("添加书签")
+                    Button { model.addHighlight() } label: {
+                        ReaderActionLabel(title: "高亮", systemImage: "highlighter")
+                    }
+                        .buttonStyle(.bordered)
                         .disabled(!model.canCreateHighlight)
-                    Spacer()
-                    Button("保存笔记") {
+                    Button {
                         model.addNote(noteDraft)
                         noteDraft = ""
+                    } label: {
+                        ReaderActionLabel(title: "保存笔记", systemImage: "checkmark")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -108,8 +128,13 @@ struct ReaderInspectorView: View {
             .padding(12)
             Divider()
 
-            Button("打开全局笔记中心", action: model.openNotesCenter)
-                .font(.caption).padding(.vertical, 8)
+            Button(action: model.openNotesCenter) {
+                ReaderActionLabel(title: "打开笔记中心", systemImage: "note.text")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("打开全局笔记中心")
+            .padding(.horizontal, 12)
 
             if model.annotations.isEmpty {
                 ContentUnavailableView(
@@ -144,6 +169,7 @@ struct ReaderInspectorView: View {
                     }
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
     }
@@ -218,14 +244,13 @@ struct ReaderInspectorView: View {
                     Text(attentionDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack {
+                    ReaderAdaptiveActions {
                         if model.waitingAgentAttentionKind == .adapterCandidate {
                             Button("保留基础方案") { model.dismissWaitingAgentRun() }
                         }
                         if model.waitingAgentAttentionKind == .interrupted {
                             Button("放弃任务") { model.abandonInterruptedAgentRun() }
                         }
-                        Spacer()
                         Button(
                             model.waitingAgentAttentionKind == .interrupted
                                 ? "恢复任务"
@@ -323,7 +348,7 @@ struct ReaderInspectorView: View {
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(9)
-                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                                    .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: 9))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -347,7 +372,11 @@ struct ReaderInspectorView: View {
             Divider()
             VStack(spacing: 9) {
                 TextEditor(text: $question)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
                     .frame(minHeight: 58, maxHeight: 100)
+                    .padding(4)
+                    .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: 8))
                     .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.separator) }
                     .accessibilityLabel("向阅读助手提问")
                 HStack {
@@ -355,9 +384,11 @@ struct ReaderInspectorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("提问") {
+                    Button {
                         model.askAgent(question)
                         question = ""
+                    } label: {
+                        ReaderActionLabel(title: "提问", systemImage: "arrow.up")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -396,7 +427,7 @@ private struct AnnotationRow: View {
             }
         }
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var title: String {
@@ -453,7 +484,7 @@ private struct ActivityRow: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var auditSummary: String {
@@ -502,8 +533,9 @@ private struct InspectorSection<Content: View>: View {
                 .font(.headline)
             content
         }
-        .padding(12)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
+        .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+        .overlay { RoundedRectangle(cornerRadius: ReaderTheme.panelRadius).stroke(.separator.opacity(0.4), lineWidth: 0.5) }
     }
 }

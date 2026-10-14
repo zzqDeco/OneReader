@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ReaderNavigationSidebar: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let showsLibraryBackButton: Bool
 
     init(showsLibraryBackButton: Bool = true) {
@@ -27,37 +28,47 @@ struct ReaderNavigationSidebar: View {
                     model.closeReadingWorkspace()
                 } label: {
                     Image(systemName: "chevron.left")
+                        .frame(minWidth: ReaderChromeMetrics.actionHeight, minHeight: ReaderChromeMetrics.actionHeight)
                 }
                 .buttonStyle(.plain)
                 .help("返回资料库")
                 .accessibilityLabel("返回资料库")
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(model.selectedSpace?.title ?? "阅读空间")
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text("\(model.selectedSpaceSources.count) 个来源")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(13)
+        .padding(16)
     }
 
     private var tabPicker: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                navigationPicker.pickerStyle(.menu)
+            } else {
+                navigationPicker.pickerStyle(.segmented)
+            }
+        }
+        .padding(12)
+    }
+
+    private var navigationPicker: some View {
         Picker("导航视图", selection: $model.navigationTab) {
             ForEach(model.availableNavigationTabs) { tab in
-                Image(systemName: tab.systemImage)
+                Text(tab.title)
                     .tag(tab)
                     .help(tab.title)
                     .accessibilityLabel(tab.title)
             }
         }
-        .pickerStyle(.segmented)
         .labelsHidden()
-        .padding(10)
     }
 
     @ViewBuilder
@@ -90,7 +101,7 @@ struct ReaderNavigationSidebar: View {
                         HStack(alignment: .top, spacing: 7) {
                             Image(systemName: nodeSymbol(node))
                                 .foregroundStyle(node.isReadable ? ReaderTheme.teal : .secondary)
-                                .frame(width: 15)
+                                .frame(width: 18)
                             Text(node.title)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
@@ -141,6 +152,8 @@ struct ReaderNavigationSidebar: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(source.id == model.selectedSourceID ? ReaderTheme.accentMuted : Color.clear)
+                        .accessibilityAddTraits(source.id == model.selectedSourceID ? .isSelected : [])
                         .contextMenu {
                             Button("刷新来源") {
                                 model.refreshSource(source.id)
@@ -171,7 +184,7 @@ struct ReaderNavigationSidebar: View {
                                             .foregroundStyle(.secondary)
                                         Text(entry.openedAt, style: .relative)
                                             .font(.caption2)
-                                            .foregroundStyle(.tertiary)
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -189,11 +202,11 @@ struct ReaderNavigationSidebar: View {
             Button {
                 model.isImportSheetPresented = true
             } label: {
-                Label("加入更多来源", systemImage: "plus")
+                ReaderActionLabel(title: "加入更多来源", systemImage: "plus")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(11)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
+            .padding(12)
         }
     }
 
@@ -279,11 +292,14 @@ struct ReaderNavigationSidebar: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("搜索") { model.performSearch() }
+                    Button { model.performSearch() } label: {
+                        ReaderActionLabel(title: "搜索", systemImage: "magnifyingglass")
+                    }
+                        .buttonStyle(.borderedProminent)
                         .disabled(model.searchText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .padding(11)
+            .padding(12)
             Divider()
 
             if model.searchResults.isEmpty, !model.isSearching {
@@ -308,7 +324,7 @@ struct ReaderNavigationSidebar: View {
                                 .lineLimit(3)
                             Text("\(sourceLabel(hit.sourceID)) · 版本 \(hit.snapshotID.prefix(12))")
                                 .font(.caption2.monospaced())
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                         }
                         .contentShape(Rectangle())
                     }

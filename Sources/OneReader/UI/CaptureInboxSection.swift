@@ -27,22 +27,16 @@ struct CaptureInboxSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("收集任务", systemImage: "tray.and.arrow.down")
-                    .font(.headline)
-                Spacer()
-                Button(isSelecting ? "完成选择" : "选择任务") {
-                    isSelecting.toggle()
-                    if !isSelecting { selection.removeAll() }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    ReaderSectionHeading(title: "收集任务", systemImage: "tray.and.arrow.down", count: model.visibleCaptureJobs.count)
+                    Spacer()
+                    headerActions
                 }
-                .buttonStyle(.borderless)
-                Button {
-                    model.resumeCaptures()
-                } label: {
-                    Label("接收分享", systemImage: "arrow.clockwise")
+                VStack(alignment: .leading, spacing: 8) {
+                    ReaderSectionHeading(title: "收集任务", systemImage: "tray.and.arrow.down", count: model.visibleCaptureJobs.count)
+                    headerActions
                 }
-                .labelStyle(.iconOnly)
-                .accessibilityLabel("检查分享并继续等待导入的任务")
             }
             Text("“已接收”只表示内容已保存。链接需要联网取回；文件和完成的快照可离线阅读。")
                 .font(.caption)
@@ -53,7 +47,7 @@ struct CaptureInboxSection: View {
                     .font(.callout)
             }
             if isSelecting, !selection.isEmpty {
-                HStack {
+                ReaderAdaptiveActions {
                     Text("已选 \(selection.count) 项").font(.caption)
                     Menu("整理状态") { SpaceOrganizationMenu(spaceIDs: selectedSpaceIDs) }
                         .disabled(selectedSpaceIDs.isEmpty)
@@ -64,6 +58,7 @@ struct CaptureInboxSection: View {
                     }
                     .disabled(selectedJobs.allSatisfy { $0.phase == .ready })
                 }
+                .buttonStyle(.borderless)
             }
             ForEach(pending) { job in row(job) }
             if !completed.isEmpty {
@@ -77,6 +72,26 @@ struct CaptureInboxSection: View {
             selection.formIntersection(ids)
         }
         .accessibilityIdentifier("capture-inbox-section")
+    }
+
+    private var headerActions: some View {
+        ReaderAdaptiveActions {
+            Button {
+                isSelecting.toggle()
+                if !isSelecting { selection.removeAll() }
+            } label: {
+                ReaderActionLabel(title: isSelecting ? "完成" : "选择", systemImage: "checkmark.circle")
+            }
+            .accessibilityLabel(isSelecting ? "完成选择任务" : "选择任务")
+            Button { model.resumeCaptures() } label: {
+                Image(systemName: "arrow.clockwise")
+                    .frame(minWidth: ReaderChromeMetrics.actionHeight, minHeight: ReaderChromeMetrics.actionHeight)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("检查分享并继续等待导入的任务")
+            .help("检查分享并继续等待导入的任务")
+        }
+        .buttonStyle(.borderless)
     }
 
     private var destinationMenu: some View {
@@ -99,6 +114,7 @@ struct CaptureInboxSection: View {
                     if !selection.insert(job.id).inserted { selection.remove(job.id) }
                 } label: {
                     Image(systemName: selection.contains(job.id) ? "checkmark.circle.fill" : "circle")
+                        .frame(minWidth: ReaderChromeMetrics.actionHeight, minHeight: ReaderChromeMetrics.actionHeight)
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("选择 \(job.receipt.displayName)")
@@ -112,19 +128,22 @@ struct CaptureInboxSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(job.receipt.displayName).font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(job.phase.title).font(.caption.weight(.semibold))
+                ReaderStatusBadge(title: job.phase.title,
+                    systemImage: job.phase == .ready ? "checkmark.circle" : "tray",
+                    tint: job.phase == .failed ? .red : ReaderTheme.accent)
                 Text(job.detail).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
-                ViewThatFits(in: .horizontal) {
-                    HStack { actions(job) }
-                    VStack(alignment: .leading) { actions(job) }
+                ReaderAdaptiveActions {
+                    actions(job)
                 }
+                .buttonStyle(.borderless)
             }
             Spacer(minLength: 0)
         }
-        .padding(13)
+        .padding(16)
         .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+        .overlay { RoundedRectangle(cornerRadius: ReaderTheme.panelRadius).stroke(.separator.opacity(0.4), lineWidth: 0.5) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("capture-job-\(job.id)")
     }
@@ -133,8 +152,10 @@ struct CaptureInboxSection: View {
     private func actions(_ job: CaptureJob) -> some View {
         if job.phase == .ready, let spaceID = job.spaceID {
             if job.sourceID.flatMap(model.source(id:)) != nil {
-                Button("直接阅读") {
+                Button {
                     model.openSpace(spaceID, preferredSourceID: job.sourceID)
+                } label: {
+                    ReaderActionLabel(title: "直接阅读", systemImage: "book")
                 }
             } else {
                 Text("来源已移除，需重新收集").font(.caption).foregroundStyle(.secondary)

@@ -8,37 +8,40 @@ import SwiftUI
 struct ImportSourceSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var urlText = ""
     @State private var destination: ImportDestination = .inbox
     @FocusState private var isURLFocused: Bool
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("添加阅读材料")
                             .font(.title2.weight(.semibold))
-                        Text("无需先判断类型。OneReader 会保留独立副本，并自动选择合适的阅读方式。")
+                        Text("文件、网页或一本仓库书，自动选择合适的阅读方式。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button("取消") { dismiss() }
+                        .frame(minHeight: ReaderChromeMetrics.actionHeight)
                 }
 
                 Group {
-                    Picker("添加方式", selection: $destination) {
-                        Text("收集到待整理").tag(ImportDestination.inbox)
-                        Text("导入后直接阅读").tag(ImportDestination.newSpace)
-                        if model.selectedSpace != nil {
-                            Text("加入当前空间").tag(ImportDestination.currentSpace)
-                        }
+#if os(macOS)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        destinationPicker.pickerStyle(.menu)
+                    } else {
+                        destinationPicker.pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
+#else
+                    destinationPicker.pickerStyle(.menu)
+#endif
                 }
 
-                HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     ImportOptionCard(
                         title: "本地材料",
                         subtitle: "文件、目录或本地 Git 仓库",
@@ -50,12 +53,9 @@ struct ImportSourceSheet: View {
                     .accessibilityIdentifier("import-local-materials")
 
 #if os(macOS)
-                    ImportOptionCard(
-                        title: "拖放到窗口",
-                        subtitle: "Finder 中可一次拖入多个项目",
-                        systemImage: "arrow.down.doc"
-                    ) {}
-                    .allowsHitTesting(false)
+                    Label("也可从 Finder 拖入文件或目录，一次添加多个项目。", systemImage: "arrow.down.doc")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 #endif
                 }
 
@@ -71,9 +71,8 @@ struct ImportSourceSheet: View {
 #else
                     VStack(alignment: .leading, spacing: 10) {
                         urlField
-                        HStack {
+                        ReaderAdaptiveActions {
                             pasteButton
-                            Spacer()
                             importButton
                         }
                     }
@@ -83,7 +82,8 @@ struct ImportSourceSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(15)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                .overlay { RoundedRectangle(cornerRadius: ReaderTheme.panelRadius).stroke(.separator.opacity(0.4), lineWidth: 0.5) }
 
                 Divider()
 
@@ -98,10 +98,24 @@ struct ImportSourceSheet: View {
             }
             .padding(platformPadding)
 #if os(macOS)
-            .frame(width: 650, height: 455)
+            .frame(minWidth: 500, idealWidth: 650)
 #endif
         }
+        .background(ReaderTheme.grouped)
+#if os(macOS)
+        .frame(minHeight: 440, idealHeight: 520)
         .onAppear { isURLFocused = true }
+#endif
+    }
+
+    private var destinationPicker: some View {
+        Picker("添加后", selection: $destination) {
+            Text("待整理").tag(ImportDestination.inbox)
+            Text("直接阅读").tag(ImportDestination.newSpace)
+            if model.selectedSpace != nil {
+                Text("当前空间").tag(ImportDestination.currentSpace)
+            }
+        }
     }
 
     private var urlField: some View {
@@ -113,15 +127,21 @@ struct ImportSourceSheet: View {
     }
 
     private var pasteButton: some View {
-        Button("从剪贴板粘贴") {
+        Button {
             if let value = clipboardString {
                 urlText = value.trimmingCharacters(in: .whitespacesAndNewlines)
             }
+        } label: {
+            ReaderActionLabel(title: "粘贴", systemImage: "doc.on.clipboard")
         }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("从剪贴板粘贴来源 URL")
     }
 
     private var importButton: some View {
-        Button(destination == .inbox ? "接收链接" : "导入") { importURL() }
+        Button { importURL() } label: {
+            ReaderActionLabel(title: destination == .inbox ? "接收链接" : "导入", systemImage: "arrow.down")
+        }
             .buttonStyle(.borderedProminent)
             .disabled(parsedURL == nil)
     }
@@ -174,7 +194,7 @@ private struct ImportOptionCard: View {
         Button(action: action) {
             HStack(spacing: 13) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 25))
+                    .font(.title2)
                     .foregroundStyle(ReaderTheme.teal)
                     .frame(width: 34)
                 VStack(alignment: .leading, spacing: 3) {
@@ -189,8 +209,8 @@ private struct ImportOptionCard: View {
             }
             .padding(15)
             .frame(maxWidth: .infinity, minHeight: 86)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.separator) }
+            .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+            .overlay { RoundedRectangle(cornerRadius: ReaderTheme.panelRadius).strokeBorder(.separator.opacity(0.4), lineWidth: 0.5) }
         }
         .buttonStyle(.plain)
     }

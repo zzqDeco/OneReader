@@ -90,32 +90,39 @@ struct OCRReaderPanel: View {
         NavigationStack {
             Form {
                 Section("本机文字识别") {
-                    Text("识别在此设备上完成，不上传原文。原始文件和阅读位置保持不变。")
-                        .foregroundStyle(.secondary)
+                    ReaderPanelHeading(title: "让扫描内容可以搜索与标注",
+                        subtitle: "识别仅在此设备完成，不上传原文，也不改变原始文件和阅读位置。",
+                        systemImage: "text.viewfinder")
                     Picker("识别范围", selection: $rangeMode) {
                         Text("当前页").tag(0); Text("页码范围").tag(1); Text("全部页面").tag(2)
                     }
                     Text("共 \(controller.pageCount) 页；单次最多识别 1,000 页。")
                         .font(.caption).foregroundStyle(.secondary)
                     if rangeMode == 1 {
-                        HStack {
-                            TextField("起始页", text: $firstPage)
-                            Text("至")
-                            TextField("结束页", text: $lastPage)
+                        ReaderAdaptiveActions {
+                            TextField("起始页", text: $firstPage).textFieldStyle(.roundedBorder)
+                                .frame(minWidth: 70, maxWidth: 120).accessibilityLabel("OCR 起始页")
+                            TextField("结束页", text: $lastPage).textFieldStyle(.roundedBorder)
+                                .frame(minWidth: 70, maxWidth: 120).accessibilityLabel("OCR 结束页")
                         }
                     }
                     Picker("印刷文字语言", selection: $language) {
                         Text("简体中文与英文").tag(0); Text("英文").tag(1)
                     }
-                    Toggle("对选择的页面使用 OCR 替代原生文字", isOn: $replaceNativeText)
                     Text("默认保留有效原生文字；手写、复杂表格和公式不保证准确。")
                         .font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup("高级识别设置") {
+                        Toggle("用 OCR 替代所选页的原生文字", isOn: $replaceNativeText)
+                    }
                     if controller.isRunning {
                         ProgressView(value: Double((controller.job?.completedPages.count ?? 0) + (controller.job?.failedPages.count ?? 0)),
                             total: Double(max(1, controller.job?.pageIndices.count ?? 1)))
                         Button("取消识别", role: .cancel) { controller.cancel() }
                     } else {
-                        Button("开始本机识别") { model.startLocalOCR(pages: selectedPages, settings: settings) }
+                        Button { model.startLocalOCR(pages: selectedPages, settings: settings) } label: {
+                            ReaderActionLabel(title: "开始本机识别", systemImage: "text.viewfinder")
+                        }
+                            .buttonStyle(.borderedProminent)
                             .disabled(selectedPages.isEmpty)
                             .accessibilityIdentifier("ocr-start")
                     }
@@ -123,11 +130,13 @@ struct OCRReaderPanel: View {
                         Text("已完成 \(job.completedPages.count) 页 · 失败 \(job.failedPages.count) 页 · \(job.state.rawValue)")
                             .font(.caption.monospacedDigit())
                         if !job.failedPages.isEmpty {
-                            Text("未完成页：\(job.failedPages.map { String($0 + 1) }.joined(separator: "、"))")
-                                .foregroundStyle(.secondary)
-                            ForEach(job.failedPages, id: \.self) { page in
-                                if let reason = job.failureReasons[page] {
-                                    Text("第 \(page + 1) 页：\(reason)").font(.caption).foregroundStyle(.secondary)
+                            DisclosureGroup("\(job.failedPages.count) 页未完成 · 查看原因") {
+                                Text("未完成页：\(job.failedPages.map { String($0 + 1) }.joined(separator: "、"))")
+                                    .foregroundStyle(.secondary)
+                                ForEach(job.failedPages, id: \.self) { page in
+                                    if let reason = job.failureReasons[page] {
+                                        Text("第 \(page + 1) 页：\(reason)").font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -144,7 +153,7 @@ struct OCRReaderPanel: View {
                             .font(.caption).foregroundStyle(.secondary)
                         ForEach(revision.pages) { page in
                             DisclosureGroup("第 \(page.pageIndex + 1) 页 · \(page.usesNativeText ? "原生文字（未 OCR）" : "\(page.spans.count) 行")") {
-                                OCRPageProvenanceView(page: page)
+                                DisclosureGroup("生成来源与设置") { OCRPageProvenanceView(page: page) }
                                 if page.usesNativeText {
                                     Text("本页保留 PDF 原生文字，没有执行 OCR；请在原文中选择文字。")
                                         .foregroundStyle(.secondary)
@@ -154,20 +163,29 @@ struct OCRReaderPanel: View {
                                 ForEach(page.spans) { span in
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(span.text).textSelection(.enabled)
-                                        HStack {
-                                            Button("定位") {
+                                        ReaderAdaptiveActions {
+                                            Button {
                                                 model.selectOCRSpan(revision: revision, page: page, span: span)
                                                 dismiss()
+                                            } label: {
+                                                ReaderActionLabel(title: "定位", systemImage: "scope")
                                             }
-                                            Button("复制") { Self.copy(span.text) }
-                                            Button("高亮") {
+                                            Button { Self.copy(span.text) } label: {
+                                                ReaderActionLabel(title: "复制", systemImage: "doc.on.doc")
+                                            }
+                                            Button {
                                                 model.selectOCRSpan(revision: revision, page: page, span: span)
                                                 model.addHighlight()
+                                            } label: {
+                                                ReaderActionLabel(title: "高亮", systemImage: "highlighter")
                                             }
-                                            Text("可信度 \(Int(span.confidence * 100))%")
-                                                .font(.caption).foregroundStyle(.secondary)
                                         }
-                                    }.padding(.vertical, 4)
+                                        .buttonStyle(.borderless)
+                                        Text("可信度 \(Int(span.confidence * 100))%")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 8)
+                                    .accessibilityElement(children: .contain)
                                 }
                             }
                         }
@@ -197,7 +215,9 @@ struct OCRReaderPanel: View {
             .navigationTitle("识别文字")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
-        .frame(minWidth: 320, idealWidth: 600, minHeight: 420, idealHeight: 680)
+#if os(macOS)
+        .frame(minWidth: 480, idealWidth: 600, minHeight: 420, idealHeight: 680)
+#endif
         .onAppear {
             firstPage = String((model.currentPositionLocator?.pdfPageIndex ?? 0) + 1)
             lastPage = String(controller.pageCount)

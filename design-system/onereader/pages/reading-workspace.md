@@ -16,7 +16,7 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 
 ## Library and reading navigation
 
-- Library default width: 250 pt; reading navigation: 210–245 pt.
+- Library default width: 250 pt; reading navigation ideal: 240 pt (210–300 range).
 - Sources and units use native list selection, not card grids.
 - Completion state uses both an SF Symbol and a text/accessibility value.
 - Revision metadata is abbreviated visually but available to accessibility.
@@ -30,8 +30,11 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 - Markdown uses the shared source-mapped native attributed-text renderer.
 - PDF uses `PDFView` in continuous vertical mode with stable page and selection
   Locators.
-- Compact iPhone uses a horizontally scrollable icon footer with explicit
-  accessibility labels instead of compressing every action.
+- Compact iPhone retains its four-action native footer and dedicated PDF zoom
+  row; this refinement does not modify any reader bridge, pan or zoom behavior.
+- Navigation and Inspector use text tabs, with a menu picker at accessibility
+  Dynamic Type sizes. Multi-action notes/OCR rows remain separate accessibility
+  children and wrap to a vertical group at constrained widths.
 
 ## Inspector
 
@@ -39,6 +42,11 @@ a sheet on compact iPhone. Reading navigation is also a separate iPhone sheet.
 - Goal selection is explicit: systematic, quick overview, or review.
 - Generated routes explain why each unit exists and which evidence anchors it.
 - AI-derived material remains visually distinct from source material.
+- Source selection, bookmarks and highlighter remain distinct native actions.
+  Source evidence/provenance can collapse into a named disclosure, but may not
+  be dropped or reclassified as current evidence.
+- Bilingual UI refinement is deferred with the host's product-availability gate;
+  this page does not authorize opening that feature or configuring a Provider.
 
 ## States
 

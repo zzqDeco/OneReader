@@ -29,3 +29,10 @@ Each mounted workspace owns a stable reading-capture target. A narrow native
 window observer activates that target only when its `NSWindow` or `UIWindow`
 becomes key, keeping shared-model capture requests tied to the window the user
 is actually reading.
+
+The visual-refinement branch uses a 240-point ideal reading-navigation column
+and quieter drawer elevation. Named navigation/Inspector tabs and adaptive
+notes/import/OCR action groups use [shared chrome](ReaderChrome.swift.md), but
+the root still accepts only the host's available tabs. No visual policy may
+re-enable a deferred feature, change a modal handoff, or replace native reader
+gesture/position capture.
