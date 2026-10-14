@@ -8,18 +8,31 @@ struct NotesRefreshKey: Equatable, Sendable {
 }
 
 enum NotesResultsPhase: Equatable {
-    case loading, results, empty, failed
+    case loading, results, empty, failed, interrupted
 }
 
 struct NotesRefreshPresentation {
     private(set) var settledKey: NotesRefreshKey?
     private(set) var settledLoadError: String?
+    private var settledOutcome = NotesReloadOutcome.loaded
+
+    init() {}
+
+    init(receipt: NotesReloadReceipt?, current: NotesRefreshKey) {
+        self.init()
+        if let receipt {
+            complete(NotesRefreshKey(query: receipt.query, revision: receipt.revision),
+                current: current, cancelled: false, outcome: receipt.outcome)
+        }
+    }
 
     @discardableResult
     mutating func complete(_ requested: NotesRefreshKey, current: NotesRefreshKey,
         cancelled: Bool, outcome: NotesReloadOutcome = .loaded) -> Bool {
-        guard !cancelled, requested == current, outcome != .superseded else { return false }
+        guard !cancelled, requested == current, outcome != .superseded,
+              outcome != .pending else { return false }
         settledKey = requested
+        settledOutcome = outcome
         if case .failed(let error) = outcome { settledLoadError = error }
         else { settledLoadError = nil }
         return true
@@ -27,7 +40,8 @@ struct NotesRefreshPresentation {
 
     func phase(current: NotesRefreshKey, isLoading: Bool, entryCount: Int) -> NotesResultsPhase {
         guard settledKey == current else { return .loading }
-        if entryCount > 0 { return .results }
+        if settledOutcome == .interrupted { return .interrupted }
+        if entryCount > 0, settledOutcome == .loaded { return .results }
         if isLoading { return .loading }
         if settledLoadError != nil { return .failed }
         return .empty
@@ -38,7 +52,7 @@ struct NotesRefreshPresentation {
     }
 
     func visibleTotalCount(current: NotesRefreshKey, totalCount: Int) -> Int {
-        guard settledKey == current, settledLoadError == nil else { return 0 }
+        guard settledKey == current, settledOutcome == .loaded else { return 0 }
         return max(0, totalCount)
     }
 
@@ -67,9 +81,10 @@ struct NotesResultsPlaceholder: View {
                 ContentUnavailableView("没有匹配的标注", systemImage: "note.text",
                     description: Text("搜索仅包含摘录与用户笔记，不会搜索或外发来源正文。"))
                     .accessibilityIdentifier("notes-results-empty")
-            case .failed:
+            case .failed, .interrupted:
                 ContentUnavailableView {
-                    Label("笔记暂未载入", systemImage: "exclamationmark.triangle")
+                    Label(phase == .interrupted ? "笔记载入已暂停" : "笔记暂未载入",
+                        systemImage: phase == .interrupted ? "pause.circle" : "exclamationmark.triangle")
                 } description: {
                     Text("已有笔记未被更改。请重试，或调整筛选条件。")
                 } actions: {
@@ -79,7 +94,7 @@ struct NotesResultsPlaceholder: View {
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("notes-results-retry")
                 }
-                .accessibilityIdentifier("notes-results-failed")
+                .accessibilityIdentifier(phase == .interrupted ? "notes-results-paused" : "notes-results-failed")
             case .results:
                 EmptyView()
             }

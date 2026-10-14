@@ -14,7 +14,6 @@ struct NotesCenterView: View {
     @State private var actionError: String?
     @State private var isRebuilding = false
     @State private var showsMoreFilters = false
-    @State private var refreshPresentation = NotesRefreshPresentation()
 
     var body: some View {
         let requestedKey = refreshKey
@@ -50,7 +49,8 @@ struct NotesCenterView: View {
                     ProgressView(isRebuilding ? "正在重建笔记搜索…" : "正在载入更多笔记…").padding(8)
                 }
                 NotesCenterFooter(totalCount: currentTotalCount, selectedCount: model.selectedIDs.count,
-                    isUpdating: isUpdatingResults, isUnavailable: resultsPhase == .failed,
+                    isUpdating: isUpdatingResults,
+                    isUnavailable: resultsPhase == .failed || resultsPhase == .interrupted,
                     onExport: { showsExport = true }, onDelete: {
                         pendingDeletion = NotesDeletion(entries: model.entries.filter { model.selectedIDs.contains($0.id) })
                     })
@@ -85,14 +85,6 @@ struct NotesCenterView: View {
                 do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
                 await model.reload()
             }
-            .onChange(of: model.lastReloadReceipt) { _, receipt in
-                // Another mounted Notes sheet may own the same shared reload.
-                // Only its matching, completed read may settle this sheet too.
-                guard let receipt, receipt == model.lastReloadReceipt else { return }
-                refreshPresentation.complete(NotesRefreshKey(query: receipt.query,
-                    revision: receipt.revision), current: refreshKey,
-                    cancelled: false, outcome: receipt.outcome)
-            }
             .onDisappear { model.cancelOpening() }
             .sheet(item: $editing) { entry in NotesAnnotationEditor(entry: entry, model: model) }
             .sheet(isPresented: $showsTags) { NotesTagManager(model: model) }
@@ -114,6 +106,12 @@ struct NotesCenterView: View {
 
     private var refreshKey: NotesRefreshKey {
         NotesRefreshKey(query: model.query, revision: model.revision)
+    }
+
+    private var refreshPresentation: NotesRefreshPresentation {
+        // Derive from the current generation's receipt, never cached sheet state.
+        // Starting or cancelling a same-query read invalidates an old success too.
+        NotesRefreshPresentation(receipt: model.lastReloadReceipt, current: refreshKey)
     }
 
     private var currentLoadError: String? {

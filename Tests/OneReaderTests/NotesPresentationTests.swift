@@ -26,6 +26,8 @@ final class NotesPresentationTests: XCTestCase {
         XCTAssertFalse(state.complete(first, current: first, cancelled: true))
         XCTAssertFalse(state.complete(first, current: first, cancelled: false,
             outcome: .superseded))
+        XCTAssertFalse(state.complete(first, current: first, cancelled: false,
+            outcome: .pending))
         XCTAssertNil(state.settledKey)
         let replacement = key()
         XCTAssertFalse(state.complete(first, current: replacement, cancelled: false))
@@ -61,6 +63,76 @@ final class NotesPresentationTests: XCTestCase {
             entryCount: 4), .results)
         XCTAssertEqual(state.phase(current: current, isLoading: false,
             entryCount: 4), .results)
+    }
+
+    func testQueryWrapProjectsOnlyCurrentGenerationNotOldSuccessfulReceipt() {
+        let first = key()
+        let oldGeneration = UUID()
+        let firstReceipt = NotesReloadReceipt(query: first.query, revision: first.revision,
+            generation: oldGeneration, outcome: .loaded)
+        let initial = NotesRefreshPresentation(receipt: firstReceipt, current: first)
+        XCTAssertEqual(initial.visibleTotalCount(current: first, totalCount: 1), 1)
+
+        // Q1 -> Q2 -> Q1 with cleared rows: Q2's pending receipt replaces Q1's
+        // success, even when the current query wraps back before another read.
+        let changed = key(search: "second query", revision: first.revision)
+        let pending = NotesReloadReceipt(query: changed.query, revision: changed.revision,
+            generation: UUID(), outcome: .pending)
+        let wrapped = NotesRefreshPresentation(receipt: pending, current: first)
+        XCTAssertEqual(wrapped.phase(current: first, isLoading: false, entryCount: 0), .loading)
+        XCTAssertEqual(wrapped.visibleTotalCount(current: first, totalCount: 1), 0)
+
+        let interrupted = NotesReloadReceipt(query: first.query, revision: first.revision,
+            generation: pending.generation, outcome: .interrupted)
+        let paused = NotesRefreshPresentation(receipt: interrupted, current: first)
+        XCTAssertEqual(paused.phase(current: first, isLoading: false, entryCount: 0), .interrupted)
+        XCTAssertEqual(paused.visibleTotalCount(current: first, totalCount: 1), 0)
+        XCTAssertNil(paused.loadError(current: first))
+
+        let sameQueryPending = NotesReloadReceipt(query: first.query, revision: first.revision,
+            generation: UUID(), outcome: .pending)
+        let refreshing = NotesRefreshPresentation(receipt: sameQueryPending, current: first)
+        XCTAssertNotEqual(sameQueryPending.generation, oldGeneration)
+        XCTAssertEqual(refreshing.phase(current: first, isLoading: true, entryCount: 0), .loading)
+        XCTAssertEqual(refreshing.visibleTotalCount(current: first, totalCount: 1), 0)
+    }
+
+    func testCancelledReloadOwnerLeavesSurvivingProjectionPausedUntilRetry() async throws {
+        let fixture = try await fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let model = NotesCenterModel(database: fixture.database, onMutation: {}, onOpen: { _ in })
+        let loaded = await model.reload()
+        XCTAssertEqual(loaded, .loaded)
+        let oldReceipt = try XCTUnwrap(model.lastReloadReceipt)
+        XCTAssertEqual(model.entries.count, 1)
+
+        // An owner disappearing can cancel its task without a replacement.
+        // Use a real cancelled GRDB reload, not a synthetic view-only error.
+        let owner = Task { await model.reload() }
+        owner.cancel()
+        let outcome = await owner.value
+        XCTAssertEqual(outcome, .interrupted)
+        let receipt = try XCTUnwrap(model.lastReloadReceipt)
+        XCTAssertNotEqual(receipt.generation, oldReceipt.generation)
+        XCTAssertEqual(receipt.outcome, .interrupted)
+        XCTAssertTrue(model.entries.isEmpty)
+        XCTAssertEqual(model.totalCount, 1, "The previous count remains legacy model state only")
+        XCTAssertFalse(model.isLoading)
+        let current = NotesRefreshKey(query: model.query, revision: model.revision)
+        let survivor = NotesRefreshPresentation(receipt: receipt, current: current)
+        XCTAssertEqual(survivor.phase(current: current, isLoading: model.isLoading,
+            entryCount: model.entries.count), .interrupted)
+        XCTAssertEqual(survivor.visibleTotalCount(current: current, totalCount: model.totalCount), 0)
+        XCTAssertFalse(survivor.isUpdating(current: current, isLoading: model.isLoading))
+
+        model.invalidate()
+        let reloaded = await model.reload()
+        XCTAssertEqual(reloaded, .loaded)
+        let retriedKey = NotesRefreshKey(query: model.query, revision: model.revision)
+        let retried = NotesRefreshPresentation(receipt: model.lastReloadReceipt, current: retriedKey)
+        XCTAssertEqual(retried.phase(current: retriedKey, isLoading: model.isLoading,
+            entryCount: model.entries.count), .results)
+        XCTAssertEqual(retried.visibleTotalCount(current: retriedKey, totalCount: model.totalCount), 1)
     }
 
     func testFailedChangedQueryCannotExposePreviousCountOrNativeExport() async throws {

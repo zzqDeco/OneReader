@@ -4,8 +4,10 @@ import Foundation
 /// A read's own outcome, independent of later navigation/action errors.
 /// This receipt is transient UI state, not a persistence or query contract.
 enum NotesReloadOutcome: Equatable, Sendable {
+    case pending
     case loaded
     case failed(String)
+    case interrupted
     case superseded
 }
 
@@ -51,6 +53,8 @@ final class NotesCenterModel: ObservableObject {
         let requested = query
         let requestedRevision = revision
         isLoading = true
+        lastReloadReceipt = NotesReloadReceipt(query: requested,
+            revision: requestedRevision, generation: token, outcome: .pending)
         errorMessage = nil
         entries = []
         selectedIDs = []
@@ -59,7 +63,10 @@ final class NotesCenterModel: ObservableObject {
             let page = try await database.notesPage(query: requested)
             let currentTags = try await database.notesTags()
             try Task.checkCancellation()
-            guard token == generation, requested == query, requestedRevision == revision else { return .superseded }
+            guard token == generation else { return .superseded }
+            guard requested == query, requestedRevision == revision else {
+                return finishInterruptedReload(token: token)
+            }
             entries = page.entries
             nextCursor = page.nextCursor
             totalCount = page.totalCount
@@ -69,17 +76,29 @@ final class NotesCenterModel: ObservableObject {
                 revision: requestedRevision, generation: token, outcome: .loaded)
             return .loaded
         } catch is CancellationError {
-            // The replacement task owns the new list state.
-            if token == generation { isLoading = false }
-            return .superseded
+            // A replacement generation owns its state; otherwise expose retry.
+            return finishInterruptedReload(token: token)
         } catch {
-            guard token == generation, requested == query, requestedRevision == revision else { return .superseded }
+            guard token == generation else { return .superseded }
+            guard requested == query, requestedRevision == revision else {
+                return finishInterruptedReload(token: token)
+            }
             errorMessage = error.localizedDescription
             isLoading = false
             lastReloadReceipt = NotesReloadReceipt(query: requested,
                 revision: requestedRevision, generation: token, outcome: .failed(error.localizedDescription))
             return .failed(error.localizedDescription)
         }
+    }
+
+    private func finishInterruptedReload(token: UUID) -> NotesReloadOutcome {
+        guard token == generation else { return .superseded }
+        isLoading = false
+        // Cleared rows cannot regain an old successful receipt if a query loops
+        // back or the reload owner closes. A surviving sheet gets an honest retry.
+        lastReloadReceipt = NotesReloadReceipt(query: query, revision: revision,
+            generation: token, outcome: .interrupted)
+        return .interrupted
     }
 
     func loadMore() async {

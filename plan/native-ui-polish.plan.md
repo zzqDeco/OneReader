@@ -64,10 +64,13 @@ on PR #34; this is not permission to merge the UI PR or publish a Release.
   Library actions, without changing progress values or persistence.
 - Keep notes loading, debounce, genuine empty result and failure distinct. A
   pending first/filter reload must not briefly claim that there are no notes.
-  UI-owned refresh state must reject a cancelled or mismatched completion; do
+  UI refresh projection must reject a pending, cancelled or mismatched completion; do
   not change database queries, pagination or the export snapshot contract. A
   transient Notes-model read receipt/error fence is allowed to keep load outcomes
   distinct from mutable action errors and to support shared mounted sheets.
+  Each read starts with a pending generation receipt. A cancelled current owner
+  has a retryable paused outcome, and the UI always projects the latest receipt,
+  so returning to an earlier query cannot resurrect its obsolete success.
 - Show localized annotation status in ordinary notes/Inspector chrome; retain
   exact revision and anchor state in explicit evidence details. Historical,
   relocated and orphaned states remain visibly distinct, never relabeled current.
@@ -187,6 +190,16 @@ original-opening failure after a successful empty query, current action errors,
 cancelled non-cooperative opening and shared-query receipts are covered. The
 documentation index now contains 97 Markdown files.
 
+The `59ca1ea` follow-up review caught a cancellation boundary: a cached query-key
+success could re-match after Q1 → Q2 → Q1 or the reload-owning sheet disappeared.
+The next correction publishes pending/interrupted generation receipts and derives
+the UI projection directly from the latest receipt. Regression cases cover the
+query-wrap projection and a real cancelled GRDB owner followed by explicit retry;
+they do not claim multi-window native acceptance.
+The corrected full suite passed all 401 tests with no failures/skips (21 new
+continuation regressions), including both cancellation boundaries. Dependency
+versions, database schema and product source/presentation contracts are unchanged.
+
 Remaining gates: current-head hosted CI, physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
 Full VoiceOver, Reduce Motion and manual touch/gesture acceptance are not claimed.
@@ -203,8 +216,8 @@ redesigning native presentations, new product features, model/network changes.
 ## Delivery checklist
 
 - [x] User behavior implemented (visual refinement; native acceptance pending)
-- [x] Existing contracts preserved (boundary hash and 399 shared tests)
-- [x] Focused continuation tests pass (19 mounted/state regressions)
+- [x] Existing contracts preserved (boundary hash and 401 shared tests)
+- [x] Focused continuation tests pass (21 mounted/state regressions)
 - [ ] Local continuation validation passes (unsigned iOS build; no Simulator)
 - [ ] Current-head hosted CI passes
 - [ ] macOS continuation visible acceptance recorded
