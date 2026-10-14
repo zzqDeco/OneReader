@@ -40,6 +40,10 @@ the persistent native `notes-export` control. No new dependencies or demo data.
 - Prioritize Library/reader chrome and the new notes/OCR/bilingual/capture flows.
   Preserve the reading canvas and avoid nested decorative glass/shadows.
 - Use adaptive layout and separate accessibility children for multi-action rows.
+- During native return-to-Library acceptance, the automatic continuation progress
+  indicator collapsed to a tiny dot. Use an explicit linear style with a bounded
+  nonzero minimum track width, and cover initial/replaced content in a mounted
+  compact-layout regression. This changes only progress display, not capture.
 - Root owns final integration and native visible acceptance; the UI implementer
   owns only UI/design/docs/tests, not product runtime or production data.
 
@@ -59,7 +63,7 @@ claimed when actually obtained; signing work and iPad hardware remain deferred.
 Implementation is present on the topic branch: quiet generated spine covers,
 Library hierarchy, named navigation/Inspector tabs, adaptive action groups,
 notes filters/results/export hierarchy, import and capture controls, OCR density.
-Three focused metrics/mounted-export regressions are added. The implementer did
+Four focused metrics/mounted-control regressions are added. The implementer did
 not run Swift/Xcode builds, create DerivedData, create/boot a Simulator or operate
 native controls; root owns serialized builds and visible acceptance. Static doc
 index and diff checks are recorded in the branch handoff. No screenshot, fake
@@ -100,6 +104,23 @@ Root validation of runtime tree `ecf326c` on 2026-10-14:
   directory write was not repeated in this visual-only UI delta; the dependency's
   completed native export and data regression remain separate evidence.
 
+Progress-display follow-up after `71b15ad`:
+
+- The mounted compact/enlarged-type regression waits up to three seconds for
+  the actual normalized native indicator values (0.5, then 0), and checks bar
+  style, determinate state and visible 72-point minimum track in both states.
+  This avoids accepting an old 0.5 control after content replacement.
+- Final full local validation passed all 380 tests with no failures/skips;
+  macOS release build, rebuilt Sandbox/signature/entitlements and unsigned iOS
+  App/Share compilation passed. Sol max's follow-up review found no blockers.
+- The rebuilt isolated executable visibly retained a full linear track on
+  first launch, after reader-to-Library return in the wide window, and after
+  the same return in the compact window. Its notes center read back both
+  highlights and both retained notes after normal quit/reopen.
+- The import modal and capture completion disclosure were also inspected;
+  neither created a new Source or a network request. The reading theme was
+  restored to Follow System, without changing the global macOS appearance.
+
 Remaining gates: current-head hosted CI, physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
 Full VoiceOver, Reduce Motion and manual touch/gesture acceptance are not claimed.
@@ -116,7 +137,7 @@ redesigning native presentations, new product features, model/network changes.
 ## Delivery checklist
 
 - [x] User behavior implemented (visual refinement; native acceptance pending)
-- [x] Existing contracts preserved (static boundary check and 379 shared tests)
+- [x] Existing contracts preserved (static boundary check and 380 shared tests)
 - [x] Focused tests pass
 - [x] Local validation passes (unsigned iOS build; no Simulator)
 - [ ] Current-head hosted CI passes

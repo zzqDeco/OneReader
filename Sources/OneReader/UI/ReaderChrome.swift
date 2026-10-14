@@ -30,6 +30,25 @@ struct ReaderActionLabel: View {
     }
 }
 
+/// A continuation card always shows a determinate track, including at zero.
+/// The minimum survives an adjacent Spacer; the maximum leaves room for copy.
+struct ReaderProgressSummary: View {
+    let fraction: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("\(Int(fraction * 100))%")
+                .font(.caption.monospacedDigit().weight(.semibold))
+            ProgressView(value: fraction, total: 1)
+                .progressViewStyle(.linear)
+                .tint(ReaderTheme.accent)
+                .frame(minWidth: 72, maxWidth: 190)
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(.secondary)
+    }
+}
+
 /// Actions remain separate accessibility children and stack before clipping.
 struct ReaderAdaptiveActions<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize

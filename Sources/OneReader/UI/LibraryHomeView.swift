@@ -168,15 +168,7 @@ struct LibraryHomeView: View {
                                 .lineLimit(compactLayout ? 2 : 1)
                                 .multilineTextAlignment(.leading)
                         }
-                        HStack(spacing: 8) {
-                            Text("\(Int(model.progressFraction(for: space.id) * 100))%")
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                            ProgressView(value: model.progressFraction(for: space.id))
-                                .tint(ReaderTheme.accent)
-                                .frame(maxWidth: 190)
-                                .accessibilityHidden(true)
-                        }
-                        .foregroundStyle(.secondary)
+                        ReaderProgressSummary(fraction: model.progressFraction(for: space.id))
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "arrow.right")

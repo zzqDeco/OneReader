@@ -277,6 +277,9 @@ sent without storing body text, paths, or notes.
 
 The Library uses a quiet grouped background, one bounded continuation card,
 and a scannable shelf of light semantic covers with a stable-color book spine.
+The continuation percentage uses an explicitly linear, minimum-width progress
+track, including at zero after returning from the reader; it does not change
+which reading position or progress fraction is persisted.
 Generated covers are placeholders, not extracted book artwork. The title lives
 once on the cover, with source count/progress and organization below it. Larger
 Dynamic Type switches to wider cards rather than squeezing two tall text blocks
