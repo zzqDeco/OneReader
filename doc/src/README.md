@@ -22,6 +22,7 @@ architecture document.
 | Shared native chrome and adaptive action boundaries | [Reader chrome](Sources/OneReader/UI/ReaderChrome.swift.md) |
 | Stable reading surface and adaptive native controls | [Reader surface](Sources/OneReader/UI/ReaderSurfaceV2.swift.md) |
 | Debounced Notes display and localized annotation state | [Notes presentation](Sources/OneReader/UI/NotesPresentation.swift.md) |
+| Notes read outcomes and fenced opening errors | [Notes query lifecycle](Sources/OneReader/App/NotesCenterModel.swift.md) |
 | Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
 | Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
 | Global annotation queries, tags, routes and Markdown export | [Notes center](Sources/OneReader/Persistence/NotesPersistence.swift.md) |

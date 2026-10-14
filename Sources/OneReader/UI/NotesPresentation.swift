@@ -13,22 +13,33 @@ enum NotesResultsPhase: Equatable {
 
 struct NotesRefreshPresentation {
     private(set) var settledKey: NotesRefreshKey?
+    private(set) var settledLoadError: String?
 
     @discardableResult
     mutating func complete(_ requested: NotesRefreshKey, current: NotesRefreshKey,
-        cancelled: Bool) -> Bool {
-        guard !cancelled, requested == current else { return false }
+        cancelled: Bool, outcome: NotesReloadOutcome = .loaded) -> Bool {
+        guard !cancelled, requested == current, outcome != .superseded else { return false }
         settledKey = requested
+        if case .failed(let error) = outcome { settledLoadError = error }
+        else { settledLoadError = nil }
         return true
     }
 
-    func phase(current: NotesRefreshKey, isLoading: Bool, entryCount: Int,
-        loadError: String?) -> NotesResultsPhase {
+    func phase(current: NotesRefreshKey, isLoading: Bool, entryCount: Int) -> NotesResultsPhase {
         guard settledKey == current else { return .loading }
         if entryCount > 0 { return .results }
         if isLoading { return .loading }
-        if loadError != nil { return .failed }
+        if settledLoadError != nil { return .failed }
         return .empty
+    }
+
+    func loadError(current: NotesRefreshKey) -> String? {
+        settledKey == current ? settledLoadError : nil
+    }
+
+    func visibleTotalCount(current: NotesRefreshKey, totalCount: Int) -> Int {
+        guard settledKey == current, settledLoadError == nil else { return 0 }
+        return max(0, totalCount)
     }
 
     func isUpdating(current: NotesRefreshKey, isLoading: Bool) -> Bool {

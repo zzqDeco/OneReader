@@ -29,6 +29,8 @@ No schema, snapshot, locator, Provider, consent, cache or signing changes. Do no
 modify PDF/image/text bridges, scroll capture or evidence semantics. Preserve
 action accessibility identifiers, independent buttons, keyboard shortcuts and
 the persistent native `notes-export` control. No new dependencies or demo data.
+The Notes model may publish transient read outcomes and fence late opening
+errors for the UI; its queries, pagination and database transactions do not change.
 
 ## Implementation
 
@@ -63,7 +65,9 @@ on PR #34; this is not permission to merge the UI PR or publish a Release.
 - Keep notes loading, debounce, genuine empty result and failure distinct. A
   pending first/filter reload must not briefly claim that there are no notes.
   UI-owned refresh state must reject a cancelled or mismatched completion; do
-  not change the search model, database, query or export snapshot contract.
+  not change database queries, pagination or the export snapshot contract. A
+  transient Notes-model read receipt/error fence is allowed to keep load outcomes
+  distinct from mutable action errors and to support shared mounted sheets.
 - Show localized annotation status in ordinary notes/Inspector chrome; retain
   exact revision and anchor state in explicit evidence details. Historical,
   relocated and orphaned states remain visibly distinct, never relabeled current.
@@ -170,6 +174,19 @@ Continuation validation on 2026-10-14:
   recorded separately before publishing this continuation checkpoint. Physical
   iPhone remains unavailable; no signing configuration or Simulator is used.
 
+Sol max's `7bf89a5` review identified stale-count export after a failed refresh
+and a delayed original-opening error being interpreted as a load failure. The
+follow-up separates immutable transient read outcomes from action errors,
+projects count/export only from a successful current receipt, and fences old
+opening errors. Existing notes queries, pagination, IDs, locators, export fields,
+transactions and reading progress are unchanged. Additional generated-Library
+regressions and another immutable review validate this narrow UI-state boundary.
+The follow-up full suite passed all 399 tests with no failures/skips (19 new
+continuation regressions). Closed-pool failure after prior success, delayed
+original-opening failure after a successful empty query, current action errors,
+cancelled non-cooperative opening and shared-query receipts are covered. The
+documentation index now contains 97 Markdown files.
+
 Remaining gates: current-head hosted CI, physical iPhone compact/Dynamic Type
 visual acceptance (signing work remains deferred), and explicit UI merge approval.
 Full VoiceOver, Reduce Motion and manual touch/gesture acceptance are not claimed.
@@ -186,8 +203,8 @@ redesigning native presentations, new product features, model/network changes.
 ## Delivery checklist
 
 - [x] User behavior implemented (visual refinement; native acceptance pending)
-- [x] Existing contracts preserved (boundary hash and 394 shared tests)
-- [x] Focused continuation tests pass (14 mounted/state regressions)
+- [x] Existing contracts preserved (boundary hash and 399 shared tests)
+- [x] Focused continuation tests pass (19 mounted/state regressions)
 - [ ] Local continuation validation passes (unsigned iOS build; no Simulator)
 - [ ] Current-head hosted CI passes
 - [ ] macOS continuation visible acceptance recorded

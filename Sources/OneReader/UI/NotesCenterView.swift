@@ -22,7 +22,7 @@ struct NotesCenterView: View {
             VStack(spacing: 0) {
                 filters
                 Divider()
-                if let error = currentLoadError ?? actionError {
+                if let error = currentLoadError ?? currentOperationError ?? actionError {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.callout).foregroundStyle(.red).textSelection(.enabled)
                         .padding()
@@ -49,8 +49,8 @@ struct NotesCenterView: View {
                 if isRebuilding || (model.isLoading && resultsPhase == .results) {
                     ProgressView(isRebuilding ? "正在重建笔记搜索…" : "正在载入更多笔记…").padding(8)
                 }
-                NotesCenterFooter(totalCount: model.totalCount, selectedCount: model.selectedIDs.count,
-                    isUpdating: isUpdatingResults,
+                NotesCenterFooter(totalCount: currentTotalCount, selectedCount: model.selectedIDs.count,
+                    isUpdating: isUpdatingResults, isUnavailable: resultsPhase == .failed,
                     onExport: { showsExport = true }, onDelete: {
                         pendingDeletion = NotesDeletion(entries: model.entries.filter { model.selectedIDs.contains($0.id) })
                     })
@@ -76,7 +76,7 @@ struct NotesCenterView: View {
 #if !os(macOS)
                 ToolbarItem(placement: .primaryAction) {
                     Button { showsExport = true } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                        .disabled(model.totalCount == 0 || isUpdatingResults)
+                        .disabled(currentTotalCount == 0 || isUpdatingResults)
                         .accessibilityIdentifier("notes-export")
                 }
 #endif
@@ -84,8 +84,14 @@ struct NotesCenterView: View {
             .task(id: requestedKey) {
                 do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
                 await model.reload()
-                refreshPresentation.complete(requestedKey, current: refreshKey,
-                    cancelled: Task.isCancelled)
+            }
+            .onChange(of: model.lastReloadReceipt) { _, receipt in
+                // Another mounted Notes sheet may own the same shared reload.
+                // Only its matching, completed read may settle this sheet too.
+                guard let receipt, receipt == model.lastReloadReceipt else { return }
+                refreshPresentation.complete(NotesRefreshKey(query: receipt.query,
+                    revision: receipt.revision), current: refreshKey,
+                    cancelled: false, outcome: receipt.outcome)
             }
             .onDisappear { model.cancelOpening() }
             .sheet(item: $editing) { entry in NotesAnnotationEditor(entry: entry, model: model) }
@@ -111,12 +117,20 @@ struct NotesCenterView: View {
     }
 
     private var currentLoadError: String? {
+        refreshPresentation.loadError(current: refreshKey)
+    }
+
+    private var currentOperationError: String? {
         refreshPresentation.settledKey == refreshKey ? model.errorMessage : nil
+    }
+
+    private var currentTotalCount: Int {
+        refreshPresentation.visibleTotalCount(current: refreshKey, totalCount: model.totalCount)
     }
 
     private var resultsPhase: NotesResultsPhase {
         refreshPresentation.phase(current: refreshKey, isLoading: model.isLoading,
-            entryCount: model.entries.count, loadError: currentLoadError)
+            entryCount: model.entries.count)
     }
 
     private var isUpdatingResults: Bool {
@@ -231,6 +245,7 @@ struct NotesCenterFooter: View {
     let totalCount: Int
     let selectedCount: Int
     var isUpdating = false
+    var isUnavailable = false
     let onExport: () -> Void
     let onDelete: () -> Void
 
@@ -253,7 +268,8 @@ struct NotesCenterFooter: View {
     }
 
     private var countLabel: some View {
-        Text(isUpdating ? "正在更新结果…" : "共 \(totalCount) 条 · 已选 \(selectedCount) 条")
+        Text(isUpdating ? "正在更新结果…" : isUnavailable ? "结果暂不可用"
+            : "共 \(totalCount) 条 · 已选 \(selectedCount) 条")
             .font(.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -264,15 +280,15 @@ struct NotesCenterFooter: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
         return layout {
 #if os(macOS)
-            NativeNotesExportButton(enabled: totalCount > 0 && !isUpdating, action: onExport)
-                .disabled(totalCount == 0 || isUpdating)
+            NativeNotesExportButton(enabled: totalCount > 0 && !isUpdating && !isUnavailable, action: onExport)
+                .disabled(totalCount == 0 || isUpdating || isUnavailable)
                 .fixedSize()
 #endif
             Button(role: .destructive, action: onDelete) {
                 ReaderActionLabel(title: "删除所选", systemImage: "trash")
             }
                 .buttonStyle(.borderless)
-                .disabled(selectedCount == 0 || isUpdating)
+                .disabled(selectedCount == 0 || isUpdating || isUnavailable)
                 .accessibilityIdentifier("notes-delete-selected")
         }
         .accessibilityElement(children: .contain)
