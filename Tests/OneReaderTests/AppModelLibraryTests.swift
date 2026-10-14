@@ -19,6 +19,29 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertTrue(model.sources.isEmpty)
         XCTAssertFalse(model.isReadingWorkspaceOpen)
         XCTAssertNil(model.selectedSpaceID)
+        XCTAssertFalse(model.isBilingualReadingAvailable)
+        XCTAssertFalse(model.availableInspectorTabs.contains(.translation))
+        // Preserve enum identity and cache compatibility for the deferred code.
+        XCTAssertTrue(ReaderInspectorTab.allCases.contains(.translation))
+        XCTAssertTrue(model.availableInspectorTabs.contains(.annotations))
+    }
+
+    func testProviderConfigurationDoesNotEnableDeferredBilingualEntrypoints() async throws {
+        let root = temporaryRoot("DeferredBilingual")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+        let model = AppModel(libraryRootURL: root, defaults: defaults,
+                             secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+        let profile = ProviderProfile(displayName: "No-call fixture", kind: .appleOnDevice,
+                                      modelID: "fixture-only", isDefault: true)
+        // Saving metadata must not construct or invoke a model in an empty Library.
+        model.saveProviderProfile(profile, secret: nil)
+        try await waitUntil { model.providerProfiles.contains { $0.id == profile.id } }
+        XCTAssertFalse(model.isBilingualReadingAvailable)
+        XCTAssertFalse(model.availableInspectorTabs.contains(.translation))
+        XCTAssertTrue(ReaderInspectorTab.allCases.contains(.translation))
+        XCTAssertTrue(model.agentRuns.isEmpty)
     }
 
     func testLocalMarkdownImportCreatesReadableSpaceWithoutProvider() async throws {

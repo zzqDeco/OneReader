@@ -68,12 +68,10 @@ whole-reader UI refreshes. Other formats retain their existing refresh behavior;
 exact progress still persists and restores across material types.
 Intermittent PDF smoothness is checked separately from import/zoom correctness.
 
-The reading-assistance 「双语」 tab supports explicit paragraph/selection translation
-with the configured Reading Agent Provider. Original sources remain unchanged;
-successful translations are cached for offline reading and can be deleted or
-retried independently. Remote use requires the existing data-disclosure approval.
-Machine translation is not original evidence; review terminology, numbers and
-negation. Scanned material needs valid OCR text first. See [bilingual reading](doc/bilingual-reading.md).
+Bilingual reading is deferred for this increment: its inspector/menu entrypoints
+are disabled. The implementation and versioned cache/migration are retained for
+later acceptance; current releases do not claim live translation or offline
+translation UI. See [retained bilingual contracts](doc/bilingual-reading.md).
 
 The local OCR feature adds explicit on-device recognition for scanned PDF pages and
 single JPEG/PNG/HEIC images. Recognition results retain page regions and immutable versions;

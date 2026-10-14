@@ -18,8 +18,8 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 | Document | Purpose | Status |
 | --- | --- | --- |
 | [Native reader UI polish](native-ui-polish.plan.md) | Consistent macOS/iPhone Library, notes and reading-assistance visual refinement | Active |
-| [Reader features integration](reader-features-integration.plan.md) | Parallel capture, notes, bilingual reading and OCR integration | Active |
-| [Bilingual reading](bilingual-reading.plan.md) | Source-bound paragraph translation, single-Agent validation and offline cache | Active |
+| [Reader features integration](reader-features-integration.plan.md) | Capture, notes and OCR delivery; retained bilingual implementation is deferred | Active |
+| [Bilingual reading](bilingual-reading.plan.md) | Retained paragraph translation/cache implementation; product entrypoints deferred | Active |
 | [全局笔记中心与 Markdown 导出](notes-center-export.plan.md) | Native cross-Library annotations, private search, tags, safe source links and static export | Active |
 | [Quick capture and reading inbox](capture-inbox.plan.md) | Durable capture receipts, native inbox organization and iPhone Share Extension | Active |
 | [Local OCR](local-ocr.plan.md) | Immutable local recognition, original-region reading and revision-safe evidence | Active |

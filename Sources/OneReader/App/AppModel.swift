@@ -380,10 +380,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // User deferred bilingual delivery; retaining its code/cache is not an
+    // available product feature. This host decision has no Source/Provider override.
+    var isBilingualReadingAvailable: Bool { false }
+
     var availableInspectorTabs: [ReaderInspectorTab] {
         ReaderInspectorTab.allCases.filter { tab in
             switch tab {
-            case .annotations, .activity, .translation: true
+            case .annotations, .activity: true
+            case .translation: isBilingualReadingAvailable
             case .evidence, .ask: spaceSupportsAgentEvidence
             }
         }

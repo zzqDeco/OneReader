@@ -1,9 +1,9 @@
 # Reader Workspace
 
-The native reading-assistance 「双语」 tab provides explicit current-unit/selection
-translation, cache-first offline display and source-linked progress. It never
-replaces the PDF or writes translated offsets into source Locators. See
-[bilingual reading](bilingual-reading.md) for exact behavior and acceptance boundaries.
+The bilingual inspector/menu is currently disabled because the user deferred
+this feature on 2026-10-14. Its implementation, cache and migration remain
+intact for later acceptance; no live translation is claimed. See
+[bilingual reading](bilingual-reading.md) for retained contracts and boundaries.
 
 ## Product shape
 
