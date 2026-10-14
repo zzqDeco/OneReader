@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 @testable import OneReader
 
+@MainActor
 final class ReaderChromeLayoutTests: XCTestCase {
     func testTouchActionsHaveAtLeast44PointTargets() {
         XCTAssertGreaterThanOrEqual(ReaderChromeMetrics.minimumActionHeight(touch: true), 44)
