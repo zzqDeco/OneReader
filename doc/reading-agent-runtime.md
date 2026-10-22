@@ -60,6 +60,13 @@ resume persistence, prompt projection, and final validation; an adapter result
 for another current Source in the same Space is still rejected.
 
 Host-created structure runs also persist optional pipeline provenance.
+When launched from the Route sidebar's intent selector, the host can skip
+redundant `routeAdapters` runs for Sources whose deterministic `AdapterPlan`
+already has at least 0.85 confidence and pass the selected `ReadingGoal`
+(`quickOverview`, `systematic`, or `review`) directly to `projectRoute`.
+Completed `answerWithEvidence` runs in a Space are reconstructed into a
+browsable Q&A history in the Inspector, and any verified answer can be saved as
+a grounded `Annotation` bound to its citation Locator and quote.
 Recovery uses the persisted task plus that provenance as a checkpoint:
 `routeAdapters` continues with the next Source, `scoutSpace` continues with
 graph materialization, and `materializeGraph` continues with route projection.

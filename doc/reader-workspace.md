@@ -172,6 +172,9 @@ scheme resolution, so `chapters/page.html` can load a rewritten
 ## Search, annotations, and progress
 
 Search can target the current Source, current Space, or complete Library.
+In the Library shelf, unified search queries matching Spaces, full-text indexed
+Observations across the Library, and private Notes/Highlights in parallel, and
+opening a hit jumps directly to its Space and Snapshot-bound Locator.
 Results include title, source, Snapshot-bound Locator, and jump context. The
 FTS fast path has a bounded exact-substring fallback for unsegmented scripts.
 Indexed hits derive a query-specific quote/range Locator while preserving PDF
@@ -185,8 +188,17 @@ Space and schedules a deterministic projection rebuild.
 Bookmarks bind the current presentation Locator. Highlights require a real
 selection and a presentation that supports structured anchors. Notes can bind
 the selection or current position. Quick Look never advertises structured
-highlight or AI evidence. Annotation rows expose current, relocated, or
-orphaned anchor state.
+highlight or AI evidence. Annotation rows expose localized anchor badges for
+relocated or orphaned evidence while hiding redundant current badges. Active
+non-orphaned highlights render non-destructively in-place across native
+Markdown/text/code, PDFKit, and controlled WebKit surfaces, and selecting text
+on the reading canvas exposes a contextual action bar for one-tap highlighting,
+note-taking, and evidence Q&A. Space annotation queries include any Source
+currently attached to the Space so notes captured in the Inbox remain visible
+when organized into a target Space. Spaces and Sources can be renamed, shared
+Sources can be detached from a Space without deleting the underlying Source or
+its annotations, Spaces can be deleted cleanly, and Sources can be marked as
+primary or reference so reference attachments do not dilute Space progress.
 
 Progress stores source position, per-unit completion, current frozen-plan step,
 and reading history independently. Each Source position carries its immutable

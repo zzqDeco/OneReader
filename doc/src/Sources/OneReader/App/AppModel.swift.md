@@ -39,9 +39,13 @@ stealing the current reading selection.
   presentation;
 - per-Source/Snapshot/AdapterPlan atomic indexing jobs with generation-based late-result
   discard;
-- Space/Source/Library search, Locator jumps, annotations, progress, and
-  history;
-- Provider profile editing/testing and Reading Agent task orchestration;
+- Space/Source/Library search (including unified Library search across Spaces,
+  Observations, and private Notes), Locator jumps, annotations, inline canvas
+  highlights, source roles (`primary` vs `reference`), Space/Source rename and
+  detachment/deletion, progress, and history;
+- Provider profile editing/testing, intent-driven Reading Agent route
+  orchestration, and persisted Space evidence Q&A history with QA-to-note
+  conversion;
 - native notices, large-import confirmation, Source-removal confirmation, and
 persisted reader preferences.
 
