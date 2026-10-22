@@ -374,10 +374,23 @@ final class AppModel: ObservableObject {
 
     var currentSourceHighlights: [Annotation] {
         guard let sourceID = selectedSourceID else { return [] }
+        let activeSnapshotID = selectedSnapshot?.id
+        let previewingHistoricalSnapshot = isAnnotationPreview
         return annotations.filter { annotation in
-            annotation.sourceID == sourceID
-                && annotation.anchorState != .orphaned
-                && (annotation.kind == .highlight || annotation.selectedText?.isEmpty == false)
+            guard annotation.sourceID == sourceID,
+                  annotation.locator.sourceID == sourceID,
+                  annotation.anchorState != .orphaned,
+                  annotation.kind == .highlight || annotation.selectedText?.isEmpty == false else {
+                return false
+            }
+            guard let activeSnapshotID else { return true }
+            if previewingHistoricalSnapshot {
+                return annotation.snapshotID == activeSnapshotID
+                    && annotation.locator.snapshotID == activeSnapshotID
+            }
+            return (annotation.snapshotID == activeSnapshotID
+                && annotation.locator.snapshotID == activeSnapshotID)
+                || annotation.anchorState == .relocated
         }
     }
 

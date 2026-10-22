@@ -113,6 +113,8 @@ extension LibraryDatabase {
                 arguments: [spaceID, sourceID]
             )
 
+            let destinationSpaceID: String
+            let createdStandaloneSpace: Bool
             if let survivingSpaceID = try String.fetchOne(
                 db,
                 sql: """
@@ -124,11 +126,22 @@ extension LibraryDatabase {
                     """,
                 arguments: [sourceID, spaceID]
             ) {
-                try db.execute(
-                    sql: "UPDATE annotations SET space_id = ? WHERE space_id = ? AND source_id = ?",
-                    arguments: [survivingSpaceID, spaceID, sourceID]
+                destinationSpaceID = survivingSpaceID
+                createdStandaloneSpace = false
+            } else {
+                let standaloneSpaceID = try Self.createStandaloneSpaceForDetachedSource(
+                    db: db,
+                    sourceID: sourceID,
+                    originSpaceID: spaceID
                 )
+                destinationSpaceID = standaloneSpaceID
+                createdStandaloneSpace = true
             }
+
+            try db.execute(
+                sql: "UPDATE annotations SET space_id = ? WHERE space_id = ? AND source_id = ?",
+                arguments: [destinationSpaceID, spaceID, sourceID]
+            )
 
             if let row = try Row.fetchOne(
                 db,
@@ -144,6 +157,7 @@ extension LibraryDatabase {
                     ReadingProgress.self,
                     from: payload
                 )
+                let detachedPosition = progress.sourcePositions[sourceID]
                 progress.sourcePositions[sourceID] = nil
                 progress.sourceRoles[sourceID] = nil
                 progress.graphVersion = nil
@@ -159,6 +173,26 @@ extension LibraryDatabase {
                         spaceID,
                     ]
                 )
+
+                if createdStandaloneSpace, let detachedPosition {
+                    let standaloneProgress = ReadingProgress(
+                        sourcePositions: [sourceID: detachedPosition],
+                        lastActiveAt: detachedPosition.updatedAt
+                    )
+                    try db.execute(
+                        sql: """
+                            INSERT OR REPLACE INTO reading_progress
+                                (space_id, schema_version, payload_json, updated_at)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            destinationSpaceID,
+                            standaloneProgress.schemaVersion,
+                            try Self.deskLifecycleEncoder.encode(standaloneProgress),
+                            standaloneProgress.lastActiveAt,
+                        ]
+                    )
+                }
             }
 
             try db.execute(
@@ -277,11 +311,82 @@ extension LibraryDatabase {
                 arguments: [spaceID, spaceID, spaceID]
             )
 
+            // Defensive safeguard: if any surviving (non-removed) source still has
+            // annotations bound to this space without another space_sources entry,
+            // promote it into a standalone space so ON DELETE CASCADE never drops its notes.
+            let unattachedAnnotationSourceIDs = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT DISTINCT annotations.source_id
+                    FROM annotations
+                    JOIN sources ON sources.id = annotations.source_id
+                    WHERE annotations.space_id = ?
+                      AND sources.managed_state != 'removed'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM space_sources
+                          WHERE space_sources.source_id = annotations.source_id
+                            AND space_sources.space_id = ?
+                      )
+                    ORDER BY annotations.source_id ASC
+                    """,
+                arguments: [spaceID, spaceID]
+            )
+            for sourceID in unattachedAnnotationSourceIDs {
+                let standaloneSpaceID = try Self.createStandaloneSpaceForDetachedSource(
+                    db: db,
+                    sourceID: sourceID,
+                    originSpaceID: spaceID
+                )
+                try db.execute(
+                    sql: "UPDATE annotations SET space_id = ? WHERE space_id = ? AND source_id = ?",
+                    arguments: [standaloneSpaceID, spaceID, sourceID]
+                )
+            }
+
             try db.execute(
                 sql: "DELETE FROM reading_spaces WHERE id = ?",
                 arguments: [spaceID]
             )
         }
+    }
+
+    private static func createStandaloneSpaceForDetachedSource(
+        db: Database,
+        sourceID: String,
+        originSpaceID: String
+    ) throws -> String {
+        let now = Date.now
+        let sourceDisplayName = try String.fetchOne(
+            db,
+            sql: "SELECT display_name FROM sources WHERE id = ?",
+            arguments: [sourceID]
+        ) ?? sourceID
+        let stem = (sourceDisplayName as NSString).deletingPathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let standaloneTitle = stem.isEmpty ? sourceDisplayName : stem
+        let organizationState = try String.fetchOne(
+            db,
+            sql: "SELECT organization_state FROM reading_spaces WHERE id = ?",
+            arguments: [originSpaceID]
+        ) ?? SpaceOrganizationState.reading.rawValue
+        let standaloneSpaceID = UUID().uuidString.lowercased()
+        try db.execute(
+            sql: """
+                INSERT INTO reading_spaces
+                    (id, title, is_favorite, created_at, updated_at, last_opened_at, organization_state)
+                VALUES (?, ?, 0, ?, ?, NULL, ?)
+                """,
+            arguments: [standaloneSpaceID, standaloneTitle, now, now, organizationState]
+        )
+        try db.execute(
+            sql: """
+                INSERT INTO space_sources (space_id, source_id, position, added_at)
+                VALUES (?, ?, 0, ?)
+                """,
+            arguments: [standaloneSpaceID, sourceID, now]
+        )
+        return standaloneSpaceID
     }
 
     private static var deskLifecycleEncoder: JSONEncoder {

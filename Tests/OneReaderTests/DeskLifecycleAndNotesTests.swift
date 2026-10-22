@@ -262,6 +262,95 @@ final class DeskLifecycleAndNotesTests: XCTestCase {
         XCTAssertEqual(spaceBAnnotations.map(\.id), [sharedAnnotation.id])
     }
 
+    func testDetachingUnsharedSourceAndDeletingOriginalSpacePreservesSourceAndAnnotations() async throws {
+        let root = makeTemporaryRoot("DetachUnsharedThenDeleteOriginSpace")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let unsharedURL = root.appendingPathComponent("detached-paper.md")
+        let remainingURL = root.appendingPathComponent("remaining-paper.md")
+        try Data("# Detached Paper\n\nCritical paragraph to preserve.\n".utf8).write(to: unsharedURL)
+        try Data("# Remaining Paper\n\nStays in original space.\n".utf8).write(to: remainingURL)
+
+        let model = try await makeBootstrappedModel(root: root)
+        let database = try XCTUnwrap(model.database)
+        let library = try XCTUnwrap(model.managedLibrary)
+
+        let firstImport = try await library.importLocalSource(at: unsharedURL)
+        let originSpaceID = firstImport.space.id
+        let secondImport = try await library.importLocalSource(
+            at: remainingURL,
+            intoSpaceID: originSpaceID
+        )
+
+        let annotation = Annotation(
+            id: "unshared-detached-note-1",
+            spaceID: originSpaceID,
+            sourceID: firstImport.source.id,
+            snapshotID: firstImport.snapshot.id,
+            kind: .note,
+            locator: Locator(
+                sourceID: firstImport.source.id,
+                snapshotID: firstImport.snapshot.id,
+                adapterID: "markdown-text",
+                payload: ["relativePath": "detached-paper.md"],
+                structuralPath: "Detached Paper",
+                textQuote: TextQuote(
+                    prefix: nil,
+                    exact: "Critical paragraph to preserve.",
+                    suffix: nil
+                ),
+                fingerprint: firstImport.snapshot.digest
+            ),
+            anchorState: .current,
+            selectedText: "Critical paragraph to preserve.",
+            note: "移出空间并删除原空间后该笔记不能丢失",
+            color: "yellow",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        try database.saveAnnotation(annotation)
+
+        try model.reloadLibraryState()
+        model.openSpace(originSpaceID, preferredSourceID: firstImport.source.id)
+        XCTAssertTrue(model.canDetachSource(firstImport.source.id, fromSpaceID: originSpaceID))
+
+        model.detachSourceFromSpace(sourceID: firstImport.source.id, spaceID: originSpaceID)
+
+        // The detached unshared source must now reside in its own standalone ReadingSpace
+        let standaloneSpaces = try database.spaceIDs(containing: firstImport.source.id)
+        XCTAssertEqual(standaloneSpaces.count, 1)
+        let standaloneSpaceID = try XCTUnwrap(standaloneSpaces.first)
+        XCTAssertNotEqual(standaloneSpaceID, originSpaceID)
+
+        // Original space no longer retains the detached source's annotations
+        XCTAssertTrue(try database.fetchAnnotations(spaceID: originSpaceID).isEmpty)
+        XCTAssertEqual(
+            try database.fetchAnnotations(spaceID: standaloneSpaceID).map(\.id),
+            [annotation.id]
+        )
+
+        // Deleting the original space removes its remaining exclusive source,
+        // while preserving the detached source and its annotations.
+        let originSpace = try XCTUnwrap(model.spaces.first(where: { $0.id == originSpaceID }))
+        model.requestSpaceDeletion(originSpace)
+        model.confirmSpaceDeletion()
+
+        try await waitUntil {
+            !model.spaces.contains(where: { $0.id == originSpaceID })
+        }
+
+        XCTAssertNil(model.source(id: secondImport.source.id))
+        XCTAssertNotNil(model.source(id: firstImport.source.id))
+        XCTAssertTrue(model.spaces.contains(where: { $0.id == standaloneSpaceID }))
+
+        let survivingAnnotations = try database.fetchAnnotations(spaceID: standaloneSpaceID)
+        XCTAssertEqual(survivingAnnotations.map(\.id), [annotation.id])
+        XCTAssertEqual(survivingAnnotations.first?.note, "移出空间并删除原空间后该笔记不能丢失")
+
+        let notesPage = try await database.notesPage(query: NotesQuery())
+        XCTAssertEqual(notesPage.entries.map(\.id), [annotation.id])
+    }
+
     func testReferenceSourceRoleDoesNotDilutePrimaryReadingProgress() async throws {
         let root = makeTemporaryRoot("ReferenceSourceRoleProgress")
         defer { try? FileManager.default.removeItem(at: root) }

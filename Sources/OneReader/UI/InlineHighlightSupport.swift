@@ -69,6 +69,7 @@ enum InlineHighlightSupport {
         for annotation in eligible {
             guard let candidate = resolveSingleRange(
                 for: annotation,
+                documentLocator: documentLocator,
                 renderedString: renderedString,
                 renderedNSString: renderedNSString,
                 isMarkdown: isMarkdown
@@ -130,46 +131,69 @@ enum InlineHighlightSupport {
     static func resolvedPDFSelections(
         for annotations: [Annotation],
         in document: PDFDocument,
-        sourceID: String
+        documentLocator: Locator
     ) -> [PDFSelection] {
         guard document.pageCount > 0 else { return [] }
-        let eligible = annotations.filter { annotation in
-            annotation.sourceID == sourceID
-                && annotation.locator.sourceID == sourceID
-                && annotation.anchorState != .orphaned
-                && (annotation.kind == .highlight
-                    || annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                    || annotation.locator.textQuote?.exact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        }
+        let eligible = eligibleAnnotations(from: annotations, documentLocator: documentLocator)
 
         var selections: [PDFSelection] = []
         for annotation in eligible {
-            if let selection = resolveSinglePDFSelection(for: annotation, in: document) {
+            let allowPositional = canUsePositionalAnchors(
+                for: annotation,
+                documentLocator: documentLocator
+            )
+            if let selection = resolveSinglePDFSelection(
+                for: annotation,
+                in: document,
+                allowRectFallback: allowPositional
+            ) {
                 selections.append(selection)
             }
         }
         return selections
     }
 
+    static func resolvedPDFSelections(
+        for annotations: [Annotation],
+        in document: PDFDocument,
+        sourceID: String,
+        snapshotID: String? = nil
+    ) -> [PDFSelection] {
+        let inferredSnapshotID = snapshotID
+            ?? annotations.first(where: { $0.sourceID == sourceID })?.locator.snapshotID
+            ?? ""
+        let locator = Locator(
+            sourceID: sourceID,
+            snapshotID: inferredSnapshotID,
+            adapterID: PDFAdapter.id
+        )
+        return resolvedPDFSelections(
+            for: annotations,
+            in: document,
+            documentLocator: locator
+        )
+    }
+
     static func applyPDFHighlights(
         _ annotations: [Annotation],
         to document: PDFDocument,
-        sourceID: String
+        documentLocator: Locator
     ) {
         removeInlinePDFHighlights(from: document)
         guard document.pageCount > 0 else { return }
 
-        let eligible = annotations.filter { annotation in
-            annotation.sourceID == sourceID
-                && annotation.locator.sourceID == sourceID
-                && annotation.anchorState != .orphaned
-                && (annotation.kind == .highlight
-                    || annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                    || annotation.locator.textQuote?.exact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        }
+        let eligible = eligibleAnnotations(from: annotations, documentLocator: documentLocator)
 
         for annotation in eligible {
-            if let selection = resolveSinglePDFSelection(for: annotation, in: document) {
+            let allowPositional = canUsePositionalAnchors(
+                for: annotation,
+                documentLocator: documentLocator
+            )
+            if let selection = resolveSinglePDFSelection(
+                for: annotation,
+                in: document,
+                allowRectFallback: allowPositional
+            ) {
                 let lineSelections = selection.selectionsByLine()
                 let effectiveSelections = lineSelections.isEmpty ? [selection] : lineSelections
                 for lineSelection in effectiveSelections {
@@ -178,7 +202,9 @@ enum InlineHighlightSupport {
                         addInlinePDFHighlight(bounds: bounds, on: page)
                     }
                 }
-            } else if let pageIndex = annotation.locator.payload["pageIndex"].flatMap(Int.init),
+            } else if allowPositional,
+                      !hasQuoteText(annotation),
+                      let pageIndex = annotation.locator.payload["pageIndex"].flatMap(Int.init),
                       pageIndex >= 0,
                       pageIndex < document.pageCount,
                       let page = document.page(at: pageIndex),
@@ -187,6 +213,27 @@ enum InlineHighlightSupport {
                 addInlinePDFHighlight(bounds: clipped, on: page)
             }
         }
+    }
+
+    static func applyPDFHighlights(
+        _ annotations: [Annotation],
+        to document: PDFDocument,
+        sourceID: String,
+        snapshotID: String? = nil
+    ) {
+        let inferredSnapshotID = snapshotID
+            ?? annotations.first(where: { $0.sourceID == sourceID })?.locator.snapshotID
+            ?? ""
+        let locator = Locator(
+            sourceID: sourceID,
+            snapshotID: inferredSnapshotID,
+            adapterID: PDFAdapter.id
+        )
+        applyPDFHighlights(
+            annotations,
+            to: document,
+            documentLocator: locator
+        )
     }
 
     static func removeInlinePDFHighlights(from document: PDFDocument) {
@@ -215,8 +262,14 @@ enum InlineHighlightSupport {
                   !quote.isEmpty else {
                 return nil
             }
-            let domPath = annotation.locator.payload["domPath"].flatMap { $0.isEmpty ? nil : $0 }
-                ?? annotation.locator.structuralPath.flatMap { $0.hasPrefix("body") ? $0 : nil }
+            let allowPositional = canUsePositionalAnchors(
+                for: annotation,
+                documentLocator: documentLocator
+            )
+            let domPath = allowPositional
+                ? (annotation.locator.payload["domPath"].flatMap { $0.isEmpty ? nil : $0 }
+                    ?? annotation.locator.structuralPath.flatMap { $0.hasPrefix("body") ? $0 : nil })
+                : nil
             return WebHighlightDescriptor(
                 id: annotation.id,
                 quote: quote,
@@ -331,16 +384,44 @@ enum InlineHighlightSupport {
                   annotation.anchorState != .orphaned else {
                 return false
             }
+            let matchesSnapshot = matchesDocumentSnapshot(
+                annotation,
+                documentLocator: documentLocator
+            )
+            let hasQuote = hasQuoteText(annotation)
+            guard matchesSnapshot || (annotation.anchorState == .relocated && hasQuote) else {
+                return false
+            }
             let annotationRelativePath = normalizedRelativePath(annotation.locator.relativePath)
             guard annotationRelativePath == nil
                 || documentRelativePath == nil
                 || annotationRelativePath == documentRelativePath else {
                 return false
             }
-            return annotation.kind == .highlight
-                || annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                || annotation.locator.textQuote?.exact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return annotation.kind == .highlight || hasQuote
         }
+    }
+
+    private static func matchesDocumentSnapshot(
+        _ annotation: Annotation,
+        documentLocator: Locator
+    ) -> Bool {
+        guard !documentLocator.snapshotID.isEmpty else { return false }
+        return annotation.snapshotID == documentLocator.snapshotID
+            && annotation.locator.snapshotID == documentLocator.snapshotID
+    }
+
+    private static func canUsePositionalAnchors(
+        for annotation: Annotation,
+        documentLocator: Locator
+    ) -> Bool {
+        matchesDocumentSnapshot(annotation, documentLocator: documentLocator)
+            && annotation.anchorState == .current
+    }
+
+    private static func hasQuoteText(_ annotation: Annotation) -> Bool {
+        annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || annotation.locator.textQuote?.exact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private static func normalizedRelativePath(_ path: String?) -> String? {
@@ -354,6 +435,7 @@ enum InlineHighlightSupport {
 
     private static func resolveSingleRange(
         for annotation: Annotation,
+        documentLocator: Locator,
         renderedString: NSAttributedString,
         renderedNSString: NSString,
         isMarkdown: Bool
@@ -361,43 +443,39 @@ enum InlineHighlightSupport {
         let payload = annotation.locator.payload
         let startUTF16 = payload["startUTF16"].flatMap(Int.init)
         let endUTF16 = payload["endUTF16"].flatMap(Int.init)
+        let allowPositional = canUsePositionalAnchors(
+            for: annotation,
+            documentLocator: documentLocator
+        )
 
         if isMarkdown {
-            if let start = startUTF16, let end = endUTF16, end > start {
+            if allowPositional, let start = startUTF16, let end = endUTF16, end > start {
                 let sourceRange = NSRange(location: start, length: end - start)
                 if let mapped = MarkdownSourceMap.renderedRange(
                     forSourceRange: sourceRange,
                     in: renderedString
-                ), let clamped = clampRange(mapped, maxLength: renderedNSString.length) {
-                    return refineRenderedMarkdownRange(
-                        clamped,
-                        for: annotation,
-                        in: renderedNSString
-                    )
-                }
-                let nearOffset = approximateRenderedOffset(
-                    forSourceOffset: start,
-                    in: renderedString
-                ) ?? payload["renderedStartUTF16"].flatMap(Int.init)
-                if let matched = matchQuoteOrSelectedText(
-                    for: annotation,
-                    in: renderedNSString,
-                    preferredLocation: nearOffset
-                ) {
-                    return matched
+                ), let clamped = clampRange(mapped, maxLength: renderedNSString.length),
+                   let verified = verifyOrRefineRenderedMarkdownRange(
+                       clamped,
+                       for: annotation,
+                       in: renderedNSString
+                   ) {
+                    return verified
                 }
             }
-            let preferredOffset = payload["renderedStartUTF16"].flatMap(Int.init)
-                ?? startUTF16.flatMap {
-                    approximateRenderedOffset(forSourceOffset: $0, in: renderedString)
-                }
+            let preferredOffset = allowPositional
+                ? (payload["renderedStartUTF16"].flatMap(Int.init)
+                    ?? startUTF16.flatMap {
+                        approximateRenderedOffset(forSourceOffset: $0, in: renderedString)
+                    })
+                : nil
             return matchQuoteOrSelectedText(
                 for: annotation,
                 in: renderedNSString,
                 preferredLocation: preferredOffset
             )
         } else {
-            if let start = startUTF16, let end = endUTF16, end > start {
+            if allowPositional, let start = startUTF16, let end = endUTF16, end > start {
                 if let clamped = clampRange(
                     NSRange(location: start, length: end - start),
                     maxLength: renderedNSString.length
@@ -408,19 +486,19 @@ enum InlineHighlightSupport {
                         if candidates.contains(actual) {
                             return clamped
                         }
-                        if let relocated = matchQuoteOrSelectedText(
+                        return matchQuoteOrSelectedText(
                             for: annotation,
                             in: renderedNSString,
                             preferredLocation: clamped.location
-                        ) {
-                            return relocated
-                        }
+                        )
                     }
                     return clamped
                 }
             }
-            let preferredOffset = startUTF16
-                ?? lineRangeInUTF16(for: annotation.locator, in: renderedNSString)?.location
+            let preferredOffset = allowPositional
+                ? (startUTF16
+                    ?? lineRangeInUTF16(for: annotation.locator, in: renderedNSString)?.location)
+                : nil
             if let matched = matchQuoteOrSelectedText(
                 for: annotation,
                 in: renderedNSString,
@@ -428,28 +506,37 @@ enum InlineHighlightSupport {
             ) {
                 return matched
             }
-            if let lineRange = lineRangeInUTF16(for: annotation.locator, in: renderedNSString) {
+            if allowPositional,
+               quoteTextCandidates(for: annotation).isEmpty,
+               let lineRange = lineRangeInUTF16(for: annotation.locator, in: renderedNSString) {
                 return lineRange
             }
             return nil
         }
     }
 
-    private static func refineRenderedMarkdownRange(
+    private static func verifyOrRefineRenderedMarkdownRange(
         _ mappedRange: NSRange,
         for annotation: Annotation,
         in renderedNSString: NSString
-    ) -> NSRange {
-        guard let selected = annotation.selectedText, !selected.isEmpty else {
+    ) -> NSRange? {
+        let candidates = quoteTextCandidates(for: annotation)
+        guard !candidates.isEmpty else {
             return mappedRange
         }
         let mappedSubstring = renderedNSString.substring(with: mappedRange)
-        guard mappedSubstring != selected,
-              (selected as NSString).length < mappedRange.length else {
-            return mappedRange
+        for candidate in candidates {
+            if mappedSubstring == candidate {
+                return mappedRange
+            }
+            if (candidate as NSString).length <= mappedRange.length {
+                let subrange = renderedNSString.range(of: candidate, options: [], range: mappedRange)
+                if subrange.location != NSNotFound {
+                    return subrange
+                }
+            }
         }
-        let subrange = renderedNSString.range(of: selected, options: [], range: mappedRange)
-        return subrange.location != NSNotFound ? subrange : mappedRange
+        return nil
     }
 
     private static func approximateRenderedOffset(
@@ -521,6 +608,18 @@ enum InlineHighlightSupport {
            !quote.exact.isEmpty,
            let matched = matchTextQuote(
                quote,
+               in: renderedNSString,
+               preferredLocation: preferredLocation
+           ) {
+            return matched
+        }
+
+        if let selected = annotation.selectedText,
+           !selected.isEmpty,
+           let quote = annotation.locator.textQuote,
+           quote.exact != selected,
+           let matched = matchTextQuote(
+               TextQuote(prefix: quote.prefix, exact: selected, suffix: quote.suffix),
                in: renderedNSString,
                preferredLocation: preferredLocation
            ) {
@@ -684,7 +783,8 @@ enum InlineHighlightSupport {
 
     private static func resolveSinglePDFSelection(
         for annotation: Annotation,
-        in document: PDFDocument
+        in document: PDFDocument,
+        allowRectFallback: Bool
     ) -> PDFSelection? {
         let rawPageIndex = annotation.locator.payload["pageIndex"]
         let parsedPageIndex = rawPageIndex.flatMap(Int.init)
@@ -719,8 +819,10 @@ enum InlineHighlightSupport {
                 if let pageMatch = matches.first(where: { $0.pages.contains(targetPage) }) {
                     return pageMatch
                 }
+                return nil
             }
-            if let rectAnchor = PDFPageRectAnchor.parse(annotation.locator.payload["rect"]),
+            if allowRectFallback,
+               let rectAnchor = PDFPageRectAnchor.parse(annotation.locator.payload["rect"]),
                let rect = rectAnchor.clipped(to: targetPage.bounds(for: .mediaBox)),
                let selection = targetPage.selection(for: rect),
                selection.string?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {

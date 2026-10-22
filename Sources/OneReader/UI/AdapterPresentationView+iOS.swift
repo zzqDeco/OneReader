@@ -1042,7 +1042,7 @@ struct ManagedPDFPresentation: UIViewRepresentable {
             InlineHighlightSupport.applyPDFHighlights(
                 highlights,
                 to: document,
-                sourceID: documentLocator.sourceID
+                documentLocator: documentLocator
             )
         }
         context.coordinator.updateZoom(in: view)

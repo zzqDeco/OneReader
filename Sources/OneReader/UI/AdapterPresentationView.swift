@@ -1022,7 +1022,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             InlineHighlightSupport.applyPDFHighlights(
                 highlights,
                 to: document,
-                sourceID: documentLocator.sourceID
+                documentLocator: documentLocator
             )
         }
         let requestedScale = min(max(scale, 0.5), 3)

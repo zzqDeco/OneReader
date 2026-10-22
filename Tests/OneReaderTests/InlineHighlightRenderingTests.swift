@@ -586,6 +586,204 @@ final class InlineHighlightRenderingTests: XCTestCase {
         XCTAssertEqual(model.currentSourceHighlights.map(\.id), ["ann-current-b"])
     }
 
+    func testCrossSnapshotHighlightsNeverReuseStaleUTF16OffsetsOrLineRanges() throws {
+        let oldSource = "Target phrase at top.\n"
+        let newSource = "Inserted preface line that shifts offsets.\n\nTarget phrase at top.\n"
+        let oldNSString = oldSource as NSString
+        let oldPhraseRange = oldNSString.range(of: "Target phrase at top.")
+        XCTAssertNotEqual(oldPhraseRange.location, NSNotFound)
+
+        var renderer = NativeMarkdownRenderer(fontSize: 17, lineSpacing: 5)
+        let newRenderedMarkdown = renderer.render(newSource)
+        let newRenderedNSString = newRenderedMarkdown.string as NSString
+
+        let newDocumentLocator = Locator(
+            sourceID: "source-refresh",
+            snapshotID: "snap-2",
+            adapterID: "onereader.markdown",
+            payload: ["path": "docs/refreshed.md"]
+        )
+
+        // 1. Unmigrated (.current) annotation from snap-1 must NOT apply its old offset to snap-2
+        let unmigratedOldOffsetAnnotation = Annotation(
+            id: "hl-unmigrated-old-offset",
+            spaceID: "space-1",
+            sourceID: "source-refresh",
+            snapshotID: "snap-1",
+            kind: .highlight,
+            locator: Locator(
+                sourceID: "source-refresh",
+                snapshotID: "snap-1",
+                adapterID: "onereader.markdown",
+                payload: [
+                    "path": "docs/refreshed.md",
+                    "startUTF16": String(oldPhraseRange.location),
+                    "endUTF16": String(NSMaxRange(oldPhraseRange)),
+                ]
+            ),
+            anchorState: .current,
+            selectedText: nil,
+            note: "Offset-only old snapshot",
+            color: "yellow",
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        // 2. Relocated (.relocated) annotation from snap-1 still carries snap-1's startUTF16/endUTF16,
+        //    so it must ignore the stale offset and resolve strictly by quote in snap-2.
+        let relocatedShiftedAnnotation = Annotation(
+            id: "hl-relocated-shifted",
+            spaceID: "space-1",
+            sourceID: "source-refresh",
+            snapshotID: "snap-1",
+            kind: .highlight,
+            locator: Locator(
+                sourceID: "source-refresh",
+                snapshotID: "snap-1",
+                adapterID: "onereader.markdown",
+                payload: [
+                    "path": "docs/refreshed.md",
+                    "startUTF16": String(oldPhraseRange.location),
+                    "endUTF16": String(NSMaxRange(oldPhraseRange)),
+                    "startLine": "1",
+                    "endLine": "1",
+                ],
+                textQuote: TextQuote(prefix: nil, exact: "Target phrase at top.", suffix: nil)
+            ),
+            anchorState: .relocated,
+            selectedText: "Target phrase at top.",
+            note: nil,
+            color: "yellow",
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let markdownRanges = InlineHighlightSupport.resolvedUTF16Ranges(
+            for: [unmigratedOldOffsetAnnotation, relocatedShiftedAnnotation],
+            documentLocator: newDocumentLocator,
+            renderedString: newRenderedMarkdown,
+            isMarkdown: true
+        )
+        XCTAssertEqual(markdownRanges.count, 1)
+        XCTAssertEqual(
+            markdownRanges.map { newRenderedNSString.substring(with: $0) },
+            ["Target phrase at top."]
+        )
+
+        let plainRanges = InlineHighlightSupport.resolvedUTF16Ranges(
+            for: [unmigratedOldOffsetAnnotation, relocatedShiftedAnnotation],
+            documentLocator: newDocumentLocator,
+            renderedString: NSAttributedString(string: newSource),
+            isMarkdown: false
+        )
+        XCTAssertEqual(plainRanges.count, 1)
+        XCTAssertEqual(
+            plainRanges.map { (newSource as NSString).substring(with: $0) },
+            ["Target phrase at top."]
+        )
+    }
+
+    func testCrossSnapshotPDFHighlightsNeverReuseStaleRectangles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "OneReader-CrossSnapshotPDF-\(UUID().uuidString)"
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let pdfURL = root.appendingPathComponent("refreshed.pdf")
+        var mediaBox = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let consumer = try XCTUnwrap(CGDataConsumer(url: pdfURL as CFURL))
+        let context = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(
+                string: "Completely new PDF revision text",
+                attributes: [.font: PlatformHighlightColor.self == NSColor.self ? NSFont.systemFont(ofSize: 20) : NSFont.systemFont(ofSize: 20)]
+            )
+        )
+        context.textPosition = CGPoint(x: 30, y: 200)
+        CTLineDraw(line, context)
+        context.endPDFPage()
+        context.closePDF()
+
+        let document = try XCTUnwrap(PDFDocument(url: pdfURL))
+        let page = try XCTUnwrap(document.page(at: 0))
+
+        let staleRectFromOldSnapshot = Annotation(
+            id: "pdf-stale-rect",
+            spaceID: "space-1",
+            sourceID: "source-pdf",
+            snapshotID: "snap-pdf-1",
+            kind: .highlight,
+            locator: Locator(
+                sourceID: "source-pdf",
+                snapshotID: "snap-pdf-1",
+                adapterID: PDFAdapter.id,
+                payload: [
+                    "pageIndex": "0",
+                    "rect": "30.0,190.0,220.0,30.0",
+                ],
+                textQuote: TextQuote(
+                    prefix: nil,
+                    exact: "Old snapshot text that was replaced",
+                    suffix: nil
+                )
+            ),
+            anchorState: .relocated,
+            selectedText: "Old snapshot text that was replaced",
+            note: nil,
+            color: "yellow",
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let unmigratedOldSnapshot = Annotation(
+            id: "pdf-unmigrated-old",
+            spaceID: "space-1",
+            sourceID: "source-pdf",
+            snapshotID: "snap-pdf-1",
+            kind: .highlight,
+            locator: Locator(
+                sourceID: "source-pdf",
+                snapshotID: "snap-pdf-1",
+                adapterID: PDFAdapter.id,
+                payload: [
+                    "pageIndex": "0",
+                    "rect": "30.0,190.0,220.0,30.0",
+                ]
+            ),
+            anchorState: .current,
+            selectedText: nil,
+            note: "Rect only on old snapshot",
+            color: "yellow",
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let newDocumentLocator = Locator(
+            sourceID: "source-pdf",
+            snapshotID: "snap-pdf-2",
+            adapterID: PDFAdapter.id,
+            payload: ["pageIndex": "0"]
+        )
+
+        let selections = InlineHighlightSupport.resolvedPDFSelections(
+            for: [staleRectFromOldSnapshot, unmigratedOldSnapshot],
+            in: document,
+            documentLocator: newDocumentLocator
+        )
+        XCTAssertTrue(selections.isEmpty)
+
+        InlineHighlightSupport.applyPDFHighlights(
+            [staleRectFromOldSnapshot, unmigratedOldSnapshot],
+            to: document,
+            documentLocator: newDocumentLocator
+        )
+        XCTAssertFalse(
+            page.annotations.contains { $0.userName == InlineHighlightSupport.pdfAnnotationUserName }
+        )
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(3),
         condition: () -> Bool
