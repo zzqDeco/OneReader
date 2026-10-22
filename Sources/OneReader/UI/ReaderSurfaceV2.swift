@@ -203,11 +203,102 @@ struct ReaderSurfaceView: View {
                     pdfZoomFactor = zoom
                 },
                 ocrRevision: model.ocrDisplayRevision,
-                ocrTextSelectionEnabled: model.ocrTextSelectionEnabled
+                ocrTextSelectionEnabled: model.ocrTextSelectionEnabled,
+                highlights: model.currentSourceHighlights
             )
             .id(presentationToken)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                if let selection = model.currentSelection,
+                   !selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    contextualSelectionBar(for: selection)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
+    }
+
+    private func contextualSelectionBar(for selection: ReaderSelection) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                model.addHighlight()
+                model.currentSelection = nil
+            } label: {
+                Label("高亮", systemImage: "highlighter")
+                    .font(.callout.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.canCreateHighlight ? EditorialPalette.orange : .secondary)
+            .disabled(!model.canCreateHighlight)
+            .help(highlightHelp)
+            .accessibilityLabel("高亮")
+            .accessibilityIdentifier("reader-selection-highlight-button")
+
+            Divider()
+                .frame(height: 14)
+
+            Button {
+                model.inspectorTab = .annotations
+                model.isInspectorPresented = true
+            } label: {
+                Label("记笔记", systemImage: "note.text.badge.plus")
+                    .font(.callout.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(EditorialPalette.teal)
+            .help("编写带当前选区的笔记")
+            .accessibilityLabel("记笔记")
+            .accessibilityIdentifier("reader-selection-note-button")
+
+            if model.spaceSupportsAgentEvidence {
+                Divider()
+                    .frame(height: 14)
+
+                Button {
+                    model.askAboutCurrentSelection()
+                } label: {
+                    Label("问此段", systemImage: "text.bubble")
+                        .font(.callout.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(EditorialPalette.teal)
+                .help("围绕当前选区发起带证据的提问")
+                .accessibilityLabel("问此段")
+                .accessibilityIdentifier("reader-selection-ask-button")
+            }
+
+            Divider()
+                .frame(height: 14)
+
+            Button {
+                model.currentSelection = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("清除选区")
+            .accessibilityLabel("清除选区")
+            .accessibilityIdentifier("reader-selection-dismiss-button")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(
+            EditorialPalette.raised,
+            in: RoundedRectangle(cornerRadius: EditorialPalette.panelRadius, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: EditorialPalette.panelRadius, style: .continuous)
+                .strokeBorder(.separator.opacity(0.48), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reader-selection-bar")
     }
 
     private var readerFooter: some View {
