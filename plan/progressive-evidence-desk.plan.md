@@ -61,7 +61,7 @@ invariants.
 
 ## Verification
 
-- `swift test`
+- `swift test` (393/393 tests passing, including `ProgressiveEvidenceDeskMacAcceptanceTests`)
 - `swift build --configuration release`
 - `python3 scripts/check-doc-index.py`
 - `python3 scripts/check-apple-platform-metadata.py`
@@ -69,3 +69,13 @@ invariants.
 - `scripts/build-ios-simulator.sh`
 - `scripts/package-app.sh`
 - `git diff --check`
+
+## Real-Device & Multi-Platform Native Acceptance
+
+- **Physical iPhone (`赵子谦的iPhone`, `iPhone 18 Pro Max`, UDID `00008160-0006456A0CD0000A`, iOS 26.1+)**:
+  - Executed `OneReader-iOSLayoutTests` (33/33 tests passing on hardware, including `ProgressiveEvidenceDeskDeviceTests`, `LocalOCRDeviceTests`, `NativePDFSelectionDeviceTests`, `OCRPresentationTests`, `PDFZoomControllerTests`, and `ReaderTextViewportTests`) in isolated test bundle `io.github.zzqDeco.OneReader.ImportZoomAcceptance`.
+  - Verified live `UIWindow` rendering and exported hardware `XCTAttachment` screenshots across:
+    - **iPhone Compact (`390x844`, Light & Dark)**: Inline `UITextView` & `PDFView` canvas highlights, Contextual Selection Bar (`reader-selection-bar`), `问此段` inspector sheet, and Unified Library Search (`正文命中` + `笔记与高亮命中`).
+    - **iPad Regular (`1024x768`, `.regular` horizontalSizeClass, Light & Dark)**: Persistent split navigation sidebar, inline canvas highlight, and reader footer bar.
+- **Native macOS (`OneReader-macOS`, `NSWindow` live hosting)**:
+  - Executed `ProgressiveEvidenceDeskMacAcceptanceTests` across **Wide (`1440x900`)** and **Narrow (`900x650`)** frames in both **Light (`.aqua`)** and **Dark (`.darkAqua`)** appearances, verifying 3-column reader workspace, inline `NSTextView` highlight attributes, Contextual Selection Bar, QA-to-Note persistence, and Unified Library Search.
