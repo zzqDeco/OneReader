@@ -1,6 +1,6 @@
 # Progressive Evidence Desk (渐进式证据研读台)
 
-Status: Active
+Status: Delivered
 
 ## Goal
 
