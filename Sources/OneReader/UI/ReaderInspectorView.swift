@@ -307,36 +307,27 @@ struct ReaderInspectorView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let answer = model.evidenceAnswer {
-                        Text(answer.answer)
-                            .textSelection(.enabled)
-                        if !answer.citations.isEmpty {
+                    if let currentQA = model.currentEvidenceQA {
+                        EvidenceQACard(
+                            qa: currentQA,
+                            onOpenCitation: { model.openLocator($0) },
+                            onSaveAsNote: { model.saveEvidenceQAAsNote(currentQA, citationIndex: $0) }
+                        )
+
+                        let previousItems = model.evidenceQAHistory.filter { $0.id != currentQA.id }
+                        if !previousItems.isEmpty {
                             Divider()
-                            Text("证据")
-                                .font(.headline)
-                            ForEach(answer.citations) { citation in
-                                Button {
-                                    model.openLocator(citation.locator)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("“\(citation.quote)”")
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(4)
-                                        Text(citation.locator.conciseDescription)
-                                            .font(.caption.monospaced())
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(9)
-                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label("历史问答记录", systemImage: "clock.arrow.circlepath")
+                                    .font(.headline)
+                                ForEach(previousItems) { item in
+                                    EvidenceQACard(
+                                        qa: item,
+                                        onOpenCitation: { model.openLocator($0) },
+                                        onSaveAsNote: { model.saveEvidenceQAAsNote(item, citationIndex: $0) }
+                                    )
                                 }
-                                .buttonStyle(.plain)
                             }
-                        }
-                        ForEach(answer.limitations, id: \.self) { limitation in
-                            Label(limitation, systemImage: "info.circle")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     } else {
                         ContentUnavailableView(
@@ -373,6 +364,84 @@ struct ReaderInspectorView: View {
     }
 }
 
+private struct EvidenceQACard: View {
+    let qa: CompletedEvidenceQA
+    let onOpenCitation: (Locator) -> Void
+    let onSaveAsNote: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(qa.question)
+                        .font(.subheadline.weight(.semibold))
+                    Text(qa.createdAt, style: .time)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 4)
+                Button("存为笔记") {
+                    onSaveAsNote(0)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(qa.answer.citations.isEmpty)
+            }
+
+            Text(qa.answer.answer)
+                .font(.callout)
+                .textSelection(.enabled)
+
+            if !qa.answer.citations.isEmpty {
+                Divider()
+                Text("证据")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(Array(qa.answer.citations.enumerated()), id: \.element.id) { index, citation in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            onOpenCitation(citation.locator)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("“\(citation.quote)”")
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(4)
+                                Text(citation.locator.conciseDescription)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+
+                        if qa.answer.citations.count > 1 {
+                            HStack {
+                                Spacer()
+                                Button("按此引证存为笔记") {
+                                    onSaveAsNote(index)
+                                }
+                                .buttonStyle(.plain)
+                                .font(.caption2)
+                                .foregroundStyle(ReaderTheme.teal)
+                            }
+                        }
+                    }
+                    .padding(9)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                }
+            }
+
+            ForEach(qa.answer.limitations, id: \.self) { limitation in
+                Label(limitation, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(11)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 11))
+    }
+}
+
 private struct AnnotationRow: View {
     let annotation: Annotation
 
@@ -394,7 +463,10 @@ private struct AnnotationRow: View {
                 HStack {
                     Text(annotation.locator.conciseDescription)
                     Spacer()
-                    Text(annotation.anchorState.rawValue)
+                    if let badge = annotation.anchorState.localizedBadgeTitle {
+                        Text(badge)
+                            .foregroundStyle(annotation.anchorState == .orphaned ? ReaderTheme.orange : .secondary)
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
