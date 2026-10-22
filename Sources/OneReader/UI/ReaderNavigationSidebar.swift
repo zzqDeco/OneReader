@@ -158,10 +158,15 @@ struct ReaderNavigationSidebar: View {
                         .contextMenu {
                             Button(role == .primary ? "设为参考附件" : "设为主读材料") {
                                 let nextRole: SpaceSourceRole = role == .primary ? .reference : .primary
-                                model.updateProgress { $0.sourceRoles[source.id] = nextRole }
+                                model.setSourceRole(nextRole, for: source.id)
                             }
                             Button("重命名来源…") {
-                                model.sourcePendingRename = source
+                                model.requestSourceRename(source)
+                            }
+                            if model.canDetachSource(source.id) {
+                                Button("从当前空间移出") {
+                                    model.detachSourceFromSpace(sourceID: source.id)
+                                }
                             }
                             Divider()
                             Button("刷新来源") {

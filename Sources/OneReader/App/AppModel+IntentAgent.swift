@@ -31,12 +31,6 @@ extension AppModel {
         updateProgress { $0.activeGoal = goal }
     }
 
-    func setSourceRole(_ role: SpaceSourceRole, for sourceID: String) {
-        updateProgress { progress in
-            progress.sourceRoles[sourceID] = role
-        }
-    }
-
     func launchIntentAgentPipeline(skipHighConfidenceRouting: Bool = true) {
         guard spaceSupportsAgentEvidence else {
             notice = AppNotice(
