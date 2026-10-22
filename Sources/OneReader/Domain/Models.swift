@@ -430,7 +430,70 @@ struct ReadingProgress: Codable, Hashable, Sendable {
     var currentPlanStepID: String?
     var units: [String: UnitProgress]
     var sourcePositions: [String: SourcePosition]
+    var sourceRoles: [String: SpaceSourceRole]
     var lastActiveAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case graphVersion
+        case activeGoal
+        case currentUnitID
+        case currentPlanStepID
+        case units
+        case sourcePositions
+        case sourceRoles
+        case lastActiveAt
+    }
+
+    init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        graphVersion: String? = nil,
+        activeGoal: ReadingGoal = .systematic,
+        currentUnitID: String? = nil,
+        currentPlanStepID: String? = nil,
+        units: [String: UnitProgress] = [:],
+        sourcePositions: [String: SourcePosition] = [:],
+        sourceRoles: [String: SpaceSourceRole] = [:],
+        lastActiveAt: Date = .now
+    ) {
+        self.schemaVersion = schemaVersion
+        self.graphVersion = graphVersion
+        self.activeGoal = activeGoal
+        self.currentUnitID = currentUnitID
+        self.currentPlanStepID = currentPlanStepID
+        self.units = units
+        self.sourcePositions = sourcePositions
+        self.sourceRoles = sourceRoles
+        self.lastActiveAt = lastActiveAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        graphVersion = try container.decodeIfPresent(String.self, forKey: .graphVersion)
+        activeGoal = try container.decode(ReadingGoal.self, forKey: .activeGoal)
+        currentUnitID = try container.decodeIfPresent(String.self, forKey: .currentUnitID)
+        currentPlanStepID = try container.decodeIfPresent(String.self, forKey: .currentPlanStepID)
+        units = try container.decode([String: UnitProgress].self, forKey: .units)
+        sourcePositions = try container.decode([String: SourcePosition].self, forKey: .sourcePositions)
+        sourceRoles = try container.decodeIfPresent([String: SpaceSourceRole].self, forKey: .sourceRoles) ?? [:]
+        lastActiveAt = try container.decode(Date.self, forKey: .lastActiveAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encodeIfPresent(graphVersion, forKey: .graphVersion)
+        try container.encode(activeGoal, forKey: .activeGoal)
+        try container.encodeIfPresent(currentUnitID, forKey: .currentUnitID)
+        try container.encodeIfPresent(currentPlanStepID, forKey: .currentPlanStepID)
+        try container.encode(units, forKey: .units)
+        try container.encode(sourcePositions, forKey: .sourcePositions)
+        if !sourceRoles.isEmpty {
+            try container.encode(sourceRoles, forKey: .sourceRoles)
+        }
+        try container.encode(lastActiveAt, forKey: .lastActiveAt)
+    }
 
     static var empty: ReadingProgress {
         ReadingProgress(
@@ -441,12 +504,17 @@ struct ReadingProgress: Codable, Hashable, Sendable {
             currentPlanStepID: nil,
             units: [:],
             sourcePositions: [:],
+            sourceRoles: [:],
             lastActiveAt: .now
         )
     }
 
     func state(for unitID: String) -> UnitProgressState {
         units[unitID]?.state ?? .unseen
+    }
+
+    func role(for sourceID: String) -> SpaceSourceRole {
+        sourceRoles[sourceID] ?? .primary
     }
 
     var completedUnitIDs: Set<String> {

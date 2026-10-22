@@ -155,6 +155,15 @@ final class AppModel: ObservableObject {
     @Published var searchScope: ReaderSearchScope = .space
     @Published private(set) var searchResults: [ContentSearchHit] = []
     @Published private(set) var isSearching = false
+    @Published var unifiedSearchResults = UnifiedLibrarySearchResults()
+    @Published var isUnifiedSearching = false
+    var unifiedSearchTask: Task<Void, Never>?
+    @Published var selectedReadingGoal: ReadingGoal = .systematic
+    @Published var customReadingGoalText = ""
+    @Published var evidenceQAHistory: [CompletedEvidenceQA] = []
+    @Published var spacePendingDeletion: ReadingSpace?
+    @Published var spacePendingRename: ReadingSpace?
+    @Published var sourcePendingRename: Source?
 
     @Published private(set) var pendingImports: [PendingImport] = []
     @Published var captureJobs: [CaptureJob] = []
@@ -187,24 +196,24 @@ final class AppModel: ObservableObject {
     private let presentationRegistry = PresentationRegistry.standard
     private let secretStore: any ProviderSecretStore
     private let agentDriverFactory: any ReadingAgentDriverFactory
-    private var database: LibraryDatabase?
-    private var managedLibrary: ManagedLibrary?
-    private var registry: AdapterRegistry?
-    private var coordinator: AdapterCoordinator?
-    private var remoteImporter: RemoteSourceImporter?
-    private var agentRuntime: ReadingAgentRuntime?
+    var database: LibraryDatabase?
+    var managedLibrary: ManagedLibrary?
+    var registry: AdapterRegistry?
+    var coordinator: AdapterCoordinator?
+    var remoteImporter: RemoteSourceImporter?
+    var agentRuntime: ReadingAgentRuntime?
 
     private var deterministicActivityBySpace: [String: [ReaderActivityItem]] = [:]
-    private var contentGeneration = UUID()
-    private var workspaceGeneration = UUID()
-    private var contentTask: Task<Void, Never>?
-    private var searchTask: Task<Void, Never>?
+    var contentGeneration = UUID()
+    var workspaceGeneration = UUID()
+    var contentTask: Task<Void, Never>?
+    var searchTask: Task<Void, Never>?
     private var positionSaveTask: Task<Void, Never>?
     private var pendingPositionUpdate: PendingReadingPosition?
     private var activeReadingPositionCaptureTargetID = UUID()
     private var importTasks: [UUID: Task<Void, Never>] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
-    private var agentTask: Task<Void, Never>?
+    var agentTask: Task<Void, Never>?
     private var activeAgentRunID: String?
     private var activeAgentRunSpaceID: String?
     private var indexTasks: [String: Task<Void, Never>] = [:]
@@ -235,6 +244,7 @@ final class AppModel: ObservableObject {
     deinit {
         contentTask?.cancel()
         searchTask?.cancel()
+        unifiedSearchTask?.cancel()
         positionSaveTask?.cancel()
         importTasks.values.forEach { $0.cancel() }
         refreshTasks.values.forEach { $0.cancel() }
@@ -362,6 +372,15 @@ final class AppModel: ObservableObject {
             && currentSelection?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
+    var currentSourceHighlights: [Annotation] {
+        guard let sourceID = selectedSourceID else { return [] }
+        return annotations.filter { annotation in
+            annotation.sourceID == sourceID
+                && annotation.anchorState != .orphaned
+                && (annotation.kind == .highlight || annotation.selectedText?.isEmpty == false)
+        }
+    }
+
     var spaceSupportsSearch: Bool {
         selectedSpaceID.map { capabilityAvailable(.search, in: $0) } == true
     }
@@ -431,11 +450,13 @@ final class AppModel: ObservableObject {
     func progressFraction(for spaceID: String) -> Double {
         let progress = progressBySpace[spaceID] ?? .empty
         let sourceIDs = sourceIDs(in: spaceID)
-        let sourceFractions = sourceIDs.compactMap {
+        let primarySourceIDs = sourceIDs.filter { progress.role(for: $0) == .primary }
+        let effectiveSourceIDs = primarySourceIDs.isEmpty ? sourceIDs : primarySourceIDs
+        let sourceFractions = effectiveSourceIDs.compactMap {
             progress.sourcePositions[$0]?.progressFraction
         }
-        if !sourceFractions.isEmpty, !sourceIDs.isEmpty {
-            return sourceFractions.reduce(0, +) / Double(sourceIDs.count)
+        if !sourceFractions.isEmpty, !effectiveSourceIDs.isEmpty {
+            return sourceFractions.reduce(0, +) / Double(effectiveSourceIDs.count)
         }
         guard let graph = graphsBySpace[spaceID], !graph.units.isEmpty else { return 0 }
         let completed = graph.units.reduce(into: 0) { result, unit in
@@ -917,7 +938,7 @@ final class AppModel: ObservableObject {
         try await database?.notesEntry(id: annotation.id)
     }
 
-    private func openNotesEntry(_ staleEntry: NotesEntry) async throws {
+    func openNotesEntry(_ staleEntry: NotesEntry) async throws {
         notesOpenGeneration = UUID()
         let generation = notesOpenGeneration
         let workspace = workspaceGeneration
@@ -925,8 +946,15 @@ final class AppModel: ObservableObject {
               let entry = try await database.notesEntry(id: staleEntry.id),
               entry.annotation.sourceID == staleEntry.annotation.sourceID,
               entry.annotation.snapshotID == staleEntry.annotation.snapshotID,
-              entry.sourceAvailable,
-              try database.sourceIDs(in: entry.annotation.spaceID).contains(entry.annotation.sourceID) else {
+              entry.sourceAvailable else {
+            throw NotesError.unavailableSource
+        }
+        let targetSpaceID: String
+        if try database.sourceIDs(in: entry.annotation.spaceID).contains(entry.annotation.sourceID) {
+            targetSpaceID = entry.annotation.spaceID
+        } else if let fallbackSpaceID = try database.spaceIDs(containing: entry.annotation.sourceID).first {
+            targetSpaceID = fallbackSpaceID
+        } else {
             throw NotesError.unavailableSource
         }
         let annotation = entry.annotation
@@ -938,12 +966,12 @@ final class AppModel: ObservableObject {
         guard resolution.state != .orphaned, let locator = resolution.resolved else {
             throw AdapterError.invalidLocator("原快照定位失败：\(resolution.reason)。保留的摘录与笔记仍可查看。")
         }
-        transitionWorkspace(to: annotation.spaceID)
-        selectedSpaceID = annotation.spaceID
+        transitionWorkspace(to: targetSpaceID)
+        selectedSpaceID = targetSpaceID
         isReadingWorkspaceOpen = true
         navigationTab = .outline
         try reloadLibraryState(preservingSelection: true)
-        try loadSpaceState(spaceID: annotation.spaceID)
+        try loadSpaceState(spaceID: targetSpaceID)
         isNotesCenterPresented = false
         openSource(annotation.sourceID, locator: locator, captureOutgoingPosition: false,
                    annotationSnapshotID: annotation.snapshotID)
@@ -1462,7 +1490,7 @@ final class AppModel: ObservableObject {
         removePending(id: pendingID)
     }
 
-    private func removeSource(_ sourceID: String) {
+    func removeSource(_ sourceID: String) {
         guard let managedLibrary else { return }
         Task { [weak self] in
             guard let self else { return }
@@ -1637,6 +1665,17 @@ final class AppModel: ObservableObject {
                 question: normalized
             )
         }
+    }
+
+    func askAboutCurrentSelection(_ promptPrefix: String = "请结合这段原文解释其核心含义与上下文论据：") {
+        guard let selection = currentSelection else { return }
+        let quote = selection.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !quote.isEmpty else { return }
+        inspectorTab = .ask
+        isInspectorPresented = true
+        let prefix = promptPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = prefix.isEmpty ? "「\(quote)」" : "\(prefix)\n「\(quote)」"
+        askAgent(question)
     }
 
     func cancelAgentRun() {
@@ -2078,7 +2117,7 @@ final class AppModel: ObservableObject {
         return Array(results.sorted { $0.rank > $1.rank }.prefix(limit))
     }
 
-    private func saveAnnotation(
+    func saveAnnotation(
         kind: AnnotationKind,
         locator explicitLocator: Locator? = nil,
         selectedText: String?,
@@ -2130,7 +2169,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func loadAnnotations() {
+    func loadAnnotations() {
         guard let database, let spaceID = selectedSpaceID else {
             annotations = []
             return
@@ -2212,7 +2251,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func transitionWorkspace(to _: String?) {
+    func transitionWorkspace(to _: String?) {
         flushReadingPosition()
         notesOpenGeneration = UUID()
         annotationPreviewSnapshotID = nil
@@ -2225,6 +2264,7 @@ final class AppModel: ObservableObject {
         currentSelection = nil
         currentPositionLocator = nil
         evidenceAnswer = nil
+        evidenceQAHistory = []
         searchResults = []
         isSearching = false
         // Cancelling the consumer terminates its AsyncStream. The Session then
@@ -2232,7 +2272,7 @@ final class AppModel: ObservableObject {
         // can never cancel a newer run after the user returns to A.
     }
 
-    private func setReadingProgress(
+    func setReadingProgress(
         _ progress: ReadingProgress?,
         for spaceID: String,
         publishesGlobally: Bool = true
@@ -2261,7 +2301,7 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func updateProgress(_ mutation: (inout ReadingProgress) -> Void) {
+    func updateProgress(_ mutation: (inout ReadingProgress) -> Void) {
         guard let database, let spaceID = selectedSpaceID else { return }
         var progress = progressBySpace[spaceID] ?? .empty
         mutation(&progress)
@@ -2274,7 +2314,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func executeAgentPipeline(
+    func executeAgentPipeline(
         spaceID: String,
         generation: UUID,
         routingAfterSourceID: String? = nil
@@ -2329,7 +2369,7 @@ final class AppModel: ObservableObject {
         await executeDownstreamAgentPipeline(spaceID: spaceID, generation: generation)
     }
 
-    private func executeDownstreamAgentPipeline(
+    func executeDownstreamAgentPipeline(
         spaceID: String,
         generation: UUID
     ) async {
@@ -2344,7 +2384,7 @@ final class AppModel: ObservableObject {
         await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
     }
 
-    private func executeAgentPipelineAfterScout(
+    func executeAgentPipelineAfterScout(
         spaceID: String,
         generation: UUID
     ) async {
@@ -2357,15 +2397,16 @@ final class AppModel: ObservableObject {
         await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
     }
 
-    private func executeAgentPipelineAfterMaterialize(
+    func executeAgentPipelineAfterMaterialize(
         spaceID: String,
-        generation: UUID
+        generation: UUID,
+        goal: String = "systematic"
     ) async {
         _ = await runAgentTask(
             .projectRoute,
             spaceID: spaceID,
             pipeline: .readingStructure,
-            goal: "systematic",
+            goal: goal,
             generation: generation
         )
     }
@@ -2403,7 +2444,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func runAgentTask(
+    func runAgentTask(
         _ kind: AgentTaskKind,
         spaceID: String,
         pipeline: AgentPipelineKind? = nil,
@@ -2453,7 +2494,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func consume(
+    func consume(
         handle: AgentRunHandle,
         spaceID: String,
         generation: UUID
@@ -2485,6 +2526,7 @@ final class AppModel: ObservableObject {
         if let output = try? database.agentOutput(runID: handle.runID)?.output,
            case .evidenceAnswer(let answer) = output {
             evidenceAnswer = answer
+            loadEvidenceQAHistory(spaceID: spaceID)
             inspectorTab = .ask
             isInspectorPresented = true
         }
@@ -2492,7 +2534,39 @@ final class AppModel: ObservableObject {
         loadAgentActivity(spaceID: spaceID)
     }
 
-    private func appendActivity(
+    func loadEvidenceQAHistory(spaceID: String) {
+        guard let database else {
+            evidenceQAHistory = []
+            return
+        }
+        let runs = (try? database.fetchAgentRuns(spaceID: spaceID)) ?? []
+        var items: [CompletedEvidenceQA] = []
+        for run in runs where run.task == .answerWithEvidence && run.state == .completed {
+            guard let request = try? database.request(forRunID: run.id),
+                  let question = request.question?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !question.isEmpty,
+                  let record = try? database.agentOutput(runID: run.id),
+                  case .evidenceAnswer(let answer) = record.output else { continue }
+            items.append(
+                CompletedEvidenceQA(
+                    id: run.id,
+                    runID: run.id,
+                    spaceID: spaceID,
+                    question: question,
+                    answer: answer,
+                    createdAt: run.finishedAt ?? run.createdAt
+                )
+            )
+        }
+        if selectedSpaceID == spaceID {
+            evidenceQAHistory = items
+            if evidenceAnswer == nil {
+                evidenceAnswer = items.first?.answer
+            }
+        }
+    }
+
+    func appendActivity(
         spaceID: String,
         phase: String,
         message: String,
@@ -2663,7 +2737,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func loadAgentActivity(spaceID: String) {
+    func loadAgentActivity(spaceID: String) {
         guard let database else { return }
         let runs = (try? database.fetchAgentRuns(spaceID: spaceID)) ?? []
         var mapped = deterministicActivityBySpace[spaceID] ?? []
@@ -2694,7 +2768,7 @@ final class AppModel: ObservableObject {
         bilingualReading.providerDidChange(activeProvider)
     }
 
-    private func refreshReadingStructureState(spaceID: String) throws {
+    func refreshReadingStructureState(spaceID: String) throws {
         guard let database else { return }
         var progress: ReadingProgress
         if let cached = progressBySpace[spaceID] {
@@ -2753,16 +2827,19 @@ final class AppModel: ObservableObject {
         pendingPlansBySpace[spaceID] = nil
     }
 
-    private func loadSpaceState(spaceID: String) throws {
+    func loadSpaceState(spaceID: String) throws {
         guard let database else { return }
-        setReadingProgress(try database.fetchReadingProgress(spaceID: spaceID), for: spaceID)
+        let progress = try database.fetchReadingProgress(spaceID: spaceID)
+        setReadingProgress(progress, for: spaceID)
+        selectedReadingGoal = progress.activeGoal
         try refreshReadingStructureState(spaceID: spaceID)
         annotations = try database.fetchAnnotations(spaceID: spaceID)
         history = try database.fetchReadingHistory(spaceID: spaceID, limit: 100)
         loadAgentActivity(spaceID: spaceID)
+        loadEvidenceQAHistory(spaceID: spaceID)
     }
 
-    private func reloadLibraryState(preservingSelection: Bool = false) throws {
+    func reloadLibraryState(preservingSelection: Bool = false) throws {
         guard let database else { return }
         spaces = try database.fetchSpaces()
         sources = try database.fetchSources()
