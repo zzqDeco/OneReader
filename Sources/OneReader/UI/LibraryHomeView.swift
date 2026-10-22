@@ -28,6 +28,8 @@ struct LibraryHomeView: View {
 
                 if model.spaces.isEmpty && model.pendingImports.isEmpty && model.captureJobs.isEmpty {
                     emptyLibrary
+                } else if model.hasActiveLibrarySearch {
+                    unifiedSearchSection
                 } else if model.visibleSpaces.isEmpty {
                     ContentUnavailableView(
                         "这里还没有内容",
@@ -52,6 +54,9 @@ struct LibraryHomeView: View {
         .background(ReaderTheme.grouped)
         .navigationTitle(model.selectedCollection.title)
         .searchable(text: $model.librarySearchText, prompt: "搜索空间或收集任务")
+        .onChange(of: model.librarySearchText) { _, _ in
+            model.performUnifiedLibrarySearch()
+        }
     }
 
     private var libraryHeader: some View {
@@ -228,6 +233,156 @@ struct LibraryHomeView: View {
         }
     }
 
+    private var unifiedSearchSection: some View {
+        VStack(alignment: .leading, spacing: compactLayout ? 20 : 26) {
+            if model.isUnifiedSearching {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在搜索资料库…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !model.visibleSpaces.isEmpty {
+                shelf
+            }
+
+            if !model.unifiedSearchResults.contentHits.isEmpty {
+                contentHitsSection
+            }
+
+            if !model.unifiedSearchResults.noteEntries.isEmpty {
+                noteHitsSection
+            }
+
+            if model.unifiedSearchResults.isEmpty && !model.isUnifiedSearching {
+                ContentUnavailableView(
+                    "未找到匹配的空间、正文或笔记",
+                    systemImage: "magnifyingglass",
+                    description: Text("请尝试其他关键词，或确认材料已完成后台索引。")
+                )
+                .frame(maxWidth: .infinity, minHeight: 280)
+                .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                .accessibilityIdentifier("library-search-empty-state")
+            }
+        }
+    }
+
+    private var contentHitsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle(
+                "正文命中 (\(model.unifiedSearchResults.contentHits.count))",
+                systemImage: "doc.text.magnifyingglass"
+            )
+            ForEach(model.unifiedSearchResults.contentHits) { hit in
+                Button {
+                    model.openLibraryContentSearchHit(hit)
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(model.source(id: hit.sourceID)?.displayName ?? hit.sourceID)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(ReaderTheme.teal)
+                            Text("·")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                            Text(hit.title.isEmpty ? hit.locator.conciseDescription : hit.title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            if let structuralPath = hit.locator.structuralPath,
+                               !structuralPath.isEmpty,
+                               structuralPath != hit.title {
+                                Text(structuralPath)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Text(
+                            hit.context
+                                .replacingOccurrences(of: "[", with: "")
+                                .replacingOccurrences(of: "]", with: "")
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                    }
+                    .padding(13)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: ReaderTheme.panelRadius)
+                            .stroke(.separator.opacity(0.35), lineWidth: 0.5)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-content-hit-\(hit.id)")
+            }
+        }
+    }
+
+    private var noteHitsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle(
+                "笔记与高亮命中 (\(model.unifiedSearchResults.noteEntries.count))",
+                systemImage: "note.text"
+            )
+            ForEach(model.unifiedSearchResults.noteEntries) { entry in
+                Button {
+                    model.openLibraryNoteHit(entry)
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Label(entry.annotation.kind.notesTitle, systemImage: entry.annotation.kind.notesSymbol)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(ReaderTheme.teal)
+                            Text("\(entry.spaceTitle) · \(entry.sourceTitle) · \(entry.location)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        Text(entry.preview)
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                        if entry.annotation.selectedText != nil,
+                           let note = entry.annotation.note,
+                           !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                        if !entry.tags.isEmpty {
+                            Text(entry.tags.map { "#\($0.name)" }.joined(separator: "  "))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(ReaderTheme.teal)
+                        }
+                    }
+                    .padding(13)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ReaderTheme.raised, in: RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: ReaderTheme.panelRadius)
+                            .stroke(.separator.opacity(0.35), lineWidth: 0.5)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: ReaderTheme.panelRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-note-hit-\(entry.id)")
+            }
+        }
+    }
+
     private func sectionTitle(_ title: String, systemImage: String? = nil) -> some View {
         HStack(spacing: 7) {
             if let systemImage {
@@ -394,8 +549,15 @@ private struct SpaceBookCard: View {
             Button(space.isFavorite ? "取消收藏" : "收藏") {
                 model.toggleSpaceFavorite(space.id)
             }
+            Button("重命名空间…") {
+                model.spacePendingRename = space
+            }
             Divider()
             SpaceOrganizationMenu(spaceIDs: [space.id])
+            Divider()
+            Button("删除空间…", role: .destructive) {
+                model.spacePendingDeletion = space
+            }
         }
         .accessibilityLabel(
             "\(space.title)，\(sources.count) 个来源，进度 \(Int(model.progressFraction(for: space.id) * 100))%"
