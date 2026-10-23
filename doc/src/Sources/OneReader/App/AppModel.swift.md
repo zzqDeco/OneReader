@@ -12,6 +12,12 @@ annotations after edits, and resolve strict local routes. Original-snapshot
 preview retains the requested snapshot, suppresses progress/history writes and
 does not start indexing or Agent work. Normal source opening exits preview.
 See [notes-center boundaries](../Persistence/NotesPersistence.swift.md).
+`openEvidenceCitation` explicitly selects that original-Snapshot path for both
+current and historical Q&A cards. `AppModel+IntentAgent` keeps the citation's
+identity when saving a note and classifies old evidence using a resolved,
+bounded read against the latest Snapshot. A path match alone does not prove the
+quote survived. Async classification requires unchanged Space, workspace
+generation and latest Snapshot before persistence.
 
 Capture recovery can suspend bootstrap. Strict local notes URLs received during
 that interval wait for the owning bootstrap to finish; they never start a second
@@ -129,7 +135,11 @@ The product Agent pipeline routes every current Snapshot before scouting. A
 low-confidence plan waits for confirmation; confirm/dismiss/resume continues at
 the next persisted pipeline checkpoint, while standalone evidence answers and
 completed route projection stop. The model captures the exact active Run ID for
-explicit cancellation, exposes an auditable abandon action for interrupted
+explicit cancellation. Intent continuations carry the persisted goal and
+`skipHighConfidenceRouting` through every remaining phase, including after
+remote disclosure, interrupted scout/materialize, and an adapter decision.
+They never reread a changed sidebar goal. The model also exposes
+an auditable abandon action for interrupted
 work, and lets Provider/Source invalidation remove unrecoverable recovery
 prompts. Profile saves, persisted connection tests, and Space Provider overrides
 reload the selected Space's Run/Activity cache after database invalidation, so

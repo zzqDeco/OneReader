@@ -31,6 +31,12 @@ Annotation search, tags, safe edits/deletions and static Markdown exports. It
 shares the Inspector's original Annotation IDs and resolves the original
 snapshot before opening a read-only-progress preview. Historical evidence is
 never relabeled as the current snapshot merely to navigate successfully.
+Inspector Q&A citations use the same original-Snapshot preview, including
+after their quoted passage disappears from the current edition. Previewing
+them never overwrites the current edition's reading position. Saving an old
+answer as a note retains its original Locator and classifies it against the
+latest Snapshot: only a resolved, still-present quote is marked relocated;
+missing or unverified evidence is marked orphaned.
 
 ## Import and Processing
 
@@ -199,12 +205,25 @@ when organized into a target Space. Spaces and Sources can be renamed, shared
 Sources can be detached from a Space without deleting the underlying Source or
 its annotations, Spaces can be deleted cleanly, and Sources can be marked as
 primary or reference so reference attachments do not dilute Space progress.
+Rename and Space-deletion alerts belong to the persistent workspace, not the
+conditional Library sidebar. Compact iPhone navigation sheets present their
+own lifecycle alert while the obscured root presenter is inactive.
+
+PDF highlights with repeated exact text use a unique overlap with their saved
+selection rectangle only within the same current Snapshot. Across revisions,
+neither the old page nor rectangle disambiguates a match; ambiguous quotes are
+not painted. Controlled WebKit maps each unique quote across adjacent text
+nodes, preserving inline emphasis/links and whitespace. It wraps each covered
+text segment and merges overlapping ranges without replacing element markup;
+clearing highlights restores the original text structure. Hidden/script text
+cannot bridge a visible match.
 
 Progress stores source position, per-unit completion, current frozen-plan step,
 and reading history independently. Each Source position carries its immutable
 Snapshot Locator, a presentation granularity, optional normalized fraction, and
-a short resume label. Opening a search result, annotation, graph
-unit, or evidence citation resolves its Locator before presentation. Text and
+a short resume label. Search and graph navigation resolve Locators before
+presentation; annotation and Q&A evidence previews pin their original Snapshot.
+Text and
 Markdown surfaces select and scroll to the quote (using prefix/suffix context
 to disambiguate repeats), WebKit scrolls to a validated DOM/quote anchor, and
 PDFKit navigates to the recorded page and prefers its clipped selection rectangle

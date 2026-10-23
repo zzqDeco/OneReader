@@ -8,6 +8,9 @@ Every Run captures immutable Provider destination/revision identities before it
 is inserted. Adapter routing additionally requires and preserves one explicit
 Source/Snapshot target through persistence, resume, model projection, and final
 validation.
+Request normalization preserves the host's reading goal and optional routing
+policy as well as the Source/Snapshot target, so disclosure and interruption
+resume do not drop intent before the AppModel continues the pipeline.
 
 Restart recovery is explicit: database initialization marks incomplete runs
 interrupted with an audit event, and `resume` creates one compare-and-swap

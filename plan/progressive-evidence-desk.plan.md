@@ -1,6 +1,25 @@
 # Progressive Evidence Desk (渐进式证据研读台)
 
-Status: Delivered
+Status: Active
+
+## PR #35 review follow-up
+
+The merge candidate is being revised after independent review of `88581b6`.
+
+- [x] Keep historical Q&A citations on their original Snapshot and classify saved notes against the latest revision.
+- [x] Present lifecycle dialogs from the persistent workspace, including compact navigation sheets.
+- [x] Disambiguate repeated PDF quotations using same-Snapshot selection rectangles; reject ambiguous cross-revision matches.
+- [x] Preserve the reading goal and adapter-routing policy across disclosure, interruption, and candidate continuation.
+- [x] Render HTML/EPUB highlights across inline text nodes without changing document structure.
+- [ ] Run focused regressions, hosted native validation, and Sol max review on the updated commit.
+
+2026-10-23 repair evidence: all 402 macOS tests pass (19 focused regressions), including live
+workspace alerts, PDF duplicate quotations, actual WKWebView cross-node marks,
+historical Q&A navigation/note classification, remote disclosure, interrupted
+scout/materialize and candidate-dismissal continuation. Documentation, dependency
+lock, Apple metadata and generated Xcode project checks also pass. Compact iPhone UI
+regression, release build, exact-head CI and independent re-review are pending;
+the original acceptance below is baseline evidence, not a claim about this repair.
 
 ## Goal
 

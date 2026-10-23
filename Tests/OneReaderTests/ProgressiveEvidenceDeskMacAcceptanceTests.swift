@@ -7,6 +7,75 @@ import XCTest
 
 @MainActor
 final class ProgressiveEvidenceDeskMacAcceptanceTests: XCTestCase {
+    func testLifecycleAlertsStayPresentInFullReadingWorkspace() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("OneReader-LifecycleAlerts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("DialogSource.md")
+        try Data("# Dialog source\n\nReadable evidence.".utf8).write(to: input)
+        let suite = "OneReaderTests.LifecycleAlerts.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(libraryRootURL: root.appendingPathComponent("Library"), defaults: defaults,
+            secretStore: InMemoryProviderSecretStore())
+        try await waitUntil { model.isBootstrapComplete }
+        let imported = try await XCTUnwrap(model.managedLibrary).importLocalSource(at: input)
+        try model.reloadLibraryState()
+        model.openSpace(imported.space.id)
+        let host = NSHostingView(rootView: WorkspaceView().environmentObject(model))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.contentView = nil
+            window.close()
+        }
+        try await waitUntil { model.presentationDocument != nil && window.isVisible }
+
+        // Exercise the same request as the Sources menu, with LibrarySidebarView absent.
+        model.requestSourceRename(imported.source)
+        try await waitUntil { window.attachedSheet != nil }
+        let sourceSheet = try XCTUnwrap(window.attachedSheet)
+        let sourceField = try XCTUnwrap(editableTextFields(in: sourceSheet.contentView).first)
+        XCTAssertEqual(sourceField.stringValue, imported.source.displayName)
+        sourceField.stringValue = "Renamed in the dialog.md"
+        sourceField.sendAction(sourceField.action, to: sourceField.target)
+        // Cancel through the native button; merely mutating the model would not
+        // prove that the production presentation is connected to a live window.
+        try XCTUnwrap(buttons(in: sourceSheet.contentView).first { $0.title == "取消" }).performClick(nil)
+        try await waitUntil { window.attachedSheet == nil && model.sourcePendingRename == nil }
+
+        model.closeReadingWorkspace()
+        model.requestSpaceRename(try XCTUnwrap(model.spaces.first))
+        try await waitUntil { window.attachedSheet != nil }
+        let spaceSheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertFalse(editableTextFields(in: spaceSheet.contentView).isEmpty)
+        try XCTUnwrap(buttons(in: spaceSheet.contentView).first { $0.title == "取消" }).performClick(nil)
+        try await waitUntil { window.attachedSheet == nil && model.spacePendingRename == nil }
+
+        model.requestSpaceDeletion(try XCTUnwrap(model.spaces.first))
+        try await waitUntil { window.attachedSheet != nil }
+        let deleteSheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertTrue(buttons(in: deleteSheet.contentView).contains { $0.title == "删除空间" })
+        try XCTUnwrap(buttons(in: deleteSheet.contentView).first { $0.title == "取消" }).performClick(nil)
+        try await waitUntil { model.spacePendingDeletion == nil }
+        XCTAssertEqual(model.spaces.count, 1)
+    }
+
+    private func editableTextFields(in view: NSView?) -> [NSTextField] {
+        guard let view else { return [] }
+        return ((view as? NSTextField).map { $0.isEditable ? [$0] : [] } ?? [])
+            + view.subviews.flatMap { editableTextFields(in: $0) }
+    }
+
+    private func buttons(in view: NSView?) -> [NSButton] {
+        guard let view else { return [] }
+        return ((view as? NSButton).map { [$0] } ?? []) + view.subviews.flatMap { buttons(in: $0) }
+    }
+
     func testMacLiveWindowAcceptanceNarrowAndWideLightAndDark() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "OneReader-MacAcceptance-\(UUID().uuidString)",

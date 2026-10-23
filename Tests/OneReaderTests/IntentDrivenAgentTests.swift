@@ -179,6 +179,128 @@ final class IntentDrivenAgentTests: XCTestCase {
 
         let persisted = try fixture.database.fetchAnnotations(spaceID: fixture.imported.space.id)
         XCTAssertEqual(persisted, [annotation])
+
+        // A persisted answer remains evidence for v1 after a refresh changes its
+        // context. Opening it must neither show v2 nor move v2's reading position.
+        let input = root.appendingPathComponent("Inputs/intent.md")
+        try Data("# Session\n\nChanged context for the second edition.\n\nEvidence.\n".utf8).write(to: input)
+        model.refreshSource(fixture.imported.source.id)
+        try await waitUntil(timeout: .seconds(8)) {
+            !model.refreshingSourceIDs.contains(fixture.imported.source.id)
+                && model.selectedSnapshot?.id != fixture.imported.snapshot.id
+                && model.presentationDocument != nil
+        }
+        let currentSnapshotID = try XCTUnwrap(model.selectedSnapshot?.id)
+        model.flushReadingPosition()
+        let currentPosition = try fixture.database.fetchReadingProgress(spaceID: qa.spaceID)
+            .sourcePositions[fixture.imported.source.id]
+
+        model.openEvidenceCitation(try XCTUnwrap(qa.answer.citations.first?.locator))
+        try await waitUntil {
+            model.isAnnotationPreview && model.presentationDocument?.locator.snapshotID == fixture.imported.snapshot.id
+        }
+        XCTAssertFalse(model.presentationDocument?.content?.contains("Changed context") ?? true)
+        model.flushReadingPosition()
+        XCTAssertEqual(
+            try fixture.database.fetchReadingProgress(spaceID: qa.spaceID).sourcePositions[fixture.imported.source.id],
+            currentPosition
+        )
+        XCTAssertEqual(model.source(id: fixture.imported.source.id)?.latestSnapshotID, currentSnapshotID)
+
+        model.saveEvidenceQAAsNote(qa)
+        try await waitUntil { model.annotations.count == 2 }
+        let historicalNote = try XCTUnwrap(model.annotations.first { $0.id != annotation.id })
+        XCTAssertEqual(historicalNote.snapshotID, fixture.imported.snapshot.id)
+        XCTAssertEqual(historicalNote.locator, qa.answer.citations.first?.locator)
+        XCTAssertEqual(historicalNote.anchorState, .relocated)
+
+        // Even a path-only citation must not be called aligned when the cited
+        // passage is absent. The retained original remains readable regardless.
+        model.openSource(fixture.imported.source.id)
+        try await waitUntil { !model.isAnnotationPreview && model.selectedSnapshot?.id == currentSnapshotID }
+        try Data("# Session\n\nThe cited passage has been removed.\n".utf8).write(to: input)
+        model.refreshSource(fixture.imported.source.id)
+        try await waitUntil(timeout: .seconds(8)) {
+            !model.refreshingSourceIDs.contains(fixture.imported.source.id)
+                && model.selectedSnapshot?.id != currentSnapshotID
+                && model.presentationDocument != nil
+        }
+        model.saveEvidenceQAAsNote(qa)
+        try await waitUntil { model.annotations.count == 3 }
+        let removedPassageNote = try XCTUnwrap(model.annotations.first {
+            $0.id != annotation.id && $0.id != historicalNote.id
+        })
+        XCTAssertEqual(removedPassageNote.anchorState, .orphaned)
+        XCTAssertEqual(removedPassageNote.locator, qa.answer.citations.first?.locator)
+        model.openEvidenceCitation(try XCTUnwrap(qa.answer.citations.first?.locator))
+        try await waitUntil { model.isAnnotationPreview && model.presentationDocument?.locator.snapshotID == fixture.imported.snapshot.id }
+        XCTAssertTrue(model.presentationDocument?.content?.contains("Evidence.") == true)
+    }
+
+    func testIntentRoutingPolicyRoundTripsAndLegacyRequestsDecodeWithoutIt() throws {
+        let request = AgentRunRequest(spaceID: "space", task: .scoutSpace,
+            pipeline: .readingStructure, goal: "custom:original goal", skipHighConfidenceRouting: false)
+        let data = try JSONEncoder().encode(request)
+        XCTAssertEqual(try JSONDecoder().decode(AgentRunRequest.self, from: data), request)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "skipHighConfidenceRouting")
+        let decoded = try JSONDecoder().decode(AgentRunRequest.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(decoded.skipHighConfidenceRouting)
+        XCTAssertEqual(decoded.goal, request.goal)
+    }
+
+    func testIntentGoalAndRoutingPolicySurviveRemoteDisclosureAndPersistedResume() async throws {
+        for goal in [ReadingGoal.quickOverview.rawValue, "custom:compare the evidence"] {
+            let root = temporaryRoot("IntentDisclosure")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let secrets = InMemoryProviderSecretStore()
+            let fixture = try await makeIntentFixture(root: root, providerKind: .openAIResponses, secrets: secrets)
+            let patch = GraphPatch(
+                id: "disclosure-patch", schemaVersion: GraphPatch.currentSchemaVersion,
+                graphID: "disclosure-graph", baseGraphVersion: nil,
+                snapshotIDs: [fixture.imported.snapshot.id],
+                upsertUnits: [ReadingUnit(
+                    id: "disclosure-unit", title: "Evidence", summary: "Grounded evidence",
+                    fragments: [SourceFragment(id: "disclosure-fragment", sourceID: fixture.imported.source.id,
+                        locator: fixture.observation.locator, role: .primary, label: "Evidence")],
+                    relations: [], estimatedMinutes: 1, importance: 1, confidence: 1,
+                    sourceOrder: 0, preferredPresentation: .markdown
+                )], removeUnitIDs: [], generatedAt: .now
+            )
+            let trace = IntentAgentTrace()
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: "OneReaderTests.\(UUID().uuidString)"))
+            let model = AppModel(libraryRootURL: fixture.libraryRoot, defaults: defaults,
+                secretStore: secrets, agentDriverFactory: IntentAgentDriverFactory(
+                    patch: patch, orderedUnitIDs: ["disclosure-unit"], answer: fixture.answer, trace: trace))
+            try await waitUntil { model.isBootstrapComplete }
+            model.openSpace(fixture.imported.space.id)
+            try await waitUntil { model.presentationDocument != nil && model.activeProvider != nil }
+            model.selectReadingGoal(.quickOverview)
+            if goal.hasPrefix("custom:") { model.customReadingGoalText = String(goal.dropFirst(7)) }
+            model.launchIntentAgentPipeline(skipHighConfidenceRouting: true)
+            try await waitUntil { model.waitingAgentAttentionKind == .disclosure }
+            let waiting = try XCTUnwrap(model.waitingAgentRun)
+            let persistedRequest = try XCTUnwrap(fixture.database.request(forRunID: waiting.id))
+            XCTAssertEqual(persistedRequest.goal, goal)
+            XCTAssertEqual(persistedRequest.skipHighConfidenceRouting, true)
+            let beforeConsent = await trace.records()
+            XCTAssertTrue(beforeConsent.isEmpty)
+
+            // UI preferences can change while consent is pending; continuation
+            // must use the saved request, not those new preferences.
+            model.selectReadingGoal(.review)
+            model.customReadingGoalText = "unrelated new draft"
+            model.confirmWaitingAgentRun()
+            try await waitUntil(timeout: .seconds(8)) { model.currentPlan?.goal == goal }
+            let records = await trace.records()
+            XCTAssertEqual(records.map(\.task), [.scoutSpace, .materializeGraph, .projectRoute])
+            XCTAssertTrue(records.allSatisfy { $0.goal == goal })
+            for run in try fixture.database.fetchAgentRuns(spaceID: fixture.imported.space.id) {
+                let request = try XCTUnwrap(fixture.database.request(forRunID: run.id))
+                XCTAssertEqual(request.goal, goal)
+                XCTAssertEqual(request.skipHighConfidenceRouting, true)
+            }
+        }
     }
 
     private func waitUntil(
@@ -198,7 +320,11 @@ final class IntentDrivenAgentTests: XCTestCase {
             .appendingPathComponent("OneReaderIntent-\(suffix)-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private func makeIntentFixture(root: URL) async throws -> IntentTestFixture {
+    private func makeIntentFixture(
+        root: URL,
+        providerKind: ProviderKind = .appleOnDevice,
+        secrets: InMemoryProviderSecretStore = InMemoryProviderSecretStore()
+    ) async throws -> IntentTestFixture {
         let inputs = root.appendingPathComponent("Inputs", isDirectory: true)
         let libraryRoot = root.appendingPathComponent("Library", isDirectory: true)
         try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
@@ -232,10 +358,14 @@ final class IntentDrivenAgentTests: XCTestCase {
             payload: rootPayload
         )
         let observation = try await coordinator.read(plan: plan, locator: rootLocator)
+        let keyReference = providerKind.requiresSecret
+            ? await secrets.save(secret: "fake-intent-test-key", reference: nil) : nil
         let profile = ProviderProfile(
             displayName: "Intent test provider",
-            kind: .appleOnDevice,
+            kind: providerKind,
+            endpoint: providerKind == .openAIResponses ? URL(string: "https://example.invalid/v1") : nil,
             modelID: "intent-test-model",
+            keychainReference: keyReference,
             isDefault: true,
             capabilities: [.connection, .structuredGeneration, .toolCalling],
             lastTestedAt: .now,

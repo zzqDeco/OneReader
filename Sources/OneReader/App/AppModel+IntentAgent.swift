@@ -94,7 +94,8 @@ extension AppModel {
                 await self.executeAgentPipelineAfterMaterialize(
                     spaceID: spaceID,
                     generation: generation,
-                    goal: goal
+                    goal: goal,
+                    skipHighConfidenceRouting: true
                 )
             } else {
                 await self.executeIntentAgentPipeline(
@@ -152,6 +153,7 @@ extension AppModel {
                 spaceID: spaceID,
                 pipeline: .readingStructure,
                 goal: goal,
+                skipHighConfidenceRouting: skipHighConfidenceRouting,
                 targetSourceID: sourceID,
                 targetSnapshotID: snapshotID,
                 generation: generation
@@ -175,6 +177,7 @@ extension AppModel {
             spaceID: spaceID,
             pipeline: .readingStructure,
             goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting,
             generation: generation
         ) == .completed else { return }
 
@@ -185,6 +188,7 @@ extension AppModel {
             spaceID: spaceID,
             pipeline: .readingStructure,
             goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting,
             generation: generation
         ) == .completed else { return }
 
@@ -193,7 +197,8 @@ extension AppModel {
         await executeAgentPipelineAfterMaterialize(
             spaceID: spaceID,
             generation: generation,
-            goal: goal
+            goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting
         )
     }
 
@@ -215,8 +220,44 @@ extension AppModel {
         } else {
             citation = qa.answer.citations.first
         }
-        guard let database, let citation else { return }
-        let spaceID = selectedSpaceID ?? qa.spaceID
+        guard database != nil, let citation,
+              let spaceID = selectedSpaceID, spaceID == qa.spaceID,
+              let source = source(id: citation.locator.sourceID),
+              let latestSnapshotID = source.latestSnapshotID else { return }
+        if latestSnapshotID == citation.locator.snapshotID {
+            persistEvidenceQANote(qa, citation: citation, spaceID: spaceID, anchorState: .current)
+            return
+        }
+        guard let coordinator else { return }
+        let generation = workspaceGeneration
+        Task { [weak self] in
+            let resolution = try? await coordinator.resolve(citation.locator, against: latestSnapshotID)
+            var anchorState = AnnotationAnchorState.orphaned
+            if let relocated = resolution?.resolved,
+               let plan = try? await coordinator.prepare(sourceID: source.id, snapshotID: latestSnapshotID),
+               let observation = try? await coordinator.read(plan: plan, locator: relocated, persistObservation: false),
+               observation.content.contains(citation.quote) {
+                // A path-only locator can resolve even after its cited passage
+                // was removed. Classify the evidence, not merely the file.
+                anchorState = .relocated
+            }
+            guard let self, !Task.isCancelled,
+                  selectedSpaceID == spaceID, workspaceGeneration == generation,
+                  self.source(id: source.id)?.latestSnapshotID == latestSnapshotID else { return }
+            persistEvidenceQANote(
+                qa, citation: citation, spaceID: spaceID,
+                anchorState: anchorState
+            )
+        }
+    }
+
+    private func persistEvidenceQANote(
+        _ qa: CompletedEvidenceQA,
+        citation: EvidenceCitation,
+        spaceID: String,
+        anchorState: AnnotationAnchorState
+    ) {
+        guard let database else { return }
         let locator = citation.locator
         let quote = citation.quote.trimmingCharacters(in: .whitespacesAndNewlines)
         let questionText = qa.question.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -231,7 +272,7 @@ extension AppModel {
             snapshotID: locator.snapshotID,
             kind: .note,
             locator: locator,
-            anchorState: .current,
+            anchorState: anchorState,
             selectedText: quote.isEmpty ? nil : quote,
             note: noteBody,
             color: nil,

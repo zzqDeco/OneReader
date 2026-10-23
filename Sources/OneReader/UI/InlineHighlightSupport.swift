@@ -316,35 +316,57 @@ enum InlineHighlightSupport {
                 if (!Array.isArray(highlights) || !highlights.length || !document.body) {
                   return 0;
                 }
-                function applyQuoteInRoot(root, item) {
+                const rangesByNode = new Map();
+                function normalizeText(value) {
+                  let text = '';
+                  const offsets = [];
+                  for (let i = 0; i < value.length; i++) {
+                    const ch = /\\s/.test(value[i]) ? ' ' : value[i];
+                    if (ch === ' ' && (!text.length || text.endsWith(' '))) continue;
+                    text += ch;
+                    offsets.push(i);
+                  }
+                  if (text.endsWith(' ')) { text = text.slice(0, -1); offsets.pop(); }
+                  return { text, offsets };
+                }
+                function queueQuoteInRoot(root, item) {
                   if (!root || !item || !item.quote) return false;
                   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                  const spans = [];
+                  let text = '';
+                  let lastBlock = null;
                   let node;
                   while ((node = walker.nextNode())) {
                     const parent = node.parentElement;
-                    if (parent && parent.closest && parent.closest('script, style, mark[data-onereader-highlight]')) {
+                    if (parent && parent.closest('script, style, noscript, textarea, [hidden]')) {
+                      text += '\\u0000';
                       continue;
                     }
+                    const block = parent && parent.closest('p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
+                    if (lastBlock && block !== lastBlock) text += '\\n';
+                    lastBlock = block;
                     const value = node.nodeValue || '';
-                    const index = value.indexOf(item.quote);
-                    if (index < 0) continue;
-                    const matchedNode = index > 0 ? node.splitText(index) : node;
-                    if (matchedNode.nodeValue && matchedNode.nodeValue.length > item.quote.length) {
-                      matchedNode.splitText(item.quote.length);
-                    }
-                    const mark = document.createElement('mark');
-                    mark.setAttribute('data-onereader-highlight', 'true');
-                    if (item.id) {
-                      mark.setAttribute('data-onereader-highlight-id', String(item.id));
-                    }
-                    mark.style.cssText = 'background-color: rgba(245, 196, 66, 0.36); color: inherit; border-radius: 2px; padding: 0 1px;';
-                    if (matchedNode.parentNode) {
-                      matchedNode.parentNode.replaceChild(mark, matchedNode);
-                      mark.appendChild(matchedNode);
-                      return true;
-                    }
+                    spans.push({ node, start: text.length, end: text.length + value.length });
+                    text += value;
                   }
-                  return false;
+                  const normalized = normalizeText(text);
+                  const quote = normalizeText(item.quote).text;
+                  if (!quote.length) return false;
+                  const start = normalized.text.indexOf(quote);
+                  if (start < 0 || normalized.text.indexOf(quote, start + 1) >= 0) return false;
+                  const from = normalized.offsets[start];
+                  const to = normalized.offsets[start + quote.length - 1] + 1;
+                  let found = false;
+                  for (const span of spans) {
+                    const localStart = Math.max(from, span.start) - span.start;
+                    const localEnd = Math.min(to, span.end) - span.start;
+                    if (localEnd <= localStart) continue;
+                    const ranges = rangesByNode.get(span.node) || [];
+                    ranges.push({ start: localStart, end: localEnd, ids: [String(item.id || '')] });
+                    rangesByNode.set(span.node, ranges);
+                    found = true;
+                  }
+                  return found;
                 }
                 let appliedCount = 0;
                 for (const item of highlights) {
@@ -353,12 +375,37 @@ enum InlineHighlightSupport {
                   if (typeof item.domPath === 'string' && item.domPath.length) {
                     try { targetRoot = document.querySelector(item.domPath); } catch (_) {}
                   }
-                  if (targetRoot && applyQuoteInRoot(targetRoot, item)) {
+                  if ((targetRoot && queueQuoteInRoot(targetRoot, item)) || queueQuoteInRoot(document.body, item)) {
                     appliedCount++;
-                    continue;
                   }
-                  if (applyQuoteInRoot(document.body, item)) {
-                    appliedCount++;
+                }
+                // Compute all ranges before touching the DOM. Merge overlaps,
+                // then split each original text node from the end so its UTF-16
+                // offsets remain valid and inline elements retain their markup.
+                for (const [node, ranges] of rangesByNode) {
+                  ranges.sort((a, b) => a.start - b.start);
+                  const merged = [];
+                  for (const range of ranges) {
+                    const last = merged[merged.length - 1];
+                    if (last && range.start <= last.end) {
+                      last.end = Math.max(last.end, range.end);
+                      last.ids.push(...range.ids);
+                    } else {
+                      merged.push(range);
+                    }
+                  }
+                  for (const range of merged.reverse()) {
+                    const matchedNode = range.start > 0 ? node.splitText(range.start) : node;
+                    const length = range.end - range.start;
+                    if (matchedNode.length > length) matchedNode.splitText(length);
+                    const mark = document.createElement('mark');
+                    mark.setAttribute('data-onereader-highlight', 'true');
+                    mark.setAttribute('data-onereader-highlight-id', Array.from(new Set(range.ids)).join(' '));
+                    mark.style.cssText = 'background-color: rgba(245, 196, 66, 0.36); color: inherit; border-radius: 2px; padding: 0 1px;';
+                    if (matchedNode.parentNode) {
+                      matchedNode.parentNode.replaceChild(mark, matchedNode);
+                      mark.appendChild(matchedNode);
+                    }
                   }
                 }
                 return appliedCount;
@@ -788,39 +835,43 @@ enum InlineHighlightSupport {
     ) -> PDFSelection? {
         let rawPageIndex = annotation.locator.payload["pageIndex"]
         let parsedPageIndex = rawPageIndex.flatMap(Int.init)
-        if rawPageIndex != nil {
+        if allowRectFallback, rawPageIndex != nil {
             guard let pageIndex = parsedPageIndex,
                   pageIndex >= 0,
                   pageIndex < document.pageCount else {
                 return nil
             }
         }
-        let targetPage: PDFPage? = parsedPageIndex.flatMap { index in
+        let targetPage: PDFPage? = (allowRectFallback ? parsedPageIndex : nil).flatMap { index in
             guard index >= 0, index < document.pageCount else { return nil }
             return document.page(at: index)
         }
         let rawQuote = annotation.locator.textQuote?.exact ?? annotation.selectedText
         let quote = rawQuote?.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        if let quote, !quote.isEmpty {
+            let exactMatches = document.findString(quote, withOptions: [])
+            let matches = exactMatches.isEmpty
+                ? document.findString(quote, withOptions: [.caseInsensitive])
+                : exactMatches
+            let candidates = targetPage.map { page in matches.filter { $0.pages.contains(page) } } ?? matches
+            if candidates.count == 1 { return candidates[0] }
+            // A rectangle is evidence only within the revision that captured it.
+            // When a quote repeats, never silently choose the first occurrence.
+            guard candidates.count > 1, allowRectFallback, let targetPage,
+                  let rectAnchor = PDFPageRectAnchor.parse(annotation.locator.payload["rect"]),
+                  let rect = rectAnchor.clipped(to: targetPage.bounds(for: .mediaBox)) else { return nil }
+            let scored = candidates.map { selection in
+                let overlap = selection.bounds(for: targetPage).intersection(rect)
+                let area = overlap.isNull ? 0 : overlap.width * overlap.height
+                return (selection: selection, area: area)
+            }.sorted { $0.area > $1.area }
+            guard let best = scored.first, best.area > 0,
+                  best.area > scored[1].area else { return nil }
+            return best.selection
+        }
+
         if let targetPage {
-            if let quote, !quote.isEmpty {
-                if let pageText = targetPage.string as NSString? {
-                    let exactRange = pageText.range(of: quote)
-                    let range = exactRange.location != NSNotFound
-                        ? exactRange
-                        : pageText.range(of: quote, options: [.caseInsensitive])
-                    if range.location != NSNotFound,
-                       let selection = targetPage.selection(for: range),
-                       selection.string?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                        return selection
-                    }
-                }
-                let matches = document.findString(quote, withOptions: [.caseInsensitive])
-                if let pageMatch = matches.first(where: { $0.pages.contains(targetPage) }) {
-                    return pageMatch
-                }
-                return nil
-            }
             if allowRectFallback,
                let rectAnchor = PDFPageRectAnchor.parse(annotation.locator.payload["rect"]),
                let rect = rectAnchor.clipped(to: targetPage.bounds(for: .mediaBox)),
@@ -831,9 +882,6 @@ enum InlineHighlightSupport {
             return nil
         }
 
-        if let quote, !quote.isEmpty {
-            return document.findString(quote, withOptions: [.caseInsensitive]).first
-        }
         return nil
     }
 

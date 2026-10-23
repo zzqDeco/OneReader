@@ -6,6 +6,7 @@ import UIKit
 import CoreText
 import Foundation
 import PDFKit
+import WebKit
 import XCTest
 @testable import OneReader
 
@@ -443,6 +444,81 @@ final class InlineHighlightRenderingTests: XCTestCase {
         )
     }
 
+    func testPDFRepeatedQuoteUsesSelectedRectangleOnlyWithinItsSnapshot() throws {
+        let output = NSMutableData()
+        var mediaBox = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let consumer = try XCTUnwrap(CGDataConsumer(data: output))
+        let context = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        let quote = "Repeated evidence"
+        let line = CTLineCreateWithAttributedString(NSAttributedString(
+            string: quote, attributes: [.font: NSFont.systemFont(ofSize: 20)]
+        ))
+        for y in [220.0, 100.0] {
+            context.textPosition = CGPoint(x: 30, y: y)
+            CTLineDraw(line, context)
+        }
+        context.endPDFPage()
+        context.closePDF()
+        let document = try XCTUnwrap(PDFDocument(data: output as Data))
+        let page = try XCTUnwrap(document.page(at: 0))
+        let matches = document.findString(quote, withOptions: [])
+        XCTAssertEqual(matches.count, 2)
+        let selected = try XCTUnwrap(matches.min { $0.bounds(for: page).minY < $1.bounds(for: page).minY })
+        let documentLocator = Locator(sourceID: "repeated-pdf", snapshotID: "pdf-v1", adapterID: PDFAdapter.id)
+        let anchor = try XCTUnwrap(NativePDFSelectionAnchor.selection(
+            base: documentLocator, pageIndex: 0, rectangle: selected.bounds(for: page), text: quote
+        ))
+        let annotation = Annotation(id: "repeated", spaceID: "space", sourceID: documentLocator.sourceID,
+            snapshotID: documentLocator.snapshotID, kind: .highlight, locator: anchor.locator,
+            anchorState: .current, selectedText: quote, note: nil, color: "yellow", createdAt: .now, updatedAt: .now)
+        let resolved = InlineHighlightSupport.resolvedPDFSelections(
+            for: [annotation], in: document, documentLocator: documentLocator
+        )
+        XCTAssertEqual(resolved.count, 1)
+        XCTAssertEqual(try XCTUnwrap(resolved.first).bounds(for: page).midY, selected.bounds(for: page).midY, accuracy: 1)
+        InlineHighlightSupport.applyPDFHighlights([annotation], to: document, documentLocator: documentLocator)
+        XCTAssertEqual(try XCTUnwrap(page.annotations.first).bounds.midY, selected.bounds(for: page).midY, accuracy: 1)
+
+        let relocated = Annotation(id: annotation.id, spaceID: annotation.spaceID, sourceID: annotation.sourceID,
+            snapshotID: annotation.snapshotID, kind: .highlight, locator: annotation.locator,
+            anchorState: .relocated, selectedText: quote, note: nil, color: "yellow", createdAt: .now, updatedAt: .now)
+        let newLocator = Locator(sourceID: documentLocator.sourceID, snapshotID: "pdf-v2", adapterID: PDFAdapter.id)
+        InlineHighlightSupport.applyPDFHighlights([relocated], to: document, documentLocator: newLocator)
+        XCTAssertTrue(page.annotations.isEmpty, "An old rectangle must not disambiguate repeated text in a newer snapshot")
+    }
+
+    func testWebHighlightSpansInlineNodesPreservesMarkupAndClearsCleanly() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 640, height: 420), configuration: configuration)
+        let navigation = HighlightNavigationProbe()
+        webView.navigationDelegate = navigation
+        webView.loadHTMLString("<html><body><p id='evidence'>alpha <strong>beta</strong> gamma</p><p>untouched</p></body></html>", baseURL: nil)
+        try await waitUntil { navigation.finished }
+        let locator = Locator(sourceID: "web", snapshotID: "web-v1", adapterID: HTMLAdapter.id,
+            payload: ["path": "chapter.html", "domPath": "#evidence"],
+            textQuote: TextQuote(prefix: nil, exact: "alpha beta gamma", suffix: nil))
+        let annotation = Annotation(id: "web-cross-node", spaceID: "space", sourceID: locator.sourceID,
+            snapshotID: locator.snapshotID, kind: .highlight, locator: locator, anchorState: .current,
+            selectedText: "alpha beta gamma", note: nil, color: "yellow", createdAt: .now, updatedAt: .now)
+        let script = InlineHighlightSupport.webHighlightJavaScript(for: [annotation], documentLocator: locator)
+        for _ in 0..<2 {
+            let count = try await webView.evaluateJavaScript(script) as? NSNumber
+            XCTAssertEqual(count?.intValue, 1)
+            let highlighted = try await webView.evaluateJavaScript(
+                "Array.from(document.querySelectorAll('mark[data-onereader-highlight]')).map(node => node.textContent).join('')"
+            ) as? String
+            XCTAssertEqual(highlighted, "alpha beta gamma")
+            let boldText = try await webView.evaluateJavaScript("document.querySelector('#evidence strong').textContent") as? String
+            XCTAssertEqual(boldText, "beta")
+        }
+        _ = try await webView.evaluateJavaScript(InlineHighlightSupport.webHighlightJavaScript(for: [], documentLocator: locator))
+        let restored = try await webView.evaluateJavaScript("document.querySelector('#evidence').innerHTML") as? String
+        XCTAssertEqual(restored, "alpha <strong>beta</strong> gamma")
+    }
+
     func testAppModelCurrentSourceHighlightsFiltersOrphanedAndOtherSources() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "OneReader-AppModelHighlights-\(UUID().uuidString)"
@@ -797,4 +873,10 @@ final class InlineHighlightRenderingTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
     }
+}
+
+@MainActor
+private final class HighlightNavigationProbe: NSObject, WKNavigationDelegate {
+    var finished = false
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finished = true }
 }

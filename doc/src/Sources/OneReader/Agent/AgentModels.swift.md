@@ -26,3 +26,7 @@ resume from a persisted phase without treating a standalone evidence question
 as permission to scout, construct a graph, or replace a route. The optional
 field keeps requests persisted before this contract decodable; missing
 provenance fails closed by scheduling no downstream phase.
+Intent runs also persist the selected `goal` and optional
+`skipHighConfidenceRouting`. Explicit false must survive JSON round trips;
+missing policy fields retain legacy decoding and are not inferred from mutable
+UI preferences during recovery.

@@ -2,8 +2,6 @@ import SwiftUI
 
 struct LibrarySidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var spaceRenameDraft = ""
-    @State private var sourceRenameDraft = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,65 +93,6 @@ struct LibrarySidebarView: View {
         }
         .navigationTitle("OneReader")
         .background(ReaderTheme.window)
-        .onChange(of: model.spacePendingRename) { _, space in
-            spaceRenameDraft = space?.title ?? ""
-        }
-        .onChange(of: model.sourcePendingRename) { _, source in
-            sourceRenameDraft = source?.displayName ?? ""
-        }
-        .alert(
-            "重命名空间",
-            isPresented: Binding(
-                get: { model.spacePendingRename != nil },
-                set: { if !$0 { model.spacePendingRename = nil } }
-            ),
-            presenting: model.spacePendingRename
-        ) { space in
-            TextField("空间名称", text: $spaceRenameDraft)
-            Button("保存") {
-                model.renameSpace(space.id, title: spaceRenameDraft)
-            }
-            Button("取消", role: .cancel) {
-                model.spacePendingRename = nil
-            }
-        } message: { space in
-            Text("为“\(space.title)”输入新的空间名称。")
-        }
-        .alert(
-            "重命名来源",
-            isPresented: Binding(
-                get: { model.sourcePendingRename != nil },
-                set: { if !$0 { model.sourcePendingRename = nil } }
-            ),
-            presenting: model.sourcePendingRename
-        ) { source in
-            TextField("来源名称", text: $sourceRenameDraft)
-            Button("保存") {
-                model.renameSource(source.id, displayName: sourceRenameDraft)
-            }
-            Button("取消", role: .cancel) {
-                model.sourcePendingRename = nil
-            }
-        } message: { source in
-            Text("为“\(source.displayName)”输入新的显示名称。")
-        }
-        .confirmationDialog(
-            "删除阅读空间？",
-            isPresented: Binding(
-                get: { model.spacePendingDeletion != nil },
-                set: { if !$0 { model.spacePendingDeletion = nil } }
-            ),
-            presenting: model.spacePendingDeletion
-        ) { _ in
-            Button("删除空间", role: .destructive) {
-                model.confirmSpaceDeletion()
-            }
-            Button("取消", role: .cancel) {
-                model.spacePendingDeletion = nil
-            }
-        } message: { space in
-            Text("将删除“\(space.title)”及其仅属于该空间的来源；与其他空间共享的来源会继续保留。")
-        }
     }
 
     private var brandHeader: some View {

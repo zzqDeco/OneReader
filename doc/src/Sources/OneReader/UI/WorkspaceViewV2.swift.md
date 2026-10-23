@@ -2,6 +2,10 @@
 
 Owns the Library-first Apple-platform composition, generic import surfaces,
 toolbar actions, removal/large-import confirmations, and drag/drop.
+Space/source rename and Space-deletion alerts are hosted here rather than on
+the conditional Library sidebar. Their drafts live at workspace scope. A
+presented compact navigation sheet owns the active alert presenter while the
+root presenter is inactive, avoiding presentation from an obscured controller.
 
 One outer `NavigationSplitView` owns the leading context. Its sidebar shows
 Library navigation while browsing, then replaces that content with reading

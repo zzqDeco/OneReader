@@ -945,6 +945,13 @@ final class AppModel: ObservableObject {
                    annotationSnapshotID: isAnnotationPreview ? locator.snapshotID : nil)
     }
 
+    func openEvidenceCitation(_ locator: Locator) {
+        // A completed answer describes this immutable revision, even when the
+        // source has since changed. Historical preview also isolates progress.
+        openSource(locator.sourceID, locator: locator, captureOutgoingPosition: true,
+                   annotationSnapshotID: locator.snapshotID)
+    }
+
     func openNotesCenter() { isNotesCenterPresented = true }
 
     func notesEntry(for annotation: Annotation) async throws -> NotesEntry? {
@@ -2399,27 +2406,37 @@ final class AppModel: ObservableObject {
 
     func executeAgentPipelineAfterScout(
         spaceID: String,
-        generation: UUID
+        generation: UUID,
+        goal: String? = nil,
+        skipHighConfidenceRouting: Bool? = nil
     ) async {
         guard await runAgentTask(
             .materializeGraph,
             spaceID: spaceID,
             pipeline: .readingStructure,
+            goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting,
             generation: generation
         ) == .completed else { return }
-        await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
+        await executeAgentPipelineAfterMaterialize(
+            spaceID: spaceID, generation: generation,
+            goal: goal ?? ReadingGoal.systematic.rawValue,
+            skipHighConfidenceRouting: skipHighConfidenceRouting
+        )
     }
 
     func executeAgentPipelineAfterMaterialize(
         spaceID: String,
         generation: UUID,
-        goal: String = "systematic"
+        goal: String = "systematic",
+        skipHighConfidenceRouting: Bool? = nil
     ) async {
         _ = await runAgentTask(
             .projectRoute,
             spaceID: spaceID,
             pipeline: .readingStructure,
             goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting,
             generation: generation
         )
     }
@@ -2432,15 +2449,32 @@ final class AppModel: ObservableObject {
         guard request.pipeline == .readingStructure else { return }
         switch request.task {
         case .routeAdapters:
-            await executeAgentPipeline(
-                spaceID: spaceID,
-                generation: generation,
-                routingAfterSourceID: request.targetSourceID
-            )
+            if request.goal != nil || request.skipHighConfidenceRouting != nil {
+                await executeIntentAgentPipeline(
+                    spaceID: spaceID,
+                    generation: generation,
+                    goal: request.goal ?? ReadingGoal.systematic.rawValue,
+                    skipHighConfidenceRouting: request.skipHighConfidenceRouting ?? true,
+                    routingAfterSourceID: request.targetSourceID
+                )
+            } else {
+                await executeAgentPipeline(
+                    spaceID: spaceID,
+                    generation: generation,
+                    routingAfterSourceID: request.targetSourceID
+                )
+            }
         case .scoutSpace:
-            await executeAgentPipelineAfterScout(spaceID: spaceID, generation: generation)
+            await executeAgentPipelineAfterScout(
+                spaceID: spaceID, generation: generation, goal: request.goal,
+                skipHighConfidenceRouting: request.skipHighConfidenceRouting
+            )
         case .materializeGraph:
-            await executeAgentPipelineAfterMaterialize(spaceID: spaceID, generation: generation)
+            await executeAgentPipelineAfterMaterialize(
+                spaceID: spaceID, generation: generation,
+                goal: request.goal ?? ReadingGoal.systematic.rawValue,
+                skipHighConfidenceRouting: request.skipHighConfidenceRouting
+            )
         case .projectRoute, .answerWithEvidence, .translateFragments:
             return
         }
@@ -2462,6 +2496,7 @@ final class AppModel: ObservableObject {
         spaceID: String,
         pipeline: AgentPipelineKind? = nil,
         goal: String? = nil,
+        skipHighConfidenceRouting: Bool? = nil,
         question: String? = nil,
         targetSourceID: String? = nil,
         targetSnapshotID: String? = nil,
@@ -2478,6 +2513,7 @@ final class AppModel: ObservableObject {
                 task: kind,
                 pipeline: pipeline,
                 goal: goal,
+                skipHighConfidenceRouting: skipHighConfidenceRouting,
                 question: question,
                 targetSourceID: targetSourceID,
                 targetSnapshotID: targetSnapshotID,

@@ -310,7 +310,7 @@ struct ReaderInspectorView: View {
                     if let currentQA = model.currentEvidenceQA {
                         EvidenceQACard(
                             qa: currentQA,
-                            onOpenCitation: { model.openLocator($0) },
+                            onOpenCitation: { model.openEvidenceCitation($0) },
                             onSaveAsNote: { model.saveEvidenceQAAsNote(currentQA, citationIndex: $0) }
                         )
 
@@ -323,7 +323,7 @@ struct ReaderInspectorView: View {
                                 ForEach(previousItems) { item in
                                     EvidenceQACard(
                                         qa: item,
-                                        onOpenCitation: { model.openLocator($0) },
+                                        onOpenCitation: { model.openEvidenceCitation($0) },
                                         onSaveAsNote: { model.saveEvidenceQAAsNote(item, citationIndex: $0) }
                                     )
                                 }
