@@ -9,7 +9,7 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         app.launchEnvironment["ONEREADER_UI_TEST_RECOVERY_ID"] = UUID().uuidString
         app.launch()
         XCTAssertTrue(app.staticTexts["recovery-fixture-ready"].waitForExistence(timeout: 45))
-        let card = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Recovery Markdown")).firstMatch
+        let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "space-card-", "Recovery Markdown")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 30))
         card.press(forDuration: 1)
         app.buttons["重命名空间…"].tap()
@@ -22,7 +22,7 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         spaceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalTitle.count) + "Renamed evidence space")
         spaceAlert.buttons["保存"].tap()
         XCTAssertTrue(spaceAlert.waitForNonExistence(timeout: 10))
-        let renamedCard = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Renamed evidence space")).firstMatch
+        let renamedCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "space-card-", "Renamed evidence space")).firstMatch
         XCTAssertTrue(renamedCard.waitForExistence(timeout: 10))
         renamedCard.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "reader-text-view").firstMatch.waitForExistence(timeout: 20))
