@@ -220,7 +220,7 @@ extension AppModel {
         } else {
             citation = qa.answer.citations.first
         }
-        guard database != nil, let citation,
+        guard let database, let citation,
               let spaceID = selectedSpaceID, spaceID == qa.spaceID,
               let source = source(id: citation.locator.sourceID),
               let latestSnapshotID = source.latestSnapshotID else { return }
@@ -230,11 +230,19 @@ extension AppModel {
         }
         guard let coordinator else { return }
         let generation = workspaceGeneration
+        let installedPlan = try? database.fetchAdapterPlan(snapshotID: latestSnapshotID)
         Task { [weak self] in
             let resolution = try? await coordinator.resolve(citation.locator, against: latestSnapshotID)
+            // Classifying a note is read-only with respect to adapter choice and
+            // its published index. Never install a new deterministic plan here.
+            let plan = if let installedPlan {
+                installedPlan
+            } else {
+                try? await coordinator.deterministicPlan(sourceID: source.id, snapshotID: latestSnapshotID)
+            }
             var anchorState = AnnotationAnchorState.orphaned
             if let relocated = resolution?.resolved,
-               let plan = try? await coordinator.prepare(sourceID: source.id, snapshotID: latestSnapshotID),
+               let plan,
                let observation = try? await coordinator.read(plan: plan, locator: relocated, persistObservation: false),
                observation.content.contains(citation.quote) {
                 // A path-only locator can resolve even after its cited passage

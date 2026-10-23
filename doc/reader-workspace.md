@@ -210,7 +210,8 @@ conditional Library sidebar. Compact iPhone navigation sheets present their
 own lifecycle alert while the obscured root presenter is inactive.
 
 PDF highlights with repeated exact text use a unique overlap with their saved
-selection rectangle only within the same current Snapshot. Across revisions,
+selection rectangle only within the identical Snapshot, including original
+previews of relocated annotations. Across revisions,
 neither the old page nor rectangle disambiguates a match; ambiguous quotes are
 not painted. Controlled WebKit maps each unique quote across adjacent text
 nodes, preserving inline emphasis/links and whitespace. It wraps each covered

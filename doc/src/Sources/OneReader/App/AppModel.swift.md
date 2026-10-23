@@ -18,6 +18,8 @@ identity when saving a note and classifies old evidence using a resolved,
 bounded read against the latest Snapshot. A path match alone does not prove the
 quote survived. Async classification requires unchanged Space, workspace
 generation and latest Snapshot before persistence.
+Classification reuses the installed AdapterPlan (or a non-installing probe
+candidate if absent); it cannot change the adopted plan or its search projection.
 
 Capture recovery can suspend bootstrap. Strict local notes URLs received during
 that interval wait for the owning bootstrap to finish; they never start a second

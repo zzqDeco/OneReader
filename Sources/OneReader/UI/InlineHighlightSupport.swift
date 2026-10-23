@@ -463,7 +463,7 @@ enum InlineHighlightSupport {
         documentLocator: Locator
     ) -> Bool {
         matchesDocumentSnapshot(annotation, documentLocator: documentLocator)
-            && annotation.anchorState == .current
+            && annotation.anchorState != .orphaned
     }
 
     private static func hasQuoteText(_ annotation: Annotation) -> Bool {

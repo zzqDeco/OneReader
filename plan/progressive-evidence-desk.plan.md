@@ -21,6 +21,13 @@ lock, Apple metadata and generated Xcode project checks also pass. Compact iPhon
 regression, release build, exact-head CI and independent re-review are pending;
 the original acceptance below is baseline evidence, not a claim about this repair.
 
+The second review found two repair side effects, now covered by the repeated
+402-test pass: saving historical QA preserves the currently adopted AdapterPlan
+and active FTS projection, and a relocated PDF annotation may use its original
+rectangle when previewing that identical immutable Snapshot (never a newer one).
+Physical UI testing also checks actual rename/save and cancel-deletion actions;
+XCTest must use the alert's current frame after the keyboard moves it.
+
 ## Goal
 
 Unify OneReader's four product stages—Capture/Import, Reading Space Organization,

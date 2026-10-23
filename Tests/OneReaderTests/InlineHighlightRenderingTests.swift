@@ -483,6 +483,9 @@ final class InlineHighlightRenderingTests: XCTestCase {
         let relocated = Annotation(id: annotation.id, spaceID: annotation.spaceID, sourceID: annotation.sourceID,
             snapshotID: annotation.snapshotID, kind: .highlight, locator: annotation.locator,
             anchorState: .relocated, selectedText: quote, note: nil, color: "yellow", createdAt: .now, updatedAt: .now)
+        InlineHighlightSupport.applyPDFHighlights([relocated], to: document, documentLocator: documentLocator)
+        XCTAssertEqual(try XCTUnwrap(page.annotations.first).bounds.midY, selected.bounds(for: page).midY, accuracy: 1,
+            "The original immutable Snapshot still owns its rectangle after annotation migration")
         let newLocator = Locator(sourceID: documentLocator.sourceID, snapshotID: "pdf-v2", adapterID: PDFAdapter.id)
         InlineHighlightSupport.applyPDFHighlights([relocated], to: document, documentLocator: newLocator)
         XCTAssertTrue(page.annotations.isEmpty, "An old rectangle must not disambiguate repeated text in a newer snapshot")

@@ -207,12 +207,25 @@ final class IntentDrivenAgentTests: XCTestCase {
         )
         XCTAssertEqual(model.source(id: fixture.imported.source.id)?.latestSnapshotID, currentSnapshotID)
 
+        let basePlan = try XCTUnwrap(fixture.database.fetchAdapterPlan(snapshotID: currentSnapshotID))
+        let adoptedPlan = AdapterPlan(id: "agent-adapter-plan:adopted-current", schemaVersion: basePlan.schemaVersion,
+            sourceID: basePlan.sourceID, snapshotID: basePlan.snapshotID, primaryAdapterID: basePlan.primaryAdapterID,
+            auxiliaryAdapterIDs: basePlan.auxiliaryAdapterIDs, capabilityRoutes: basePlan.capabilityRoutes,
+            evidence: basePlan.evidence, confidence: 1, reason: "User-adopted plan", isUserOverride: true, createdAt: .now)
+        try fixture.database.saveAdapterPlan(adoptedPlan)
+        let persistedAdoptedPlan = try XCTUnwrap(fixture.database.fetchAdapterPlan(snapshotID: currentSnapshotID))
+        let coordinator = try AdapterCoordinator.standard(database: fixture.database)
+        try await coordinator.index(plan: adoptedPlan)
+        let activeHits = try fixture.database.searchObservations(query: "Evidence", snapshotID: currentSnapshotID, planID: adoptedPlan.id)
+        XCTAssertFalse(activeHits.isEmpty)
         model.saveEvidenceQAAsNote(qa)
         try await waitUntil { model.annotations.count == 2 }
         let historicalNote = try XCTUnwrap(model.annotations.first { $0.id != annotation.id })
         XCTAssertEqual(historicalNote.snapshotID, fixture.imported.snapshot.id)
         XCTAssertEqual(historicalNote.locator, qa.answer.citations.first?.locator)
         XCTAssertEqual(historicalNote.anchorState, .relocated)
+        XCTAssertEqual(try fixture.database.fetchAdapterPlan(snapshotID: currentSnapshotID), persistedAdoptedPlan)
+        XCTAssertEqual(try fixture.database.searchObservations(query: "Evidence", snapshotID: currentSnapshotID, planID: adoptedPlan.id), activeHits)
 
         // Even a path-only citation must not be called aligned when the cited
         // passage is absent. The retained original remains readable regardless.

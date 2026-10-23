@@ -12,9 +12,9 @@ implementation sequencing belongs in `plan/`.
 | [Interfaces](interfaces.md) | Source, snapshot, locator, observation, unit, graph, plan, and progress contracts |
 | [Source adapters](source-adapters.md) | Deterministic format routing, snapshots, presentation, search, and safety |
 | [Local OCR](local-ocr.md) | Original-aligned local recognition, immutable OCR evidence and explicit job recovery |
-| [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and recovery |
+| [Reading Agent runtime](reading-agent-runtime.md) | Single-agent lifecycle, providers, tools, budgets, validation, and persisted-intent recovery |
 | [Bilingual reading](bilingual-reading.md) | Original-fragment mapping, bounded translation, privacy and offline cache |
-| [Reader workspace](reader-workspace.md) | Library-first native workspace, reading surfaces, search, annotations, and adaptive layout |
+| [Reader workspace](reader-workspace.md) | Native workspace, original-revision evidence, inline highlights, search, and adaptive layout |
 | [全局笔记中心](notes-center.md) | Private annotation search, tags, original-snapshot review, and safe static Markdown export |
 | [Quick capture and reading inbox](capture-inbox.md) | Durable receipts, Space organization, Share Extension and recovery boundaries |
 | [Acceptance](acceptance.md) | Automated/native acceptance and scoped frame-profile evidence |

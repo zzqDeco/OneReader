@@ -10,7 +10,7 @@ architecture document.
 | Serial cache-first bilingual UI and source progress | [Bilingual reader](Sources/OneReader/App/BilingualReadingModel.swift.md) |
 | Versioned derived translation cache and transactional commit | [Translation persistence](Sources/OneReader/Persistence/TranslationPersistence.swift.md) |
 | Reader annotations, progress, presentation, and preferences | [Reader workspace models](Sources/OneReader/Domain/ReaderWorkspaceModels.swift.md) |
-| Application state | [App model](Sources/OneReader/App/AppModel.swift.md) |
+| Application state, evidence preview and intent continuation | [App model](Sources/OneReader/App/AppModel.swift.md) |
 | Capture/import and Space organization contracts | [Capture models](Sources/OneReader/Domain/CaptureModels.swift.md) |
 | Atomic capture handoff | [Capture staging](Sources/OneReader/Persistence/CaptureStagingStore.swift.md) |
 | Inbox migration and attempt fencing | [Capture persistence](Sources/OneReader/Persistence/CapturePersistence.swift.md) |
@@ -18,7 +18,7 @@ architecture document.
 | Native bounded iPhone/iPad sharing | [Share Extension](Apps/OneReaderShareExtension/ShareViewController.swift.md) |
 | Shared executable entry | [OneReader app main](Apps/OneReaderApp/OneReaderAppMain.swift.md) |
 | Generated Apple application targets | [XcodeGen project](project.yml.md) |
-| Native workspace and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
+| Native workspace, lifecycle dialogs and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
 | Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
 | Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
 | Global annotation queries, tags, routes and Markdown export | [Notes center](Sources/OneReader/Persistence/NotesPersistence.swift.md) |
