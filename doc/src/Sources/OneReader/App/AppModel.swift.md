@@ -12,6 +12,14 @@ annotations after edits, and resolve strict local routes. Original-snapshot
 preview retains the requested snapshot, suppresses progress/history writes and
 does not start indexing or Agent work. Normal source opening exits preview.
 See [notes-center boundaries](../Persistence/NotesPersistence.swift.md).
+`openEvidenceCitation` explicitly selects that original-Snapshot path for both
+current and historical Q&A cards. `AppModel+IntentAgent` keeps the citation's
+identity when saving a note and classifies old evidence using a resolved,
+bounded read against the latest Snapshot. A path match alone does not prove the
+quote survived. Async classification requires unchanged Space, workspace
+generation and latest Snapshot before persistence.
+Classification reuses the installed AdapterPlan (or a non-installing probe
+candidate if absent); it cannot change the adopted plan or its search projection.
 
 Capture recovery can suspend bootstrap. Strict local notes URLs received during
 that interval wait for the owning bootstrap to finish; they never start a second
@@ -39,9 +47,13 @@ stealing the current reading selection.
   presentation;
 - per-Source/Snapshot/AdapterPlan atomic indexing jobs with generation-based late-result
   discard;
-- Space/Source/Library search, Locator jumps, annotations, progress, and
-  history;
-- Provider profile editing/testing and Reading Agent task orchestration;
+- Space/Source/Library search (including unified Library search across Spaces,
+  Observations, and private Notes), Locator jumps, annotations, inline canvas
+  highlights, source roles (`primary` vs `reference`), Space/Source rename and
+  detachment/deletion, progress, and history;
+- Provider profile editing/testing, intent-driven Reading Agent route
+  orchestration, and persisted Space evidence Q&A history with QA-to-note
+  conversion;
 - native notices, large-import confirmation, Source-removal confirmation, and
 persisted reader preferences.
 
@@ -125,7 +137,11 @@ The product Agent pipeline routes every current Snapshot before scouting. A
 low-confidence plan waits for confirmation; confirm/dismiss/resume continues at
 the next persisted pipeline checkpoint, while standalone evidence answers and
 completed route projection stop. The model captures the exact active Run ID for
-explicit cancellation, exposes an auditable abandon action for interrupted
+explicit cancellation. Intent continuations carry the persisted goal and
+`skipHighConfidenceRouting` through every remaining phase, including after
+remote disclosure, interrupted scout/materialize, and an adapter decision.
+They never reread a changed sidebar goal. The model also exposes
+an auditable abandon action for interrupted
 work, and lets Provider/Source invalidation remove unrecoverable recovery
 prompts. Profile saves, persisted connection tests, and Space Provider overrides
 reload the selected Space's Run/Activity cache after database invalidation, so

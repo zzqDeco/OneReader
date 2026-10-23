@@ -4,6 +4,82 @@ import XCTest
 final class CrossFormatRecoveryUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    func testCompactLibraryAndNavigationSheetLifecycleDialogs() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["ONEREADER_UI_TEST_RECOVERY_ID"] = UUID().uuidString
+        app.launch()
+        XCTAssertTrue(app.staticTexts["recovery-fixture-ready"].waitForExistence(timeout: 45))
+        let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "space-card-", "Recovery Markdown")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 30))
+        card.press(forDuration: 1)
+        app.buttons["重命名空间…"].tap()
+        let spaceAlert = app.alerts["重命名空间"]
+        XCTAssertTrue(spaceAlert.waitForExistence(timeout: 10), "Compact Library has no LibrarySidebar; the workspace must present this alert")
+        let spaceField = spaceAlert.textFields.firstMatch
+        let originalTitle = try XCTUnwrap(spaceField.value as? String)
+        XCTAssertFalse(originalTitle.isEmpty)
+        spaceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        // These short fixture names fit in the field. Tap beyond the last
+        // glyph so backspace removes the whole value, not just its prefix.
+        spaceField.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        spaceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalTitle.count) + "Renamed evidence space")
+        XCTAssertEqual(spaceField.value as? String, "Renamed evidence space")
+        // XCTest hides the software keyboard during typeText on hardware, then
+        // restores it at the next touch. Refocus before locating Save so that
+        // keyboard-driven alert movement happens before the action's tap.
+        spaceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(spaceAlert.buttons["保存"].wait(for: \.isHittable, toEqual: true, timeout: 10))
+        attach(app, name: "Lifecycle-space-rename-before-save")
+        spaceAlert.buttons["保存"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(spaceAlert.waitForNonExistence(timeout: 10))
+        let renamedCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "space-card-", "Renamed evidence space")).firstMatch
+        XCTAssertTrue(renamedCard.waitForExistence(timeout: 10))
+        renamedCard.tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "reader-text-view").firstMatch.waitForExistence(timeout: 20))
+
+        // This action is inside an already presented navigation sheet. Present
+        // from that sheet rather than from the obscured root controller.
+        app.buttons["目录"].tap()
+        app.buttons["来源"].tap()
+        let source = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Recovery Markdown.md")).firstMatch
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        source.press(forDuration: 1)
+        app.buttons["重命名来源…"].tap()
+        let sourceAlert = app.alerts["重命名来源"]
+        XCTAssertTrue(sourceAlert.waitForExistence(timeout: 10))
+        let sourceField = sourceAlert.textFields.firstMatch
+        let originalName = try XCTUnwrap(sourceField.value as? String)
+        XCTAssertEqual(originalName, "Recovery Markdown.md")
+        sourceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        sourceField.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        sourceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalName.count) + "Renamed evidence source.md")
+        XCTAssertEqual(sourceField.value as? String, "Renamed evidence source.md")
+        sourceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(sourceAlert.buttons["保存"].wait(for: \.isHittable, toEqual: true, timeout: 10))
+        sourceAlert.buttons["保存"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(sourceAlert.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Renamed evidence source.md")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Renamed evidence source.md"].firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Renamed evidence source.md.md"].exists)
+        attach(app, name: "Lifecycle-source-renamed-inside-navigation-sheet")
+        app.buttons["完成"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["完成"].waitForNonExistence(timeout: 10))
+        backToLibrary(app)
+
+        renamedCard.press(forDuration: 1)
+        app.buttons["删除空间…"].tap()
+        let deletion = app.alerts["删除阅读空间？"]
+        XCTAssertTrue(deletion.waitForExistence(timeout: 10))
+        deletion.buttons["取消"].tap()
+        XCTAssertTrue(deletion.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(renamedCard.exists, "Cancelling deletion must retain the Space")
+        attach(app, name: "Lifecycle-compact-library-cancelled-deletion")
+    }
+
     func testPDFWithinPagePositionSurvivesSpaceSwitchAndRelaunch() throws {
         try verifyRecovery(format: "PDF")
     }

@@ -717,6 +717,7 @@ actor ReadingAgentSession {
             task: requested.task,
             pipeline: requested.pipeline,
             goal: requested.goal,
+            skipHighConfidenceRouting: requested.skipHighConfidenceRouting,
             question: requested.question,
             targetSourceID: requested.targetSourceID,
             targetSnapshotID: requested.targetSnapshotID,

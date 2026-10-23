@@ -112,6 +112,7 @@ struct ReaderNavigationSidebar: View {
             List {
                 Section("来源") {
                     ForEach(model.selectedSpaceSources) { source in
+                        let role = model.currentProgress.role(for: source.id)
                         Button {
                             model.openSource(source.id)
                         } label: {
@@ -123,9 +124,22 @@ struct ReaderNavigationSidebar: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(source.displayName)
                                         .lineLimit(1)
-                                    Text(source.originKind.displayName)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 6) {
+                                        Text(source.originKind.displayName)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        if model.selectedSpaceSources.count > 1 {
+                                            Text(role.title)
+                                                .font(.caption2.weight(.medium))
+                                                .foregroundStyle(role == .primary ? ReaderTheme.teal : .secondary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(
+                                                    (role == .primary ? ReaderTheme.teal : Color.secondary).opacity(0.12),
+                                                    in: Capsule()
+                                                )
+                                        }
+                                    }
                                 }
                                 Spacer(minLength: 3)
                                 if model.refreshingSourceIDs.contains(source.id) {
@@ -142,6 +156,19 @@ struct ReaderNavigationSidebar: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button(role == .primary ? "设为参考附件" : "设为主读材料") {
+                                let nextRole: SpaceSourceRole = role == .primary ? .reference : .primary
+                                model.setSourceRole(nextRole, for: source.id)
+                            }
+                            Button("重命名来源…") {
+                                model.requestSourceRename(source)
+                            }
+                            if model.canDetachSource(source.id) {
+                                Button("从当前空间移出") {
+                                    model.detachSourceFromSpace(sourceID: source.id)
+                                }
+                            }
+                            Divider()
                             Button("刷新来源") {
                                 model.refreshSource(source.id)
                             }
@@ -209,9 +236,12 @@ struct ReaderNavigationSidebar: View {
         Group {
             if let graph = model.currentGraph, let plan = model.currentPlan {
                 List {
+                    Section("阅读意图") {
+                        readingIntentControls
+                    }
                     if let pending = model.pendingPlan {
                         Section("新路线可用") {
-                            Text("阅读助手已基于更新后的原文生成“\(pending.goal)”路线。当前路线不会自动替换。")
+                            Text("阅读助手已基于更新后的原文生成“\(displayGoalTitle(pending.goal))”路线。当前路线不会自动替换。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Button("切换并迁移进度") {
@@ -235,7 +265,7 @@ struct ReaderNavigationSidebar: View {
                             }
                         }
                     } header: {
-                        Text(plan.goal)
+                        Text(displayGoalTitle(plan.goal))
                     }
                 }
                 .listStyle(.sidebar)
@@ -246,14 +276,68 @@ struct ReaderNavigationSidebar: View {
                         systemImage: "point.topleft.down.to.point.bottomright.curvepath",
                         description: Text("基础目录与阅读不受影响。配置模型后可基于真实证据生成冻结路线。")
                     )
-                    Button("生成阅读脉络与路线") {
-                        model.launchAgentPipeline()
-                    }
-                    .buttonStyle(.borderedProminent)
+                    readingIntentControls
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
                 }
                 .padding(16)
             }
         }
+    }
+
+    private var readingIntentControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Picker(
+                "阅读意图",
+                selection: Binding(
+                    get: { model.selectedReadingGoal },
+                    set: { model.selectReadingGoal($0) }
+                )
+            ) {
+                ForEach(ReadingGoal.allCases) { goal in
+                    Text(goal.displayName).tag(goal)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("阅读意图")
+
+            Text(model.selectedReadingGoal.compactDescription)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            TextField("补充关注问题（可选）", text: $model.customReadingGoalText)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+                .accessibilityLabel("补充关注问题")
+
+            HStack(spacing: 8) {
+                Button("生成阅读脉络与路线") {
+                    model.launchIntentAgentPipeline()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                if model.currentGraph != nil {
+                    Button("按此目标重排路线") {
+                        model.reprojectReadingRouteForSelectedGoal()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private func displayGoalTitle(_ rawGoal: String) -> String {
+        if let goal = ReadingGoal(rawValue: rawGoal) {
+            return goal.displayName
+        }
+        if rawGoal.hasPrefix("custom:") {
+            let custom = String(rawGoal.dropFirst("custom:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return custom.isEmpty ? rawGoal : custom
+        }
+        return rawGoal
     }
 
     private var searchView: some View {

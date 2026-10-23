@@ -31,6 +31,12 @@ Annotation search, tags, safe edits/deletions and static Markdown exports. It
 shares the Inspector's original Annotation IDs and resolves the original
 snapshot before opening a read-only-progress preview. Historical evidence is
 never relabeled as the current snapshot merely to navigate successfully.
+Inspector Q&A citations use the same original-Snapshot preview, including
+after their quoted passage disappears from the current edition. Previewing
+them never overwrites the current edition's reading position. Saving an old
+answer as a note retains its original Locator and classifies it against the
+latest Snapshot: only a resolved, still-present quote is marked relocated;
+missing or unverified evidence is marked orphaned.
 
 ## Import and Processing
 
@@ -172,6 +178,9 @@ scheme resolution, so `chapters/page.html` can load a rewritten
 ## Search, annotations, and progress
 
 Search can target the current Source, current Space, or complete Library.
+In the Library shelf, unified search queries matching Spaces, full-text indexed
+Observations across the Library, and private Notes/Highlights in parallel, and
+opening a hit jumps directly to its Space and Snapshot-bound Locator.
 Results include title, source, Snapshot-bound Locator, and jump context. The
 FTS fast path has a bounded exact-substring fallback for unsegmented scripts.
 Indexed hits derive a query-specific quote/range Locator while preserving PDF
@@ -185,14 +194,37 @@ Space and schedules a deterministic projection rebuild.
 Bookmarks bind the current presentation Locator. Highlights require a real
 selection and a presentation that supports structured anchors. Notes can bind
 the selection or current position. Quick Look never advertises structured
-highlight or AI evidence. Annotation rows expose current, relocated, or
-orphaned anchor state.
+highlight or AI evidence. Annotation rows expose localized anchor badges for
+relocated or orphaned evidence while hiding redundant current badges. Active
+non-orphaned highlights render non-destructively in-place across native
+Markdown/text/code, PDFKit, and controlled WebKit surfaces, and selecting text
+on the reading canvas exposes a contextual action bar for one-tap highlighting,
+note-taking, and evidence Q&A. Space annotation queries include any Source
+currently attached to the Space so notes captured in the Inbox remain visible
+when organized into a target Space. Spaces and Sources can be renamed, shared
+Sources can be detached from a Space without deleting the underlying Source or
+its annotations, Spaces can be deleted cleanly, and Sources can be marked as
+primary or reference so reference attachments do not dilute Space progress.
+Rename and Space-deletion alerts belong to the persistent workspace, not the
+conditional Library sidebar. Compact iPhone navigation sheets present their
+own lifecycle alert while the obscured root presenter is inactive.
+
+PDF highlights with repeated exact text use a unique overlap with their saved
+selection rectangle only within the identical Snapshot, including original
+previews of relocated annotations. Across revisions,
+neither the old page nor rectangle disambiguates a match; ambiguous quotes are
+not painted. Controlled WebKit maps each unique quote across adjacent text
+nodes, preserving inline emphasis/links and whitespace. It wraps each covered
+text segment and merges overlapping ranges without replacing element markup;
+clearing highlights restores the original text structure. Hidden/script text
+cannot bridge a visible match.
 
 Progress stores source position, per-unit completion, current frozen-plan step,
 and reading history independently. Each Source position carries its immutable
 Snapshot Locator, a presentation granularity, optional normalized fraction, and
-a short resume label. Opening a search result, annotation, graph
-unit, or evidence citation resolves its Locator before presentation. Text and
+a short resume label. Search and graph navigation resolve Locators before
+presentation; annotation and Q&A evidence previews pin their original Snapshot.
+Text and
 Markdown surfaces select and scroll to the quote (using prefix/suffix context
 to disambiguate repeats), WebKit scrolls to a validated DOM/quote anchor, and
 PDFKit navigates to the recorded page and prefers its clipped selection rectangle

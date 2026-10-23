@@ -17,6 +17,7 @@ delivered work. Stable behavior belongs in [doc/](../doc/README.md).
 
 | Document | Purpose | Status |
 | --- | --- | --- |
+| [Progressive Evidence Desk](progressive-evidence-desk.plan.md) | Desk lifecycle, search, inline evidence, intent recovery, and PR #35 review repairs | Active |
 | [Reader features integration](reader-features-integration.plan.md) | Capture, notes and OCR delivery; retained bilingual implementation is deferred | Active |
 | [Bilingual reading](bilingual-reading.plan.md) | Retained paragraph translation/cache implementation; product entrypoints deferred | Active |
 | [全局笔记中心与 Markdown 导出](notes-center-export.plan.md) | Native cross-Library annotations, private search, tags, safe source links and static export | Active |

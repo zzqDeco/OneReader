@@ -90,6 +90,8 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
     let task: AgentTaskKind
     let pipeline: AgentPipelineKind?
     let goal: String?
+    /// nil preserves the legacy pipeline; an explicit value belongs to an intent run.
+    let skipHighConfidenceRouting: Bool?
     let question: String?
     let targetSourceID: String?
     let targetSnapshotID: String?
@@ -102,6 +104,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         task: AgentTaskKind,
         pipeline: AgentPipelineKind? = nil,
         goal: String? = nil,
+        skipHighConfidenceRouting: Bool? = nil,
         question: String? = nil,
         targetSourceID: String? = nil,
         targetSnapshotID: String? = nil,
@@ -113,6 +116,7 @@ struct AgentRunRequest: Codable, Hashable, Sendable {
         self.task = task
         self.pipeline = pipeline
         self.goal = goal
+        self.skipHighConfidenceRouting = skipHighConfidenceRouting
         self.question = question
         self.targetSourceID = targetSourceID
         self.targetSnapshotID = targetSnapshotID

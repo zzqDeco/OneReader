@@ -138,10 +138,11 @@ extension LibraryDatabase {
                     db,
                     sql: """
                         SELECT * FROM annotations
-                        WHERE space_id = ? AND source_id = ?
-                        ORDER BY updated_at DESC, id
+                        WHERE source_id = ?
+                          AND (space_id = ? OR EXISTS (SELECT 1 FROM space_sources WHERE space_id = ? AND source_id = ?))
+                        ORDER BY created_at DESC, id ASC
                         """,
-                    arguments: [spaceID, sourceID]
+                    arguments: [sourceID, spaceID, spaceID, sourceID]
                 )
             } else {
                 rows = try Row.fetchAll(
@@ -149,9 +150,10 @@ extension LibraryDatabase {
                     sql: """
                         SELECT * FROM annotations
                         WHERE space_id = ?
-                        ORDER BY updated_at DESC, id
+                           OR source_id IN (SELECT source_id FROM space_sources WHERE space_id = ?)
+                        ORDER BY created_at DESC, id ASC
                         """,
-                    arguments: [spaceID]
+                    arguments: [spaceID, spaceID]
                 )
             }
             return try rows.map(Self.decodeAnnotation)
@@ -161,8 +163,12 @@ extension LibraryDatabase {
     func deleteAnnotation(id: String, spaceID: String) throws {
         try pool.write { db in
             try db.execute(
-                sql: "DELETE FROM annotations WHERE id = ? AND space_id = ?",
-                arguments: [id, spaceID]
+                sql: """
+                    DELETE FROM annotations
+                    WHERE id = ?
+                      AND (space_id = ? OR source_id IN (SELECT source_id FROM space_sources WHERE space_id = ?))
+                    """,
+                arguments: [id, spaceID, spaceID]
             )
         }
     }

@@ -26,9 +26,13 @@ struct WorkspaceView: View {
     @State private var isDropTargeted = false
     @State private var isMobileNavigationPresented = false
     @State private var isSettingsPresented = false
+    @State private var spaceRenameDraft = ""
+    @State private var sourceRenameDraft = ""
     @State private var readingPositionCaptureTargetID = UUID()
 
-    var body: some View {
+    // Keep the composed view expressions bounded for the Xcode 26.6 compiler.
+    // These boundaries preserve modifier order and all state on WorkspaceView.
+    private var lifecycleWorkspace: some View {
         rootWorkspace
 #if DEBUG && os(iOS)
         .overlay(alignment: .bottomLeading) {
@@ -44,6 +48,17 @@ struct WorkspaceView: View {
             \.readingPositionCaptureTargetID,
             readingPositionCaptureTargetID
         )
+        .onChange(of: model.spacePendingRename) { _, space in
+            spaceRenameDraft = space?.title ?? ""
+        }
+        .onChange(of: model.sourcePendingRename) { _, source in
+            sourceRenameDraft = source?.displayName ?? ""
+        }
+        .modifier(WorkspaceLifecycleDialogs(
+            spaceRenameDraft: $spaceRenameDraft,
+            sourceRenameDraft: $sourceRenameDraft,
+            isActive: !isMobileNavigationPresented
+        ))
         .background {
             ReadingPositionCaptureWindowObserver {
                 model.activateReadingPositionCaptureTarget(
@@ -52,6 +67,10 @@ struct WorkspaceView: View {
             }
             .frame(width: 0, height: 0)
         }
+    }
+
+    private var commonPresentationWorkspace: some View {
+        lifecycleWorkspace
         .sheet(isPresented: $model.isImportSheetPresented, onDismiss: model.importSheetDidDismiss) {
             ImportSourceSheet()
                 .environmentObject(model)
@@ -98,6 +117,10 @@ struct WorkspaceView: View {
         } message: { source in
             Text(removalMessage(for: source))
         }
+    }
+
+    private var interactiveWorkspace: some View {
+        commonPresentationWorkspace
         .onOpenURL { model.handleOpenURL($0) }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
@@ -141,6 +164,10 @@ struct WorkspaceView: View {
             }
         }
         .tint(ReaderTheme.teal)
+    }
+
+    var body: some View {
+        interactiveWorkspace
 #if os(iOS)
         .fileImporter(
             isPresented: $model.isPlatformFileImporterPresented,
@@ -163,6 +190,11 @@ struct WorkspaceView: View {
                         }
                     }
             }
+            .modifier(WorkspaceLifecycleDialogs(
+                spaceRenameDraft: $spaceRenameDraft,
+                sourceRenameDraft: $sourceRenameDraft,
+                isActive: true
+            ))
             .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $isSettingsPresented) {
@@ -408,6 +440,50 @@ struct WorkspaceView: View {
 #else
         "从此设备移除"
 #endif
+    }
+}
+
+/// Present from the persistent workspace, or from its currently visible
+/// navigation sheet. The conditional Library sidebar cannot own these dialogs.
+private struct WorkspaceLifecycleDialogs: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+    @Binding var spaceRenameDraft: String
+    @Binding var sourceRenameDraft: String
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .alert("重命名空间", isPresented: Binding(
+                get: { isActive && model.spacePendingRename != nil },
+                set: { if !$0 && isActive { model.spacePendingRename = nil } }
+            ), presenting: model.spacePendingRename) { space in
+                TextField("空间名称", text: $spaceRenameDraft)
+                    .accessibilityIdentifier("space-rename-field")
+                Button("保存") { model.renameSpace(space.id, title: spaceRenameDraft) }
+                Button("取消", role: .cancel) { model.spacePendingRename = nil }
+            } message: { space in
+                Text("为“\(space.title)”输入新的空间名称。")
+            }
+            .alert("重命名来源", isPresented: Binding(
+                get: { isActive && model.sourcePendingRename != nil },
+                set: { if !$0 && isActive { model.sourcePendingRename = nil } }
+            ), presenting: model.sourcePendingRename) { source in
+                TextField("来源名称", text: $sourceRenameDraft)
+                    .accessibilityIdentifier("source-rename-field")
+                Button("保存") { model.renameSource(source.id, displayName: sourceRenameDraft) }
+                Button("取消", role: .cancel) { model.sourcePendingRename = nil }
+            } message: { source in
+                Text("为“\(source.displayName)”输入新的显示名称。")
+            }
+            .alert("删除阅读空间？", isPresented: Binding(
+                get: { isActive && model.spacePendingDeletion != nil },
+                set: { if !$0 && isActive { model.spacePendingDeletion = nil } }
+            ), presenting: model.spacePendingDeletion) { _ in
+                Button("删除空间", role: .destructive) { model.confirmSpaceDeletion() }
+                Button("取消", role: .cancel) { model.spacePendingDeletion = nil }
+            } message: { space in
+                Text("将删除“\(space.title)”及其仅属于该空间的来源；与其他空间共享的来源会继续保留。")
+            }
     }
 }
 

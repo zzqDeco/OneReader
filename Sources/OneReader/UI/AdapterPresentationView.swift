@@ -88,6 +88,7 @@ struct AdapterPresentationView: View {
     var onPDFZoomChange: ((Double) -> Void)? = nil
     var ocrRevision: OCRRevision? = nil
     var ocrTextSelectionEnabled = false
+    var highlights: [Annotation] = []
 
     var body: some View {
         Group {
@@ -106,7 +107,8 @@ struct AdapterPresentationView: View {
                         zoomRequest: pdfZoomRequest,
                         onZoomChange: onPDFZoomChange,
                         ocrRevision: ocrRevision,
-                        ocrTextSelectionEnabled: ocrTextSelectionEnabled
+                        ocrTextSelectionEnabled: ocrTextSelectionEnabled,
+                        highlights: highlights
                     )
 #else
                     ManagedPDFPresentation(
@@ -118,7 +120,8 @@ struct AdapterPresentationView: View {
                         onSelectionChange: onSelectionChange,
                         onPositionChange: onPositionChange,
                         ocrRevision: ocrRevision,
-                        ocrTextSelectionEnabled: ocrTextSelectionEnabled
+                        ocrTextSelectionEnabled: ocrTextSelectionEnabled,
+                        highlights: highlights
                     )
 #endif
                 } else {
@@ -140,7 +143,8 @@ struct AdapterPresentationView: View {
                     preferences: preferences,
                     colorScheme: resolvedColorScheme,
                     onSelectionChange: onSelectionChange,
-                    onPositionChange: onPositionChange
+                    onPositionChange: onPositionChange,
+                    highlights: highlights
                 )
             case .quickLook:
                 if let url = document.contentURL {
@@ -207,7 +211,8 @@ struct AdapterPresentationView: View {
             captureTargetID: captureTargetID,
             preferences: preferences,
             onSelectionChange: onSelectionChange,
-            onPositionChange: onPositionChange
+            onPositionChange: onPositionChange,
+            highlights: highlights
         )
 #if os(iOS)
         GeometryReader { geometry in
@@ -316,6 +321,7 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
     let preferences: ReaderPreferences
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var highlights: [Annotation] = []
 
     private var isCode: Bool { kind == .code }
 
@@ -413,6 +419,9 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
                     ]
                 )
             }
+            textView.baseRenderedString = NSAttributedString(attributedString: rendered)
+            textView.highlightsSignature = nil
+            textView.appliedHighlightRanges = []
             textView.textStorage?.setAttributedString(rendered)
             if kind != .markdown {
                 textView.font = font
@@ -423,7 +432,28 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
             textView.anchorSignature = nil
         }
         resizeMarkdownImages(in: textView)
+        applyHighlights(to: textView)
         applyAnchor(to: textView)
+    }
+
+    private func applyHighlights(to textView: ReaderTextView) {
+        let signature = InlineHighlightSupport.highlightsSignature(
+            for: highlights,
+            documentLocator: locator
+        )
+        guard textView.highlightsSignature != signature,
+              let storage = textView.textStorage else { return }
+        let base = textView.baseRenderedString ?? NSAttributedString(attributedString: storage)
+        textView.baseRenderedString = base
+        textView.highlightsSignature = signature
+        textView.appliedHighlightRanges = InlineHighlightSupport.applyNativeHighlights(
+            for: highlights,
+            documentLocator: locator,
+            isMarkdown: kind == .markdown,
+            baseAttributedString: base,
+            to: storage,
+            previousRanges: textView.appliedHighlightRanges
+        )
     }
 
     private func resizeMarkdownImages(
@@ -890,6 +920,9 @@ private struct NativeSelectableTextPresentation: NSViewRepresentable {
 private final class ReaderTextView: NSTextView {
     var renderSignature: String?
     var anchorSignature: String?
+    var baseRenderedString: NSAttributedString?
+    var highlightsSignature: String?
+    var appliedHighlightRanges: [NSRange] = []
     var isApplyingAnchor = false
     var pendingAnchor: ((ReaderTextView) -> Void)?
     private var anchorScheduled = false
@@ -953,6 +986,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
     let onPositionChange: (ReadingPositionUpdate) -> Void
     var ocrRevision: OCRRevision? = nil
     var ocrTextSelectionEnabled = false
+    var highlights: [Annotation] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -976,6 +1010,20 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
             view.document = PDFDocument(url: url)
             context.coordinator.loadedURL = url
             context.coordinator.appliedAnchorSignature = nil
+            context.coordinator.appliedHighlightsSignature = nil
+        }
+        let highlightsSignature = InlineHighlightSupport.highlightsSignature(
+            for: highlights,
+            documentLocator: documentLocator
+        )
+        if context.coordinator.appliedHighlightsSignature != highlightsSignature,
+           let document = view.document {
+            context.coordinator.appliedHighlightsSignature = highlightsSignature
+            InlineHighlightSupport.applyPDFHighlights(
+                highlights,
+                to: document,
+                documentLocator: documentLocator
+            )
         }
         let requestedScale = min(max(scale, 0.5), 3)
         if abs(view.scaleFactor - requestedScale) > 0.001 { view.scaleFactor = requestedScale }
@@ -1039,6 +1087,7 @@ private struct ManagedPDFPresentation: NSViewRepresentable {
         let ocrOverlay = OCRPDFOverlayProvider()
         var loadedURL: URL?
         var appliedAnchorSignature: String?
+        var appliedHighlightsSignature: String?
         var isApplyingAnchor = false
         lazy var positionObserver = PDFReadingPositionObserver(
             base: { [weak self] in self?.parent.documentLocator },
@@ -1108,6 +1157,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
     let colorScheme: ColorScheme
     let onSelectionChange: (ReaderSelection?) -> Void
     let onPositionChange: (ReadingPositionUpdate) -> Void
+    var highlights: [Annotation] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -1162,12 +1212,14 @@ struct ControlledWebPresentation: NSViewRepresentable {
         ].joined(separator: ":")
         let anchorID = Self.anchorSignature(document.locator)
         guard context.coordinator.loadedDocumentID != renderID else {
+            context.coordinator.applyHighlights(in: view)
             context.coordinator.applyAnchor(anchorID, in: view)
             return
         }
         context.coordinator.loadedDocumentID = renderID
         context.coordinator.pendingAnchorID = anchorID
         context.coordinator.appliedAnchorID = nil
+        context.coordinator.appliedHighlightsSignature = nil
         context.coordinator.resetCapturedPosition()
         let baseURL = URL(string: "onereader-content://\(document.locator.snapshotID)/")
         view.loadHTMLString(styledHTML, baseURL: baseURL)
@@ -1394,6 +1446,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
         var loadedDocumentID: String?
         var pendingAnchorID: String?
         var appliedAnchorID: String?
+        var appliedHighlightsSignature: String?
         private weak var observedWebView: WKWebView?
         private var lastPath: String?
         private var lastOutlinePath: String?
@@ -1526,6 +1579,23 @@ struct ControlledWebPresentation: NSViewRepresentable {
         }
 
         @MainActor
+        func applyHighlights(in webView: WKWebView) {
+            guard !webView.isLoading else { return }
+            let signature = InlineHighlightSupport.highlightsSignature(
+                for: parent.highlights,
+                documentLocator: parent.document.locator
+            )
+            guard appliedHighlightsSignature != signature else { return }
+            appliedHighlightsSignature = signature
+            webView.evaluateJavaScript(
+                InlineHighlightSupport.webHighlightJavaScript(
+                    for: parent.highlights,
+                    documentLocator: parent.document.locator
+                )
+            )
+        }
+
+        @MainActor
         func applyAnchor(_ anchorID: String, in webView: WKWebView) {
             guard appliedAnchorID != anchorID else { return }
             pendingAnchorID = anchorID
@@ -1539,6 +1609,7 @@ struct ControlledWebPresentation: NSViewRepresentable {
 
         @MainActor
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            applyHighlights(in: webView)
             let anchorID = pendingAnchorID
                 ?? ControlledWebPresentation.anchorSignature(parent.document.locator)
             applyAnchor(anchorID, in: webView)

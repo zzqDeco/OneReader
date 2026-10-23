@@ -1270,6 +1270,14 @@ final class AppModelLibraryTests: XCTestCase {
     }
 
     func testDismissingFirstRouteCandidateResumesAtNextSourceBeforeDownstreamTasks() async throws {
+        try await verifyRouteCandidateContinuation(goal: nil)
+    }
+
+    func testIntentGoalAndExplicitRoutingSurviveCandidateDismissal() async throws {
+        try await verifyRouteCandidateContinuation(goal: "compare all sources")
+    }
+
+    private func verifyRouteCandidateContinuation(goal: String?) async throws {
         let root = temporaryRoot("RouteCheckpoint")
         defer { try? FileManager.default.removeItem(at: root) }
         let inputs = root.appendingPathComponent("Inputs", isDirectory: true)
@@ -1335,10 +1343,16 @@ final class AppModelLibraryTests: XCTestCase {
             model.presentationDocument != nil && model.activeProvider != nil
         }
 
-        model.launchAgentPipeline()
+        if let goal {
+            model.customReadingGoalText = goal
+            model.launchIntentAgentPipeline(skipHighConfidenceRouting: false)
+        } else {
+            model.launchAgentPipeline()
+        }
         try await waitUntil(timeout: .seconds(5)) {
             model.waitingAgentAttentionKind == .adapterCandidate
         }
+        model.customReadingGoalText = "a different UI draft"
         model.dismissWaitingAgentRun()
         try await waitUntil(timeout: .seconds(5)) {
             model.agentRuns.contains {
@@ -1352,6 +1366,11 @@ final class AppModelLibraryTests: XCTestCase {
         XCTAssertEqual(records[1], .init(task: .routeAdapters, targetSourceID: remainingSourceID))
         XCTAssertEqual(records[2], .init(task: .scoutSpace, targetSourceID: nil))
         XCTAssertEqual(records[3], .init(task: .materializeGraph, targetSourceID: nil))
+        for run in try database.fetchAgentRuns(spaceID: first.space.id) {
+            let request = try XCTUnwrap(database.request(forRunID: run.id))
+            XCTAssertEqual(request.goal, goal.map { "custom:\($0)" })
+            XCTAssertEqual(request.skipHighConfidenceRouting, goal == nil ? nil : false)
+        }
         let remainingSnapshotID = try XCTUnwrap(
             [first.source.id: first.snapshot.id, second.source.id: second.snapshot.id][remainingSourceID]
         )
@@ -1559,7 +1578,9 @@ final class AppModelLibraryTests: XCTestCase {
             let interruptedRunID = try createInterruptedRun(
                 fixture: fixture,
                 task: interruptedTask,
-                pipeline: .readingStructure
+                pipeline: .readingStructure,
+                goal: "custom:resume the original goal",
+                skipHighConfidenceRouting: false
             )
             let locator = try XCTUnwrap(fixture.answer.citations.first?.locator)
             let patch = GraphPatch(
@@ -1609,6 +1630,11 @@ final class AppModelLibraryTests: XCTestCase {
                 XCTAssertEqual(records, [.materializeGraph, .projectRoute])
             case .routeAdapters, .projectRoute, .answerWithEvidence, .translateFragments:
                 XCTFail("Unexpected fixture task")
+            }
+            for run in try fixture.database.fetchAgentRuns(spaceID: fixture.imported.space.id) {
+                let request = try XCTUnwrap(fixture.database.request(forRunID: run.id))
+                XCTAssertEqual(request.goal, "custom:resume the original goal")
+                XCTAssertEqual(request.skipHighConfidenceRouting, false)
             }
         }
     }
@@ -1882,7 +1908,9 @@ final class AppModelLibraryTests: XCTestCase {
         fixture: AppAnswerFixture,
         task: AgentTaskKind,
         pipeline: AgentPipelineKind?,
-        question: String? = nil
+        question: String? = nil,
+        goal: String? = nil,
+        skipHighConfidenceRouting: Bool? = nil
     ) throws -> String {
         let manifest = try fixture.database.currentSnapshotManifest(
             spaceID: fixture.imported.space.id
@@ -1891,6 +1919,8 @@ final class AppModelLibraryTests: XCTestCase {
             spaceID: fixture.imported.space.id,
             task: task,
             pipeline: pipeline,
+            goal: goal,
+            skipHighConfidenceRouting: skipHighConfidenceRouting,
             question: question,
             expectedSnapshotIDs: Set(manifest.values),
             snapshotManifest: manifest

@@ -60,6 +60,21 @@ resume persistence, prompt projection, and final validation; an adapter result
 for another current Source in the same Space is still rejected.
 
 Host-created structure runs also persist optional pipeline provenance.
+When launched from the Route sidebar's intent selector, the host can skip
+redundant `routeAdapters` runs for Sources whose deterministic `AdapterPlan`
+already has at least 0.85 confidence and pass the selected `ReadingGoal`
+(`quickOverview`, `systematic`, or `review`) directly to `projectRoute`.
+The request persists that goal (including custom text) and the optional
+`skipHighConfidenceRouting` policy. Disclosure confirmation, interrupted-run
+resume, and adapter-candidate confirm/dismiss continue with the saved intent,
+not the current sidebar draft or a new systematic default. The optional policy
+keeps legacy requests decodable without changing the database schema.
+Completed `answerWithEvidence` runs in a Space are reconstructed into a
+browsable Q&A history in the Inspector, and any verified answer can be saved as
+a grounded `Annotation` bound to its citation Locator and quote. Opening an old
+answer's citation pins its original Snapshot. Saving it retains that identity
+and verifies the quote against the latest revision before marking it relocated;
+an absent/unverified quote is orphaned, never silently current.
 Recovery uses the persisted task plus that provenance as a checkpoint:
 `routeAdapters` continues with the next Source, `scoutSpace` continues with
 graph materialization, and `materializeGraph` continues with route projection.

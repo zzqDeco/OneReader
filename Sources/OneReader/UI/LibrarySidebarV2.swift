@@ -62,8 +62,15 @@ struct LibrarySidebarView: View {
                                 Button(space.isFavorite ? "取消收藏" : "收藏") {
                                     model.toggleSpaceFavorite(space.id)
                                 }
+                                Button("重命名空间…") {
+                                    model.requestSpaceRename(space)
+                                }
                                 Divider()
                                 SpaceOrganizationMenu(spaceIDs: [space.id])
+                                Divider()
+                                Button("删除空间…", role: .destructive) {
+                                    model.requestSpaceDeletion(space)
+                                }
                             }
                         }
                     }
