@@ -30,7 +30,9 @@ struct WorkspaceView: View {
     @State private var sourceRenameDraft = ""
     @State private var readingPositionCaptureTargetID = UUID()
 
-    var body: some View {
+    // Keep the composed view expressions bounded for the Xcode 26.6 compiler.
+    // These boundaries preserve modifier order and all state on WorkspaceView.
+    private var lifecycleWorkspace: some View {
         rootWorkspace
 #if DEBUG && os(iOS)
         .overlay(alignment: .bottomLeading) {
@@ -65,6 +67,10 @@ struct WorkspaceView: View {
             }
             .frame(width: 0, height: 0)
         }
+    }
+
+    private var commonPresentationWorkspace: some View {
+        lifecycleWorkspace
         .sheet(isPresented: $model.isImportSheetPresented, onDismiss: model.importSheetDidDismiss) {
             ImportSourceSheet()
                 .environmentObject(model)
@@ -111,6 +117,10 @@ struct WorkspaceView: View {
         } message: { source in
             Text(removalMessage(for: source))
         }
+    }
+
+    private var interactiveWorkspace: some View {
+        commonPresentationWorkspace
         .onOpenURL { model.handleOpenURL($0) }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
@@ -154,6 +164,10 @@ struct WorkspaceView: View {
             }
         }
         .tint(ReaderTheme.teal)
+    }
+
+    var body: some View {
+        interactiveWorkspace
 #if os(iOS)
         .fileImporter(
             isPresented: $model.isPlatformFileImporterPresented,

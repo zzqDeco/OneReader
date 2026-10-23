@@ -17,8 +17,10 @@ The merge candidate is being revised after independent review of `88581b6`.
 workspace alerts, PDF duplicate quotations, actual WKWebView cross-node marks,
 historical Q&A navigation/note classification, remote disclosure, interrupted
 scout/materialize and candidate-dismissal continuation. Documentation, dependency
-lock, Apple metadata and generated Xcode project checks also pass. Compact iPhone UI
-regression, release build, exact-head CI and independent re-review are pending;
+lock, Apple metadata and generated Xcode project checks also pass. The compact iPhone
+lifecycle UI regression passes on physical iPhone hardware with exact name checks,
+and Sol max cleared the repair and workspace-expression split. Release packaging
+and exact-head CI must be repeated after the final commit;
 the original acceptance below is baseline evidence, not a claim about this repair.
 
 The second review found two repair side effects, now covered by the repeated
@@ -26,7 +28,17 @@ The second review found two repair side effects, now covered by the repeated
 and active FTS projection, and a relocated PDF annotation may use its original
 rectangle when previewing that identical immutable Snapshot (never a newer one).
 Physical UI testing also checks actual rename/save and cancel-deletion actions;
-XCTest must use the alert's current frame after the keyboard moves it.
+XCTest refocuses the field after text injection and waits for the software keyboard
+before locating Save, so keyboard-driven alert movement precedes the action tap.
+Rename text is cleared from its end and checked exactly, including the source extension;
+a substring match alone is not sufficient acceptance evidence.
+
+Hosted Xcode 26.6 exposed a type-checking timeout in the expanded workspace modifier
+chain. Split lifecycle, common presentation, interaction, and platform presentation
+expressions without changing their order, dialog ownership, or state lifetime;
+repeat the native workspace/phone regressions and exact-head CI after this repair.
+The split passes all 402 local tests and the physical iPhone lifecycle regression;
+test screenshots confirm exact Source/Space names and cancellation preserves the Space.
 
 ## Goal
 

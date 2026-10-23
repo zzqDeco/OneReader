@@ -18,7 +18,7 @@ architecture document.
 | Native bounded iPhone/iPad sharing | [Share Extension](Apps/OneReaderShareExtension/ShareViewController.swift.md) |
 | Shared executable entry | [OneReader app main](Apps/OneReaderApp/OneReaderAppMain.swift.md) |
 | Generated Apple application targets | [XcodeGen project](project.yml.md) |
-| Native workspace, lifecycle dialogs and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
+| Native workspace composition, lifecycle dialogs and responsive Inspector | [Workspace view](Sources/OneReader/UI/WorkspaceViewV2.swift.md) |
 | Native selectable Markdown | [Markdown renderer](Sources/OneReader/UI/NativeMarkdownRenderer.swift.md) |
 | Reader persistence | [Reader persistence](Sources/OneReader/Persistence/ReaderPersistence.swift.md) |
 | Global annotation queries, tags, routes and Markdown export | [Notes center](Sources/OneReader/Persistence/NotesPersistence.swift.md) |

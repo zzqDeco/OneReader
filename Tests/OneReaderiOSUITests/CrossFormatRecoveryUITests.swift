@@ -19,10 +19,19 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         let originalTitle = try XCTUnwrap(spaceField.value as? String)
         XCTAssertFalse(originalTitle.isEmpty)
         spaceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        // These short fixture names fit in the field. Tap beyond the last
+        // glyph so backspace removes the whole value, not just its prefix.
+        spaceField.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
         spaceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalTitle.count) + "Renamed evidence space")
+        XCTAssertEqual(spaceField.value as? String, "Renamed evidence space")
+        // XCTest hides the software keyboard during typeText on hardware, then
+        // restores it at the next touch. Refocus before locating Save so that
+        // keyboard-driven alert movement happens before the action's tap.
+        spaceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(spaceAlert.buttons["保存"].wait(for: \.isHittable, toEqual: true, timeout: 10))
         attach(app, name: "Lifecycle-space-rename-before-save")
-        // XCTest's cached hit point can retain the pre-keyboard position of a
-        // UIKit alert. Its current element frame reflects the visible button.
         spaceAlert.buttons["保存"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(spaceAlert.waitForNonExistence(timeout: 10))
         let renamedCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "space-card-", "Renamed evidence space")).firstMatch
@@ -44,10 +53,18 @@ final class CrossFormatRecoveryUITests: XCTestCase {
         let originalName = try XCTUnwrap(sourceField.value as? String)
         XCTAssertEqual(originalName, "Recovery Markdown.md")
         sourceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        sourceField.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
         sourceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalName.count) + "Renamed evidence source.md")
+        XCTAssertEqual(sourceField.value as? String, "Renamed evidence source.md")
+        sourceField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(sourceAlert.buttons["保存"].wait(for: \.isHittable, toEqual: true, timeout: 10))
         sourceAlert.buttons["保存"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(sourceAlert.waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Renamed evidence source.md")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Renamed evidence source.md"].firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Renamed evidence source.md.md"].exists)
         attach(app, name: "Lifecycle-source-renamed-inside-navigation-sheet")
         app.buttons["完成"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["完成"].waitForNonExistence(timeout: 10))
